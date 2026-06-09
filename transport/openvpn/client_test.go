@@ -1,6 +1,7 @@
 package openvpn
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -91,6 +92,48 @@ func (timeoutError) Error() string   { return "timeout" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
+func TestClientInstallDataChannelRekeysWithoutReplacingDataChannel(t *testing.T) {
+	client := &Client{
+		config: &ClientConfig{
+			Cipher: CipherAES128GCM,
+			Auth:   AuthSHA256,
+		},
+		activity: newRemoteActivity(),
+	}
+	keys1 := &KeyMaterial{
+		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
+		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
+		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
+		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
+	}
+	keys2 := &KeyMaterial{
+		SendCipherKey: bytes.Repeat([]byte{0x55}, 16),
+		SendHMACKey:   bytes.Repeat([]byte{0x66}, maxHMACKeyLength),
+		RecvCipherKey: bytes.Repeat([]byte{0x77}, 16),
+		RecvHMACKey:   bytes.Repeat([]byte{0x88}, maxHMACKeyLength),
+	}
+	if err := client.installDataChannel(keys1, &PushReply{PeerID: 7}, false); err != nil {
+		t.Fatal(err)
+	}
+	initial := client.data
+	if initial == nil {
+		t.Fatal("expected initial data channel")
+	}
+	if err := client.installDataChannel(keys2, &PushReply{PeerID: 7}, true); err != nil {
+		t.Fatal(err)
+	}
+	if client.data != initial {
+		t.Fatal("expected in-place rekey to keep the data channel object")
+	}
+	encrypted, err := client.data.Encrypt([]byte{0x45, 0, 0, 20, 1, 2, 3, 4, 64, 6, 0, 0, 10, 8, 0, 2, 1, 1, 1, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, keyID := parseOpcodeKeyID(encrypted[0]); keyID != 1 {
+		t.Fatalf("expected encrypted packets to use rekeyed key id 1, got %d", keyID)
+	}
+}
+
 func TestRunControlLoopSendsPing(t *testing.T) {
 	stream := newFakeControlStream()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -133,13 +176,71 @@ func TestRunControlLoopRestartsOnPingTimeout(t *testing.T) {
 	}
 }
 
-func TestRunControlLoopRestartsOnServerRestartMessage(t *testing.T) {
+func TestRunControlLoopRekeysOnRenegSec(t *testing.T) {
+	stream := newFakeControlStream()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	rekeys := 0
+	err := runControlLoopWithHooks(ctx, stream, &PushReply{RenegotiateAfter: time.Millisecond}, "test", newRemoteActivity(), controlLoopHooks{
+		rekey: func(context.Context, string) (*PushReply, controlStream, error) {
+			rekeys++
+			cancel()
+			return &PushReply{RenegotiateAfter: time.Hour}, stream, nil
+		},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation after successful rekey, got %v", err)
+	}
+	if rekeys != 1 {
+		t.Fatalf("expected one in-place rekey, got %d", rekeys)
+	}
+}
+
+func TestRunControlLoopFallsBackWhenRekeyFails(t *testing.T) {
+	stream := newFakeControlStream()
+	err := runControlLoopWithHooks(context.Background(), stream, &PushReply{RenegotiateAfter: time.Millisecond}, "test", newRemoteActivity(), controlLoopHooks{
+		rekey: func(context.Context, string) (*PushReply, controlStream, error) {
+			return nil, nil, errors.New("boom")
+		},
+	})
+	if !errors.Is(err, ErrControlRestart) {
+		t.Fatalf("expected reconnect fallback, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "rekey failed") {
+		t.Fatalf("expected rekey failure reason, got %v", err)
+	}
+}
+
+func TestRunControlLoopRekeysOnServerSoftRestartMessage(t *testing.T) {
 	stream := newFakeControlStream()
 	stream.readCh <- []byte("RESTART,soft\x00")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	rekeys := 0
+	err := runControlLoopWithHooks(ctx, stream, &PushReply{}, "test", newRemoteActivity(), controlLoopHooks{
+		rekey: func(context.Context, string) (*PushReply, controlStream, error) {
+			rekeys++
+			cancel()
+			return &PushReply{RenegotiateAfter: time.Hour}, stream, nil
+		},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation after successful soft restart rekey, got %v", err)
+	}
+	if rekeys != 1 {
+		t.Fatalf("expected one in-place rekey, got %d", rekeys)
+	}
+}
+
+func TestRunControlLoopRestartsOnServerHardRestartMessage(t *testing.T) {
+	stream := newFakeControlStream()
+	stream.readCh <- []byte("HALT,server-exit\x00")
 
 	err := runControlLoop(context.Background(), stream, &PushReply{}, "test", newRemoteActivity())
 	if !errors.Is(err, ErrControlRestart) {
-		t.Fatalf("expected restart on server RESTART, got %v", err)
+		t.Fatalf("expected restart on server HALT, got %v", err)
 	}
 }
 
