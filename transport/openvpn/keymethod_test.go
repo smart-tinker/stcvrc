@@ -8,7 +8,7 @@ import (
 
 func TestKeyMethod2ClientMarshalAndDerive(t *testing.T) {
 	record := &KeyMethod2Record{
-		Options:  InstallScriptOptionsString(ProtoUDP, CipherAES128GCM, AuthSHA256, ""),
+		Options:  InstallScriptOptionsString(ProtoUDP, CipherAES128GCM, AuthSHA256, "", false, 0),
 		PeerInfo: InstallScriptPeerInfo(CipherAES128GCM, ""),
 	}
 	for i := range record.Sources.Client.PreMaster {
@@ -52,7 +52,7 @@ func TestKeyMethod2ClientMarshalAndDerive(t *testing.T) {
 
 func TestKeyMethod2DeriveAES256(t *testing.T) {
 	record := &KeyMethod2Record{
-		Options:  InstallScriptOptionsString(ProtoUDP, CipherAES256GCM, AuthSHA256, ""),
+		Options:  InstallScriptOptionsString(ProtoUDP, CipherAES256GCM, AuthSHA256, "", false, 0),
 		PeerInfo: InstallScriptPeerInfo(CipherAES256GCM, ""),
 	}
 	for i := range record.Sources.Client.PreMaster {
@@ -83,11 +83,33 @@ func TestKeyMethod2DeriveAES256(t *testing.T) {
 }
 
 func TestInstallScriptOptionsCBCSHA1(t *testing.T) {
-	options := InstallScriptOptionsString(ProtoTCP, CipherAES256CBC, AuthSHA1, "")
+	options := InstallScriptOptionsString(ProtoTCP, CipherAES256CBC, AuthSHA1, "", false, 0)
 	for _, want := range []string{"proto TCPv4_CLIENT", "cipher AES-256-CBC", "auth SHA1", "keysize 256"} {
 		if !bytes.Contains([]byte(options), []byte(want)) {
 			t.Fatalf("options missing %q: %s", want, options)
 		}
+	}
+}
+
+func TestInstallScriptOptionsTLSAuth(t *testing.T) {
+	options := InstallScriptOptionsString(ProtoUDP, CipherAES256CBC, AuthSHA256, "", true, 1)
+	for _, want := range []string{"proto UDPv4", "keydir 1", "tls-auth", "cipher AES-256-CBC", "auth SHA256"} {
+		if !bytes.Contains([]byte(options), []byte(want)) {
+			t.Fatalf("options missing %q: %s", want, options)
+		}
+	}
+}
+
+func TestOptionValue(t *testing.T) {
+	options := "V4,dev-type tun,link-mtu 1550,cipher AES-256-GCM,auth SHA256,keysize 256,tls-server"
+	if got := optionValue(options, "cipher"); got != "AES-256-GCM" {
+		t.Fatalf("unexpected cipher option: %q", got)
+	}
+	if got := optionValue(options, "auth"); got != "SHA256" {
+		t.Fatalf("unexpected auth option: %q", got)
+	}
+	if got := optionValue(options, "missing"); got != "" {
+		t.Fatalf("unexpected missing option: %q", got)
 	}
 }
 

@@ -22,7 +22,7 @@ type PacketIO interface {
 
 type ControlChannel struct {
 	io     PacketIO
-	crypt  *TLSCrypt
+	crypt  ControlProtection
 	clock  func() time.Time
 	keyID  uint8
 	local  SessionID
@@ -39,7 +39,7 @@ type ControlChannel struct {
 	writeDeadline time.Time
 }
 
-func NewControlChannel(io PacketIO, crypt *TLSCrypt, local SessionID) *ControlChannel {
+func NewControlChannel(io PacketIO, crypt ControlProtection, local SessionID) *ControlChannel {
 	return &ControlChannel{
 		io:          io,
 		crypt:       crypt,
@@ -68,6 +68,19 @@ func (c *ControlChannel) SetRemoteSessionID(id SessionID) {
 
 func (c *ControlChannel) SendReset(ctx context.Context) error {
 	_, err := c.Send(ctx, PControlHardResetClientV2, nil)
+	return err
+}
+
+func (c *ControlChannel) SendSoftReset(ctx context.Context) error {
+	c.mu.Lock()
+	c.keyID = (c.keyID + 1) & KeyIDMask
+	c.sendMessage = 0
+	c.recvMessage = 0
+	c.ackPending = nil
+	c.pending = make(map[uint32]*ControlPacket)
+	c.recvPending = make(map[uint32]*ControlPacket)
+	c.mu.Unlock()
+	_, err := c.Send(ctx, PControlSoftResetV1, nil)
 	return err
 }
 
@@ -138,6 +151,11 @@ func (c *ControlChannel) Read(ctx context.Context) (*ControlPacket, error) {
 		c.mu.Lock()
 		if c.remote == (SessionID{}) && packet.LocalSession != c.local {
 			c.remote = packet.LocalSession
+		}
+		if packet.Opcode == PControlSoftResetV1 {
+			c.recvMessage = 0
+			c.recvPending = make(map[uint32]*ControlPacket)
+			c.ackPending = nil
 		}
 		for _, ackID := range packet.AckIDs {
 			delete(c.pending, ackID)
@@ -227,6 +245,9 @@ func (c *ControlChannel) readControlPacket(ctx context.Context) (*ControlPacket,
 	deadline := c.readDeadline
 	c.mu.Unlock()
 
+	if ctxDeadline, ok := ctx.Deadline(); ok && (deadline.IsZero() || ctxDeadline.Before(deadline)) {
+		deadline = ctxDeadline
+	}
 	if !deadline.IsZero() {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadline(ctx, deadline)
@@ -256,6 +277,12 @@ func (c *ControlChannel) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+func (c *ControlChannel) ReadDeadline() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.readDeadline
+}
+
 func (c *ControlChannel) SetWriteDeadline(t time.Time) error {
 	c.mu.Lock()
 	c.writeDeadline = t
@@ -273,14 +300,21 @@ func appendAck(acks []uint32, ack uint32) []uint32 {
 }
 
 type ControlConn struct {
-	channel *ControlChannel
-	readBuf []byte
-	closed  bool
-	mu      sync.Mutex
+	channel         *ControlChannel
+	acceptSoftReset bool
+	readBuf         []byte
+	closed          bool
+	mu              sync.Mutex
 }
+
+const maxControlPayloadSize = 1200
 
 func NewControlConn(channel *ControlChannel) *ControlConn {
 	return &ControlConn{channel: channel}
+}
+
+func NewSoftResetControlConn(channel *ControlChannel) *ControlConn {
+	return &ControlConn{channel: channel, acceptSoftReset: true}
 }
 
 func (c *ControlConn) Read(b []byte) (int, error) {
@@ -298,9 +332,45 @@ func (c *ControlConn) Read(b []byte) (int, error) {
 	c.mu.Unlock()
 
 	for {
-		packet, err := c.channel.Read(context.Background())
+		readCtx := context.Background()
+		cancel := func() {}
+		readDeadline := c.channel.ReadDeadline()
+		if !readDeadline.IsZero() {
+			now := time.Now()
+			if !readDeadline.After(now) {
+				return 0, context.DeadlineExceeded
+			}
+			nextDeadline := now.Add(ControlRetransmitDelay)
+			if readDeadline.Before(nextDeadline) {
+				nextDeadline = readDeadline
+			}
+			readCtx, cancel = context.WithDeadline(context.Background(), nextDeadline)
+		}
+		packet, err := c.channel.Read(readCtx)
+		cancel()
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && !readDeadline.IsZero() && readDeadline.After(time.Now()) {
+				if retransmitErr := c.channel.RetransmitPending(context.Background()); retransmitErr != nil {
+					return 0, retransmitErr
+				}
+				continue
+			}
 			return 0, err
+		}
+		switch packet.Opcode {
+		case PControlSoftResetV1:
+			if err := c.channel.SendAck(context.Background()); err != nil {
+				return 0, err
+			}
+			if c.acceptSoftReset {
+				continue
+			}
+			return 0, fmt.Errorf("%w: %w: received %s", ErrControlRestart, ErrControlSoftReset, packet.Opcode)
+		case PControlHardResetServerV1, PControlHardResetServerV2:
+			if err := c.channel.SendAck(context.Background()); err != nil {
+				return 0, err
+			}
+			return 0, fmt.Errorf("%w: received %s", ErrControlRestart, packet.Opcode)
 		}
 		if packet.Opcode != PControlV1 {
 			if err := c.channel.SendAck(context.Background()); err != nil {
@@ -332,8 +402,19 @@ func (c *ControlConn) Write(b []byte) (int, error) {
 	}
 	c.mu.Unlock()
 
-	if _, err := c.channel.Send(context.Background(), PControlV1, b); err != nil {
-		return 0, err
+	if len(b) == 0 {
+		return 0, nil
+	}
+	written := 0
+	for written < len(b) {
+		end := written + maxControlPayloadSize
+		if end > len(b) {
+			end = len(b)
+		}
+		if _, err := c.channel.Send(context.Background(), PControlV1, b[written:end]); err != nil {
+			return written, err
+		}
+		written = end
 	}
 	return len(b), nil
 }

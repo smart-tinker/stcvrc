@@ -2,6 +2,7 @@ package outbound
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -38,28 +39,55 @@ type OpenVPN struct {
 	runCancel context.CancelFunc
 	runLock   *semaphore.Weighted
 	running   bool
+
+	dataDialMu             sync.Mutex
+	dataDialTimeouts       int
+	dataDialFirstTimeout   time.Time
+	dataDialLastReconnect  time.Time
+	dataDialTargets        map[string]struct{}
+	dataDialTargetFailures map[string]openVPNDataDialTargetFailure
 }
+
+type openVPNDataDialTargetFailure struct {
+	count      int
+	first      time.Time
+	last       time.Time
+	noisyUntil time.Time
+}
+
+const (
+	openVPNDataDialTimeoutWindow          = 30 * time.Second
+	openVPNDataDialTimeoutThreshold       = 2
+	openVPNDataDialReconnectCooldown      = 30 * time.Second
+	openVPNDataDialNoisyTargetWindow      = 2 * time.Minute
+	openVPNDataDialNoisyTargetThreshold   = 3
+	openVPNDataDialNoisyTargetSuppressFor = 10 * time.Minute
+	openVPNDataDialTargetFailureTTL       = 30 * time.Minute
+)
 
 type OpenVPNOption struct {
 	BasicOption
-	Name        string `proxy:"name"`
-	Server      string `proxy:"server"`
-	Port        int    `proxy:"port"`
-	Proto       string `proxy:"proto,omitempty"`
-	Dev         string `proxy:"dev,omitempty"`
-	Cipher      string `proxy:"cipher,omitempty"`
-	Auth        string `proxy:"auth,omitempty"`
-	CompLZO     string `proxy:"comp-lzo,omitempty"`
-	CA          string `proxy:"ca"`
-	Cert        string `proxy:"cert,omitempty"`
-	Key         string `proxy:"key,omitempty"`
-	TLSCrypt    string `proxy:"tls-crypt,omitempty"`
-	Username    string `proxy:"username,omitempty"`
-	Password    string `proxy:"password,omitempty"`
-	Ping        int    `proxy:"ping,omitempty"`
-	PingRestart int    `proxy:"ping-restart,omitempty"`
-	MTU         int    `proxy:"mtu,omitempty"`
-	UDP         bool   `proxy:"udp,omitempty"`
+	Name          string `proxy:"name"`
+	Server        string `proxy:"server"`
+	Port          int    `proxy:"port"`
+	Proto         string `proxy:"proto,omitempty"`
+	Dev           string `proxy:"dev,omitempty"`
+	Cipher        string `proxy:"cipher,omitempty"`
+	Auth          string `proxy:"auth,omitempty"`
+	TLSMinVersion string `proxy:"tls-version-min,omitempty"`
+	CompLZO       string `proxy:"comp-lzo,omitempty"`
+	CA            string `proxy:"ca"`
+	Cert          string `proxy:"cert,omitempty"`
+	Key           string `proxy:"key,omitempty"`
+	TLSCrypt      string `proxy:"tls-crypt,omitempty"`
+	TLSAuth       string `proxy:"tls-auth,omitempty"`
+	KeyDirection  int    `proxy:"key-direction,omitempty"`
+	Username      string `proxy:"username,omitempty"`
+	Password      string `proxy:"password,omitempty"`
+	Ping          int    `proxy:"ping,omitempty"`
+	PingRestart   int    `proxy:"ping-restart,omitempty"`
+	MTU           int    `proxy:"mtu,omitempty"`
+	UDP           bool   `proxy:"udp,omitempty"`
 
 	RemoteDnsResolve bool     `proxy:"remote-dns-resolve,omitempty"`
 	Dns              []string `proxy:"dns,omitempty"`
@@ -67,21 +95,24 @@ type OpenVPNOption struct {
 
 func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 	cfg := &ovpn.ClientConfig{
-		RemoteHost:   option.Server,
-		RemotePort:   uint16(option.Port),
-		Proto:        option.Proto,
-		Dev:          option.Dev,
-		Cipher:       option.Cipher,
-		Auth:         option.Auth,
-		CompLZO:      option.CompLZO,
-		CA:           []byte(option.CA),
-		Cert:         []byte(option.Cert),
-		Key:          []byte(option.Key),
-		TLSCrypt:     []byte(option.TLSCrypt),
-		Username:     option.Username,
-		Password:     option.Password,
-		PingInterval: time.Duration(option.Ping) * time.Second,
-		PingRestart:  time.Duration(option.PingRestart) * time.Second,
+		RemoteHost:       option.Server,
+		RemotePort:       uint16(option.Port),
+		Proto:            option.Proto,
+		Dev:              option.Dev,
+		Cipher:           option.Cipher,
+		Auth:             option.Auth,
+		TLSMinVersion:    option.TLSMinVersion,
+		CompLZO:          option.CompLZO,
+		CA:               []byte(option.CA),
+		Cert:             []byte(option.Cert),
+		Key:              []byte(option.Key),
+		TLSCrypt:         []byte(option.TLSCrypt),
+		TLSAuth:          []byte(option.TLSAuth),
+		TLSAuthDirection: option.KeyDirection,
+		Username:         option.Username,
+		Password:         option.Password,
+		PingInterval:     time.Duration(option.Ping) * time.Second,
+		PingRestart:      time.Duration(option.PingRestart) * time.Second,
 	}
 	if err := cfg.Prepare(); err != nil {
 		return nil, err
@@ -134,11 +165,13 @@ func (o *OpenVPN) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Co
 		conn, err = tunDevice.DialContext(ctx, "tcp", M.SocksaddrFrom(metadata.DstIP, metadata.DstPort).Unwrap())
 	}
 	if err != nil {
+		o.handleDataDialError(metadata, err)
 		return nil, err
 	}
 	if conn == nil {
 		return nil, E.New("conn is nil")
 	}
+	o.observeDataDialSuccess(metadata.RemoteAddress())
 	return NewConn(conn, o), nil
 }
 
@@ -153,11 +186,13 @@ func (o *OpenVPN) ListenPacketContext(ctx context.Context, metadata *C.Metadata)
 	}
 	pc, err = tunDevice.ListenPacket(ctx, M.SocksaddrFrom(metadata.DstIP, metadata.DstPort).Unwrap())
 	if err != nil {
+		o.handleDataDialError(metadata, err)
 		return nil, err
 	}
 	if pc == nil {
 		return nil, errors.New("packetConn is nil")
 	}
+	o.observeDataDialSuccess(metadata.RemoteAddress())
 	return newPacketConn(pc, o), nil
 }
 
@@ -189,6 +224,16 @@ func (o *OpenVPN) ProxyInfo() C.ProxyInfo {
 	return info
 }
 
+func (o *OpenVPN) MarshalJSON() ([]byte, error) {
+	// Clash Verge Rev 2.5.x does not render unknown proxy types on the proxy
+	// page. Keep the internal adapter type as OpenVPN, but expose a known L3
+	// proxy type through the REST API so the UI can render selector candidates.
+	return json.Marshal(map[string]string{
+		"type": C.WireGuard.String(),
+		"id":   o.Id(),
+	})
+}
+
 func (o *OpenVPN) IsL3Protocol(metadata *C.Metadata) bool {
 	return true
 }
@@ -198,19 +243,9 @@ func (o *OpenVPN) Close() error {
 		o.runCancel()
 	}
 	_ = o.runLock.Acquire(context.Background(), 1)
-	client := o.client
-	tunDevice := o.tunDevice
-	o.client = nil
-	o.tunDevice = nil
-	o.running = false
+	o.closeRunningLocked()
 	o.runLock.Release(1)
 
-	if client != nil {
-		_ = client.Close()
-	}
-	if tunDevice != nil {
-		return tunDevice.Close()
-	}
 	return nil
 }
 
@@ -285,6 +320,154 @@ func (o *OpenVPN) run(ctx context.Context) (wireguard.Device, resolver.Resolver,
 	return o.tunDevice, o.resolver, nil
 }
 
+func (o *OpenVPN) closeRunningLocked() {
+	client := o.client
+	tunDevice := o.tunDevice
+	o.client = nil
+	o.tunDevice = nil
+	o.running = false
+	if client != nil {
+		_ = client.Close()
+	}
+	if tunDevice != nil {
+		_ = tunDevice.Close()
+	}
+}
+
+func (o *OpenVPN) handleDataDialError(metadata *C.Metadata, err error) {
+	if !isOpenVPNDataDialTimeout(err) {
+		return
+	}
+	target := ""
+	if metadata != nil {
+		target = metadata.RemoteAddress()
+	}
+	if !o.observeDataDialTimeout(time.Now(), target) {
+		return
+	}
+
+	log.Warnln("[OpenVPN](%s) data-plane dial timeout threshold reached, reconnecting OpenVPN session; last target=%s error=%v", o.name, target, err)
+	if lockErr := o.runLock.Acquire(context.Background(), 1); lockErr != nil {
+		log.Warnln("[OpenVPN](%s) failed to acquire run lock for data-plane timeout reconnect: %v", o.name, lockErr)
+		return
+	}
+	defer o.runLock.Release(1)
+	if o.running {
+		o.closeRunningLocked()
+	}
+}
+
+func (o *OpenVPN) observeDataDialTimeout(now time.Time, target string) bool {
+	o.dataDialMu.Lock()
+	defer o.dataDialMu.Unlock()
+
+	if o.recordDataDialTargetTimeoutLocked(now, target) {
+		return false
+	}
+
+	if o.dataDialFirstTimeout.IsZero() || now.Sub(o.dataDialFirstTimeout) > openVPNDataDialTimeoutWindow {
+		o.dataDialFirstTimeout = now
+		o.dataDialTimeouts = 1
+		o.dataDialTargets = map[string]struct{}{target: {}}
+		return false
+	}
+
+	o.dataDialTimeouts++
+	if o.dataDialTargets == nil {
+		o.dataDialTargets = map[string]struct{}{}
+	}
+	o.dataDialTargets[target] = struct{}{}
+	if o.dataDialTimeouts < openVPNDataDialTimeoutThreshold {
+		return false
+	}
+	if len(o.dataDialTargets) < openVPNDataDialTimeoutThreshold {
+		return false
+	}
+	if !o.dataDialLastReconnect.IsZero() && now.Sub(o.dataDialLastReconnect) < openVPNDataDialReconnectCooldown {
+		return false
+	}
+
+	o.dataDialLastReconnect = now
+	o.dataDialFirstTimeout = time.Time{}
+	o.dataDialTimeouts = 0
+	o.dataDialTargets = nil
+	return true
+}
+
+func (o *OpenVPN) observeDataDialSuccess(target string) {
+	o.dataDialMu.Lock()
+	o.resetDataDialTimeoutsLocked()
+	if target != "" && o.dataDialTargetFailures != nil {
+		delete(o.dataDialTargetFailures, target)
+	}
+	o.dataDialMu.Unlock()
+}
+
+func (o *OpenVPN) resetDataDialTimeouts() {
+	o.dataDialMu.Lock()
+	o.resetDataDialTimeoutsLocked()
+	o.dataDialMu.Unlock()
+}
+
+func (o *OpenVPN) resetDataDialTimeoutsLocked() {
+	o.dataDialFirstTimeout = time.Time{}
+	o.dataDialTimeouts = 0
+	o.dataDialTargets = nil
+}
+
+func (o *OpenVPN) recordDataDialTargetTimeoutLocked(now time.Time, target string) bool {
+	if target == "" {
+		return false
+	}
+	if o.dataDialTargetFailures == nil {
+		o.dataDialTargetFailures = map[string]openVPNDataDialTargetFailure{}
+	}
+	for knownTarget, failure := range o.dataDialTargetFailures {
+		if !failure.noisyUntil.After(now) && now.Sub(failure.last) > openVPNDataDialTargetFailureTTL {
+			delete(o.dataDialTargetFailures, knownTarget)
+		}
+	}
+
+	failure := o.dataDialTargetFailures[target]
+	if failure.noisyUntil.After(now) {
+		failure.count++
+		failure.last = now
+		failure.noisyUntil = now.Add(openVPNDataDialNoisyTargetSuppressFor)
+		o.dataDialTargetFailures[target] = failure
+		return true
+	}
+	if failure.first.IsZero() || now.Sub(failure.first) > openVPNDataDialNoisyTargetWindow {
+		failure = openVPNDataDialTargetFailure{
+			count: 1,
+			first: now,
+			last:  now,
+		}
+		o.dataDialTargetFailures[target] = failure
+		return false
+	}
+
+	failure.count++
+	failure.last = now
+	if failure.count >= openVPNDataDialNoisyTargetThreshold {
+		failure.noisyUntil = now.Add(openVPNDataDialNoisyTargetSuppressFor)
+		o.dataDialTargetFailures[target] = failure
+		return true
+	}
+	o.dataDialTargetFailures[target] = failure
+	return false
+}
+
+func isOpenVPNDataDialTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
 func (o *OpenVPN) lockRun(ctx context.Context) error {
 	lockCtx, cancel := context.WithCancel(ctx)
 	stop := contextutils.AfterFunc(o.runCtx, cancel)
@@ -301,8 +484,8 @@ func (o *OpenVPN) lockRun(ctx context.Context) error {
 	return nil
 }
 
-func (o *OpenVPN) handshakeContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, ovpn.DefaultHandshakeTimeout)
+func (o *OpenVPN) handshakeContext(_ context.Context) (context.Context, context.CancelFunc) {
+	handshakeCtx, handshakeCancel := context.WithTimeout(context.Background(), ovpn.DefaultHandshakeTimeout)
 	stop := contextutils.AfterFunc(o.runCtx, handshakeCancel)
 	return handshakeCtx, func() {
 		stop()
@@ -453,4 +636,13 @@ func (o *OpenVPN) startPacketLoops() {
 			}
 		}()
 	}
+
+	go func() {
+		defer stop()
+		if err := client.RunControlLoop(runCtx); errors.Is(err, ovpn.ErrControlRestart) {
+			log.Infoln("[OpenVPN](%s) control loop requested reconnect: %v", o.name, err)
+		} else if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrClosed) {
+			log.Warnln("[OpenVPN](%s) control loop stopped: %v", o.name, err)
+		}
+	}()
 }

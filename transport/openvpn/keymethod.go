@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"strings"
 )
 
 const (
@@ -153,7 +154,7 @@ func DeriveClientKeyMaterial(sources KeySource2, clientSession, serverSession Se
 	}, nil
 }
 
-func InstallScriptOptionsString(proto, cipher, auth string, compLZO string) string {
+func InstallScriptOptionsString(proto, cipher, auth string, compLZO string, tlsAuth bool, keyDirection int) string {
 	protoName := "UDPv4"
 	if proto == ProtoTCP {
 		protoName = "TCPv4_CLIENT"
@@ -168,7 +169,11 @@ func InstallScriptOptionsString(proto, cipher, auth string, compLZO string) stri
 		mtu = "1544"
 		comp = "comp-lzo,"
 	}
-	return fmt.Sprintf("V4,dev-type tun,link-mtu %s,tun-mtu 1500,proto %s,%scipher %s,auth %s,keysize %s,key-method 2,tls-client", mtu, protoName, comp, cipher, auth, keysize)
+	tlsAuthOptions := ""
+	if tlsAuth {
+		tlsAuthOptions = fmt.Sprintf("keydir %d,tls-auth,", keyDirection)
+	}
+	return fmt.Sprintf("V4,dev-type tun,link-mtu %s,tun-mtu 1500,proto %s,%s%scipher %s,auth %s,keysize %s,key-method 2,tls-client", mtu, protoName, comp, tlsAuthOptions, cipher, auth, keysize)
 }
 
 func InstallScriptPeerInfo(cipher string, compLZO string) string {
@@ -176,7 +181,17 @@ func InstallScriptPeerInfo(cipher string, compLZO string) string {
 	if compLZO == CompLzoYes {
 		lzo = "IV_LZO=1\n"
 	}
-	return fmt.Sprintf("IV_VER=mihomo-openvpn\nIV_PROTO=6\n%sIV_CIPHERS=%s\n", lzo, cipher)
+	return fmt.Sprintf("IV_VER=mihomo-openvpn\nIV_PROTO=6\nIV_NCP=2\n%sIV_CIPHERS=%s\n", lzo, cipher)
+}
+
+func optionValue(options, name string) string {
+	for _, option := range strings.Split(options, ",") {
+		fields := strings.Fields(strings.TrimSpace(option))
+		if len(fields) >= 2 && fields[0] == name {
+			return fields[1]
+		}
+	}
+	return ""
 }
 
 func appendOpenVPNString(out []byte, s string) []byte {
