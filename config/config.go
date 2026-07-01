@@ -62,11 +62,14 @@ type General struct {
 	TCPConcurrent     bool                    `json:"tcp-concurrent"`
 	FindProcessMode   process.FindProcessMode `json:"find-process-mode"`
 	Sniffing          bool                    `json:"sniffing"`
-	GlobalUA          string                  `json:"global-ua"`
-	ETagSupport       bool                    `json:"etag-support"`
-	KeepAliveIdle     int                     `json:"keep-alive-idle"`
-	KeepAliveInterval int                     `json:"keep-alive-interval"`
-	DisableKeepAlive  bool                    `json:"disable-keep-alive"`
+	// Keep the legacy API field for Clash Verge Rev v2.5.x, whose
+	// tauri-plugin-mihomo BaseConfig still requires it when reading /configs.
+	GlobalClientFingerprint string `json:"global-client-fingerprint"`
+	GlobalUA                string `json:"global-ua"`
+	ETagSupport             bool   `json:"etag-support"`
+	KeepAliveIdle           int    `json:"keep-alive-idle"`
+	KeepAliveInterval       int    `json:"keep-alive-interval"`
+	DisableKeepAlive        bool   `json:"disable-keep-alive"`
 }
 
 // Inbound config
