@@ -3,6 +3,7 @@ package openvpn
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 const testCert = `-----BEGIN CERTIFICATE-----
@@ -77,6 +78,28 @@ func TestClientConfigDefaults(t *testing.T) {
 	}
 	if cfg.TLSMinVersion != TLSVersion12 {
 		t.Fatalf("unexpected tls-version-min default: %s", cfg.TLSMinVersion)
+	}
+	if cfg.TransitionWindow != DefaultTransitionWindow {
+		t.Fatalf("unexpected transition-window default: %s", cfg.TransitionWindow)
+	}
+}
+
+func TestClientConfigRejectsNegativeRekeyTiming(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ClientConfig)
+	}{
+		{name: "reneg-sec", mutate: func(cfg *ClientConfig) { cfg.RenegotiateAfter = -time.Second }},
+		{name: "tran-window", mutate: func(cfg *ClientConfig) { cfg.TransitionWindow = -time.Second }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := yamlStyleConfig()
+			tt.mutate(cfg)
+			if err := cfg.Prepare(); err == nil {
+				t.Fatal("expected invalid rekey timing error")
+			}
+		})
 	}
 }
 

@@ -144,8 +144,9 @@ func (s *oneShotReadErrorStream) Read(b []byte) (int, error) {
 func TestClientInstallDataChannelRekeysWithoutReplacingDataChannel(t *testing.T) {
 	client := &Client{
 		config: &ClientConfig{
-			Cipher: CipherAES128GCM,
-			Auth:   AuthSHA256,
+			Cipher:           CipherAES128GCM,
+			Auth:             AuthSHA256,
+			TransitionWindow: 20 * time.Millisecond,
 		},
 		activity: newRemoteActivity(),
 	}
@@ -228,8 +229,9 @@ func TestClientInstallDataChannelRetiresPreviousReceiveKeyAfterOverlap(t *testin
 	}
 	client := &Client{
 		config: &ClientConfig{
-			Cipher: CipherAES128GCM,
-			Auth:   AuthSHA256,
+			Cipher:           CipherAES128GCM,
+			Auth:             AuthSHA256,
+			TransitionWindow: 20 * time.Millisecond,
 		},
 		activity: newRemoteActivity(),
 	}
@@ -265,13 +267,69 @@ func TestClientInstallDataChannelRetiresPreviousReceiveKeyAfterOverlap(t *testin
 		t.Fatal(err)
 	}
 
-	time.Sleep(dataChannelRekeyOverlap + 100*time.Millisecond)
+	time.Sleep(client.config.TransitionWindow + 20*time.Millisecond)
 
 	if _, err := client.data.Decrypt(oldEncryptedAfterOverlap); err == nil {
 		t.Fatal("expected old receive key to be retired after overlap")
 	}
 	if _, err := client.data.Decrypt(newEncrypted); err != nil {
 		t.Fatalf("expected active receive key to remain after overlap: %v", err)
+	}
+}
+
+func TestClientUsesOpenVPNTransitionWindowByDefault(t *testing.T) {
+	client := &Client{config: &ClientConfig{}}
+	if got := client.transitionWindow(); got != DefaultTransitionWindow {
+		t.Fatalf("unexpected default transition window: %s", got)
+	}
+}
+
+func TestClientAppliesLocalRenegotiateOverride(t *testing.T) {
+	client := &Client{config: &ClientConfig{RenegotiateAfter: 45 * time.Second}}
+	push := &PushReply{RenegotiateAfter: time.Hour}
+	client.applyLocalTimingOverrides(push)
+	if push.RenegotiateAfter != 45*time.Second {
+		t.Fatalf("unexpected renegotiate interval: %s", push.RenegotiateAfter)
+	}
+}
+
+func TestClientReadIPPacketFallsBackAfterConsecutiveDecryptErrors(t *testing.T) {
+	clientIO, serverIO := newMemoryPacketPair()
+	client, err := NewClient(&ClientConfig{
+		RemoteHost: "127.0.0.1",
+		RemotePort: 1194,
+	}, clientIO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	keys := &KeyMaterial{
+		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
+		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
+		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
+		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
+	}
+	client.data, err = NewDataChannel(keys, CipherAES128GCM, AuthSHA256, 7, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	invalid := []byte{opcodeKeyID(PDataV1, 7)}
+	for i := 0; i < maxConsecutiveDataDecryptErrors; i++ {
+		if err := serverIO.WritePacket(ctx, invalid); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = client.ReadIPPacket(ctx)
+	if !errors.Is(err, ErrControlRestart) {
+		t.Fatalf("expected reconnect fallback after decrypt failures, got %v", err)
+	}
+	if got := client.activity.Snapshot().DataDecryptErrors; got != maxConsecutiveDataDecryptErrors {
+		t.Fatalf("unexpected decrypt error count: %d", got)
 	}
 }
 

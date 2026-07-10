@@ -154,6 +154,28 @@ func TestControlChannelSoftResetAdvancesKeyIDAndCounters(t *testing.T) {
 	}
 }
 
+func TestControlChannelSoftResetKeyIDSkipsZeroAfterRollover(t *testing.T) {
+	clientIO, serverIO := newMemoryPacketPair()
+	clientID, _ := NewSessionID()
+	serverID, _ := NewSessionID()
+	client := NewControlChannel(clientIO, nil, clientID)
+	server := NewControlChannel(serverIO, nil, serverID)
+
+	wantKeyIDs := []uint8{1, 2, 3, 4, 5, 6, 7, 1}
+	for _, want := range wantKeyIDs {
+		if err := client.SendSoftReset(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		packet, err := server.Read(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if packet.KeyID != want {
+			t.Fatalf("unexpected soft reset key id: got %d want %d", packet.KeyID, want)
+		}
+	}
+}
+
 func TestControlConnCarriesTLSBytes(t *testing.T) {
 	client, server := newTestChannels(t)
 	client.SetRemoteSessionID(server.LocalSessionID())

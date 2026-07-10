@@ -95,6 +95,14 @@ func opcodeKeyID(opcode Opcode, keyID uint8) byte {
 	return byte(opcode)<<OpcodeShift | (keyID & KeyIDMask)
 }
 
+func nextRenegotiationKeyID(current uint8) uint8 {
+	next := (current + 1) & KeyIDMask
+	if next == 0 {
+		return 1
+	}
+	return next
+}
+
 func parseOpcodeKeyID(b byte) (Opcode, uint8) {
 	return Opcode(b >> OpcodeShift), b & KeyIDMask
 }

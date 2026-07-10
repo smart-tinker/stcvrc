@@ -86,6 +86,8 @@ type OpenVPNOption struct {
 	Password      string `proxy:"password,omitempty"`
 	Ping          int    `proxy:"ping,omitempty"`
 	PingRestart   int    `proxy:"ping-restart,omitempty"`
+	RenegSec      int    `proxy:"reneg-sec,omitempty"`
+	TranWindow    int    `proxy:"tran-window,omitempty"`
 	MTU           int    `proxy:"mtu,omitempty"`
 	UDP           bool   `proxy:"udp,omitempty"`
 
@@ -113,6 +115,8 @@ func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 		Password:         option.Password,
 		PingInterval:     time.Duration(option.Ping) * time.Second,
 		PingRestart:      time.Duration(option.PingRestart) * time.Second,
+		RenegotiateAfter: time.Duration(option.RenegSec) * time.Second,
+		TransitionWindow: time.Duration(option.TranWindow) * time.Second,
 	}
 	if err := cfg.Prepare(); err != nil {
 		return nil, err

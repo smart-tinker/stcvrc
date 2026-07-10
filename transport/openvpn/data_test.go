@@ -222,6 +222,33 @@ func TestDataChannelKeepsOnlyImmediatePreviousReceiveKey(t *testing.T) {
 	}
 }
 
+func TestDataChannelRekeyKeyIDSkipsZeroAfterRollover(t *testing.T) {
+	keys := &KeyMaterial{
+		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
+		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
+		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
+		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
+	}
+	channel, err := NewDataChannel(keys, CipherAES128GCM, AuthSHA256, 7, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantKeyIDs := []uint8{1, 2, 3, 4, 5, 6, 7, 1}
+	for _, want := range wantKeyIDs {
+		if err := channel.Rekey(keys, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
+			t.Fatal(err)
+		}
+		encrypted, err := channel.Encrypt([]byte{0x45, 0, 0, 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, got := parseOpcodeKeyID(encrypted[0]); got != want {
+			t.Fatalf("unexpected data key id: got %d want %d", got, want)
+		}
+	}
+}
+
 func TestDataChannelAcceptsOutOfOrderPacketsWithinReplayWindow(t *testing.T) {
 	clientKeys := &KeyMaterial{
 		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),

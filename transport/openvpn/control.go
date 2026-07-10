@@ -73,7 +73,7 @@ func (c *ControlChannel) SendReset(ctx context.Context) error {
 
 func (c *ControlChannel) SendSoftReset(ctx context.Context) error {
 	c.mu.Lock()
-	c.keyID = (c.keyID + 1) & KeyIDMask
+	c.keyID = nextRenegotiationKeyID(c.keyID)
 	c.sendMessage = 0
 	c.recvMessage = 0
 	c.ackPending = nil

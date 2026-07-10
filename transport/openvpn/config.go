@@ -16,6 +16,8 @@ const (
 	ProtoUDP = "udp"
 	ProtoTCP = "tcp"
 
+	DefaultTransitionWindow = time.Hour
+
 	CipherAES128GCM        = "AES-128-GCM"
 	CipherAES192GCM        = "AES-192-GCM"
 	CipherAES256GCM        = "AES-256-GCM"
@@ -60,6 +62,8 @@ type ClientConfig struct {
 
 	PingInterval     time.Duration
 	PingRestart      time.Duration
+	RenegotiateAfter time.Duration
+	TransitionWindow time.Duration
 	TLSCryptKey      []byte
 	TLSAuthKey       []byte
 	TLSAuthDirection int
@@ -172,6 +176,9 @@ func (c *ClientConfig) Prepare() error {
 	c.Auth = normalizeAuth(c.Auth)
 	c.TLSMinVersion = normalizeTLSMinVersion(c.TLSMinVersion)
 	c.CompLZO = normalizeCompLZO(c.CompLZO)
+	if c.TransitionWindow == 0 {
+		c.TransitionWindow = DefaultTransitionWindow
+	}
 	if err := c.ValidateInstallScriptSubset(); err != nil {
 		return err
 	}
@@ -249,6 +256,12 @@ func (c *ClientConfig) ValidateInstallScriptSubset() error {
 	}
 	if c.PingRestart < 0 {
 		return errors.New("openvpn ping restart must be positive")
+	}
+	if c.RenegotiateAfter < 0 {
+		return errors.New("openvpn reneg-sec must be positive")
+	}
+	if c.TransitionWindow < 0 {
+		return errors.New("openvpn tran-window must be positive")
 	}
 	return nil
 }

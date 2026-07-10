@@ -22,7 +22,8 @@ const (
 	DefaultHandshakeTimeout = 30 * time.Second
 	ControlRetransmitDelay  = time.Second
 	DefaultControlPollDelay = time.Second
-	dataChannelRekeyOverlap = ControlRetransmitDelay
+
+	maxConsecutiveDataDecryptErrors = 32
 )
 
 var (
@@ -55,6 +56,9 @@ type Client struct {
 
 	writeSemMu sync.Mutex
 	writeSem   *semaphore.Weighted
+
+	transitionMu    sync.Mutex
+	transitionTimer *time.Timer
 
 	lastSendNano    atomic.Int64
 	lastReceiveNano atomic.Int64
@@ -283,6 +287,7 @@ func (c *Client) negotiateDataSession(ctx context.Context, rekey bool) (*PushRep
 		return nil, err
 	}
 	log.Debugln("[OpenVPN] push reply received from %s", c.config.RemoteAddress())
+	c.applyLocalTimingOverrides(push)
 
 	dataCipher, dataAuth, err := c.negotiateDataChannelOptions(serverRecord, push)
 	if err != nil {
@@ -368,9 +373,43 @@ func (c *Client) schedulePreviousKeyRetirement() {
 	if !ok {
 		return
 	}
-	time.AfterFunc(dataChannelRekeyOverlap, func() {
+	window := c.transitionWindow()
+	c.transitionMu.Lock()
+	if c.transitionTimer != nil {
+		c.transitionTimer.Stop()
+	}
+	c.transitionTimer = time.AfterFunc(window, func() {
 		data.RetirePreviousKeysForGeneration(generation)
 	})
+	c.transitionMu.Unlock()
+}
+
+func (c *Client) transitionWindow() time.Duration {
+	if c != nil && c.config != nil && c.config.TransitionWindow > 0 {
+		return c.config.TransitionWindow
+	}
+	return DefaultTransitionWindow
+}
+
+func (c *Client) applyLocalTimingOverrides(push *PushReply) {
+	if c == nil || c.config == nil || push == nil {
+		return
+	}
+	if c.config.RenegotiateAfter > 0 {
+		push.RenegotiateAfter = c.config.RenegotiateAfter
+	}
+}
+
+func (c *Client) stopTransitionTimer() {
+	if c == nil {
+		return
+	}
+	c.transitionMu.Lock()
+	if c.transitionTimer != nil {
+		c.transitionTimer.Stop()
+		c.transitionTimer = nil
+	}
+	c.transitionMu.Unlock()
 }
 
 func (c *Client) RunControlLoop(ctx context.Context) error {
@@ -436,6 +475,7 @@ func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
 	if c.data == nil {
 		return nil, errors.New("openvpn data channel is not ready")
 	}
+	consecutiveDecryptErrors := 0
 	for {
 		packet, err := c.mux.ReadDataPacket(ctx)
 		if err != nil {
@@ -444,8 +484,13 @@ func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
 		plain, err := c.data.Decrypt(packet)
 		if err != nil {
 			c.activity.MarkDataDecryptError()
+			consecutiveDecryptErrors++
+			if consecutiveDecryptErrors >= maxConsecutiveDataDecryptErrors {
+				return nil, fmt.Errorf("%w: data channel rejected %d consecutive packets: %v", ErrControlRestart, consecutiveDecryptErrors, err)
+			}
 			continue
 		}
+		consecutiveDecryptErrors = 0
 		c.markReceive()
 		c.activity.MarkData()
 		if IsPingPacket(plain) {
@@ -477,6 +522,7 @@ func (c *Client) markReceive() {
 var start = time.Now().Add(-time.Hour)
 
 func (c *Client) Close() error {
+	c.stopTransitionTimer()
 	if c.cancel != nil {
 		c.cancel()
 	}

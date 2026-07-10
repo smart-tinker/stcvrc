@@ -262,8 +262,10 @@ func (d *DataChannel) Rekey(keys *KeyMaterial, cipherName, authName string, peer
 	}
 	active := d.activeKey()
 	nextKeyID := uint8(0)
+	previousKeyID := uint8(0)
 	if active != nil {
-		nextKeyID = (active.keyID + 1) & KeyIDMask
+		previousKeyID = active.keyID
+		nextKeyID = nextRenegotiationKeyID(active.keyID)
 	}
 	next, err := newDataChannelKey(keys, cipherName, authName, peerID, compLZO, nextKeyID)
 	if err != nil {
@@ -276,7 +278,6 @@ func (d *DataChannel) Rekey(keys *KeyMaterial, cipherName, authName string, peer
 	d.active = next
 	d.generation++
 	d.recvKeys[nextKeyID] = next
-	previousKeyID := (nextKeyID - 1) & KeyIDMask
 	for keyID := range d.recvKeys {
 		if keyID != nextKeyID && keyID != previousKeyID {
 			delete(d.recvKeys, keyID)
