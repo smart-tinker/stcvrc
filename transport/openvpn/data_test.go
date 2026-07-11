@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"testing"
+	"time"
 )
 
 func TestDataChannelAESGCMV2RoundTrip(t *testing.T) {
@@ -133,6 +134,68 @@ func TestDataChannelRekeyRotatesSendKeyAndKeepsReceiveOverlap(t *testing.T) {
 	}
 	if !bytes.Equal(plain, newPacket) {
 		t.Fatalf("unexpected new plaintext: %x", plain)
+	}
+}
+
+func TestDataChannelDelayedSendKeyPromotesAfterPeerUsesNewKey(t *testing.T) {
+	clientKeys1 := &KeyMaterial{
+		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
+		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
+		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
+		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
+	}
+	clientKeys2 := &KeyMaterial{
+		SendCipherKey: bytes.Repeat([]byte{0x55}, 16),
+		SendHMACKey:   bytes.Repeat([]byte{0x66}, maxHMACKeyLength),
+		RecvCipherKey: bytes.Repeat([]byte{0x77}, 16),
+		RecvHMACKey:   bytes.Repeat([]byte{0x88}, maxHMACKeyLength),
+	}
+	reverse := func(keys *KeyMaterial) *KeyMaterial {
+		return &KeyMaterial{
+			SendCipherKey: keys.RecvCipherKey,
+			SendHMACKey:   keys.RecvHMACKey,
+			RecvCipherKey: keys.SendCipherKey,
+			RecvHMACKey:   keys.SendHMACKey,
+		}
+	}
+	client, err := NewDataChannel(clientKeys1, CipherAES128GCM, AuthSHA256, 7, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewDataChannel(reverse(clientKeys1), CipherAES128GCM, AuthSHA256, 7, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.clock = func() time.Time { return time.Unix(100, 0) }
+	if err := client.RekeyWithSendDelay(clientKeys2, CipherAES128GCM, AuthSHA256, 7, "", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	outbound, err := client.Encrypt([]byte{0x45, 0, 0, 20, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, keyID := parseOpcodeKeyID(outbound[0]); keyID != 0 {
+		t.Fatalf("expected previous send key before peer confirmation, got %d", keyID)
+	}
+	if _, err := server.Decrypt(outbound); err != nil {
+		t.Fatalf("expected peer to accept previous send key: %v", err)
+	}
+	if err := server.Rekey(reverse(clientKeys2), CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
+		t.Fatal(err)
+	}
+	inbound, err := server.Encrypt([]byte{0x45, 0, 0, 20, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Decrypt(inbound); err != nil {
+		t.Fatalf("expected new receive key to be available during send overlap: %v", err)
+	}
+	outbound, err = client.Encrypt([]byte{0x45, 0, 0, 20, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, keyID := parseOpcodeKeyID(outbound[0]); keyID != 1 {
+		t.Fatalf("expected peer-confirmed key id 1, got %d", keyID)
 	}
 }
 

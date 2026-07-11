@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"hash"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -42,10 +43,13 @@ func IsPingPacket(packet []byte) bool {
 }
 
 type DataChannel struct {
-	mu         sync.RWMutex
-	active     *dataChannelKey
-	recvKeys   map[uint8]*dataChannelKey
-	generation uint64
+	mu             sync.RWMutex
+	active         *dataChannelKey
+	send           *dataChannelKey
+	recvKeys       map[uint8]*dataChannelKey
+	generation     uint64
+	sendActivateAt time.Time
+	clock          func() time.Time
 }
 
 type dataChannelKey struct {
@@ -87,6 +91,8 @@ func NewDataChannel(keys *KeyMaterial, cipherName, authName string, peerID uint3
 	}
 	return &DataChannel{
 		active: key,
+		send:   key,
+		clock:  time.Now,
 		recvKeys: map[uint8]*dataChannelKey{
 			0: key,
 		},
@@ -212,7 +218,7 @@ func (d *DataChannel) Encrypt(packet []byte) ([]byte, error) {
 	if d == nil {
 		return nil, errors.New("nil openvpn data channel")
 	}
-	key := d.activeKey()
+	key := d.sendKey()
 	if key == nil {
 		return nil, errors.New("openvpn data channel has no active key")
 	}
@@ -244,6 +250,7 @@ func (d *DataChannel) Decrypt(packet []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	d.promoteSendKey(keyID)
 	if key.compLZO == CompLzoYes && len(plain) > 0 {
 		decompressed, err := lzo1xDecompressSafe(plain)
 		if err != nil {
@@ -257,6 +264,10 @@ func (d *DataChannel) Decrypt(packet []byte) ([]byte, error) {
 }
 
 func (d *DataChannel) Rekey(keys *KeyMaterial, cipherName, authName string, peerID uint32, compLZO string) error {
+	return d.RekeyWithSendDelay(keys, cipherName, authName, peerID, compLZO, 0)
+}
+
+func (d *DataChannel) RekeyWithSendDelay(keys *KeyMaterial, cipherName, authName string, peerID uint32, compLZO string, activationDelay time.Duration) error {
 	if d == nil {
 		return errors.New("nil openvpn data channel")
 	}
@@ -271,11 +282,22 @@ func (d *DataChannel) Rekey(keys *KeyMaterial, cipherName, authName string, peer
 	if err != nil {
 		return err
 	}
+
 	d.mu.Lock()
 	if d.recvKeys == nil {
 		d.recvKeys = make(map[uint8]*dataChannelKey)
 	}
 	d.active = next
+	d.send = next
+	d.sendActivateAt = time.Time{}
+	if active != nil && activationDelay > 0 {
+		d.send = active
+		now := time.Now()
+		if d.clock != nil {
+			now = d.clock()
+		}
+		d.sendActivateAt = now.Add(activationDelay)
+	}
 	d.generation++
 	d.recvKeys[nextKeyID] = next
 	for keyID := range d.recvKeys {
@@ -323,12 +345,44 @@ func (d *DataChannel) activeGeneration() (uint64, bool) {
 
 func (d *DataChannel) retirePreviousKeysLocked() {
 	if d.active == nil {
+		d.send = nil
 		d.recvKeys = nil
+		d.sendActivateAt = time.Time{}
 		return
 	}
+	d.send = d.active
+	d.sendActivateAt = time.Time{}
 	d.recvKeys = map[uint8]*dataChannelKey{
 		d.active.keyID: d.active,
 	}
+}
+
+func (d *DataChannel) sendKey() *dataChannelKey {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.send == nil {
+		d.send = d.active
+	}
+	if d.active != nil && d.send != d.active && !d.sendActivateAt.IsZero() {
+		now := time.Now()
+		if d.clock != nil {
+			now = d.clock()
+		}
+		if !now.Before(d.sendActivateAt) {
+			d.send = d.active
+			d.sendActivateAt = time.Time{}
+		}
+	}
+	return d.send
+}
+
+func (d *DataChannel) promoteSendKey(keyID uint8) {
+	d.mu.Lock()
+	if d.active != nil && d.active.keyID == keyID {
+		d.send = d.active
+		d.sendActivateAt = time.Time{}
+	}
+	d.mu.Unlock()
 }
 
 func (d *DataChannel) activeKey() *dataChannelKey {

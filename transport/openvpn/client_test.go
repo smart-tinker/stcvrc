@@ -141,7 +141,7 @@ func (s *oneShotReadErrorStream) Read(b []byte) (int, error) {
 	return s.fakeControlStream.Read(b)
 }
 
-func TestClientInstallDataChannelRekeysWithoutReplacingDataChannel(t *testing.T) {
+func TestClientInstallDataChannelKeepsPreviousSendKeyDuringActivation(t *testing.T) {
 	client := &Client{
 		config: &ClientConfig{
 			Cipher:           CipherAES128GCM,
@@ -169,6 +169,8 @@ func TestClientInstallDataChannelRekeysWithoutReplacingDataChannel(t *testing.T)
 	if initial == nil {
 		t.Fatal("expected initial data channel")
 	}
+	now := time.Unix(100, 0)
+	initial.clock = func() time.Time { return now }
 	if err := client.installDataChannel(keys2, &PushReply{PeerID: 7}, true, CipherAES128GCM, AuthSHA256); err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +178,14 @@ func TestClientInstallDataChannelRekeysWithoutReplacingDataChannel(t *testing.T)
 		t.Fatal("expected in-place rekey to keep the data channel object")
 	}
 	encrypted, err := client.data.Encrypt([]byte{0x45, 0, 0, 20, 1, 2, 3, 4, 64, 6, 0, 0, 10, 8, 0, 2, 1, 1, 1, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, keyID := parseOpcodeKeyID(encrypted[0]); keyID != 0 {
+		t.Fatalf("expected previous key id 0 during activation delay, got %d", keyID)
+	}
+	now = now.Add(client.dataKeyActivationDelay())
+	encrypted, err = client.data.Encrypt([]byte{0x45, 0, 0, 20, 1, 2, 3, 5, 64, 6, 0, 0, 10, 8, 0, 2, 1, 1, 1, 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,6 +291,26 @@ func TestClientUsesOpenVPNTransitionWindowByDefault(t *testing.T) {
 	client := &Client{config: &ClientConfig{}}
 	if got := client.transitionWindow(); got != DefaultTransitionWindow {
 		t.Fatalf("unexpected default transition window: %s", got)
+	}
+}
+
+func TestClientBoundsDataKeyActivationDelay(t *testing.T) {
+	tests := []struct {
+		name   string
+		config ClientConfig
+		want   time.Duration
+	}{
+		{name: "default handshake window", config: ClientConfig{}, want: DefaultHandshakeTimeout},
+		{name: "half renegotiate interval", config: ClientConfig{RenegotiateAfter: 45 * time.Second}, want: 22500 * time.Millisecond},
+		{name: "half transition window", config: ClientConfig{TransitionWindow: 20 * time.Millisecond}, want: 10 * time.Millisecond},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{config: &test.config}
+			if got := client.dataKeyActivationDelay(); got != test.want {
+				t.Fatalf("unexpected activation delay: got %s want %s", got, test.want)
+			}
+		})
 	}
 }
 

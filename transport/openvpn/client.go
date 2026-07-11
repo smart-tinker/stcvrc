@@ -62,6 +62,8 @@ type Client struct {
 
 	lastSendNano    atomic.Int64
 	lastReceiveNano atomic.Int64
+	lastSendKeyID   atomic.Int32
+	lastRecvKeyID   atomic.Int32
 }
 
 type remoteActivity struct {
@@ -297,6 +299,9 @@ func (c *Client) negotiateDataSession(ctx context.Context, rekey bool) (*PushRep
 	if err != nil {
 		return nil, fmt.Errorf("derive data channel keys: %w", err)
 	}
+	if rekey {
+		log.Debugln("[OpenVPN] rekey control state for %s before data activation: pending-messages=%d send-key-delay=%s", c.config.RemoteAddress(), c.control.PendingMessages(), c.dataKeyActivationDelay())
+	}
 	if err := c.installDataChannel(keys, push, rekey, dataCipher, dataAuth); err != nil {
 		return nil, err
 	}
@@ -348,7 +353,7 @@ func (c *Client) installDataChannel(keys *KeyMaterial, push *PushReply, rekey bo
 		return errors.New("nil openvpn push reply")
 	}
 	if rekey && c.data != nil {
-		if err := c.data.Rekey(keys, cipherName, authName, push.PeerID, c.config.CompLZO); err != nil {
+		if err := c.data.RekeyWithSendDelay(keys, cipherName, authName, push.PeerID, c.config.CompLZO, c.dataKeyActivationDelay()); err != nil {
 			return err
 		}
 		c.schedulePreviousKeyRetirement()
@@ -389,6 +394,19 @@ func (c *Client) transitionWindow() time.Duration {
 		return c.config.TransitionWindow
 	}
 	return DefaultTransitionWindow
+}
+
+func (c *Client) dataKeyActivationDelay() time.Duration {
+	delay := DefaultHandshakeTimeout
+	if c != nil && c.config != nil && c.config.RenegotiateAfter > 0 {
+		if half := c.config.RenegotiateAfter / 2; half < delay {
+			delay = half
+		}
+	}
+	if halfTransition := c.transitionWindow() / 2; halfTransition < delay {
+		delay = halfTransition
+	}
+	return delay
 }
 
 func (c *Client) applyLocalTimingOverrides(push *PushReply) {
@@ -451,6 +469,7 @@ func (c *Client) writeDataPacket(ctx context.Context, packet []byte) error {
 	if err != nil {
 		return err
 	}
+	c.logDataKeyTransition("outbound", encrypted)
 	err = c.mux.WritePacket(ctx, encrypted)
 	if err != nil {
 		return err
@@ -491,12 +510,31 @@ func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
 			continue
 		}
 		consecutiveDecryptErrors = 0
+		c.logDataKeyTransition("inbound", packet)
 		c.markReceive()
 		c.activity.MarkData()
 		if IsPingPacket(plain) {
 			continue
 		}
 		return plain, nil
+	}
+}
+
+func (c *Client) logDataKeyTransition(direction string, packet []byte) {
+	if len(packet) == 0 {
+		return
+	}
+	_, keyID := parseOpcodeKeyID(packet[0])
+	last := &c.lastSendKeyID
+	if direction == "inbound" {
+		last = &c.lastRecvKeyID
+	}
+	if previous := last.Swap(int32(keyID)); previous != int32(keyID) {
+		remote := "unknown"
+		if c.config != nil {
+			remote = c.config.RemoteAddress()
+		}
+		log.Debugln("[OpenVPN] %s data key changed for %s: %d -> %d", direction, remote, previous, keyID)
 	}
 }
 
