@@ -66,6 +66,12 @@ func (c *ControlChannel) SetRemoteSessionID(id SessionID) {
 	c.mu.Unlock()
 }
 
+func (c *ControlChannel) currentKeyID() uint8 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.keyID
+}
+
 func (c *ControlChannel) SendReset(ctx context.Context) error {
 	_, err := c.Send(ctx, PControlHardResetClientV2, nil)
 	return err
@@ -302,6 +308,7 @@ func appendAck(acks []uint32, ack uint32) []uint32 {
 type ControlConn struct {
 	channel         *ControlChannel
 	acceptSoftReset bool
+	softResetKeyID  uint8
 	readBuf         []byte
 	closed          bool
 	mu              sync.Mutex
@@ -314,7 +321,11 @@ func NewControlConn(channel *ControlChannel) *ControlConn {
 }
 
 func NewSoftResetControlConn(channel *ControlChannel) *ControlConn {
-	return &ControlConn{channel: channel, acceptSoftReset: true}
+	return &ControlConn{
+		channel:         channel,
+		acceptSoftReset: true,
+		softResetKeyID:  channel.currentKeyID(),
+	}
 }
 
 func (c *ControlConn) Read(b []byte) (int, error) {
@@ -362,7 +373,7 @@ func (c *ControlConn) Read(b []byte) (int, error) {
 			if err := c.channel.SendAck(context.Background()); err != nil {
 				return 0, err
 			}
-			if c.acceptSoftReset {
+			if c.acceptSoftReset && packet.KeyID == c.softResetKeyID {
 				continue
 			}
 			return 0, fmt.Errorf("%w: %w: received %s", ErrControlRestart, ErrControlSoftReset, packet.Opcode)

@@ -325,6 +325,43 @@ func TestSoftResetControlConnContinuesAfterSoftResetPacket(t *testing.T) {
 	}
 }
 
+func TestSoftResetControlConnReportsNextKeyGeneration(t *testing.T) {
+	client, server := newTestChannels(t)
+	client.SetRemoteSessionID(server.LocalSessionID())
+	server.SetRemoteSessionID(client.LocalSessionID())
+
+	if err := client.SendSoftReset(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clientConn := NewSoftResetControlConn(client)
+	if err := server.SendSoftReset(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.Send(context.Background(), PControlV1, []byte("current tls record")); err != nil {
+		t.Fatal(err)
+	}
+
+	buf := make([]byte, 64)
+	n, err := clientConn.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(buf[:n]); got != "current tls record" {
+		t.Fatalf("unexpected payload after matching soft reset: %q", got)
+	}
+
+	if err := server.SendSoftReset(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.Send(context.Background(), PControlV1, []byte("next tls record")); err != nil {
+		t.Fatal(err)
+	}
+	_, err = clientConn.Read(buf)
+	if !errors.Is(err, ErrControlSoftReset) {
+		t.Fatalf("expected next key generation to request a rekey, got %v", err)
+	}
+}
+
 func TestControlConnReportsSoftResetOutsideRekeyHandshake(t *testing.T) {
 	client, server := newTestChannels(t)
 	client.SetRemoteSessionID(server.LocalSessionID())
