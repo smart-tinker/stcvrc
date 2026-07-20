@@ -1,99 +1,88 @@
-<h1 align="center">
-  STCVRC
-</h1>
+<h1 align="center">STCVRC</h1>
 
 <h3 align="center">Smart Tinker Clash Verge Rev Core</h3>
 
-STCVRC is a replaceable core for the stock
+STCVRC is a replaceable core for the unmodified
 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) desktop
-application. It is based on the latest accepted stable release of
-[MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo).
+application. It is a downstream of
+[MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) focused on OpenVPN
+session continuity required by our Clash Verge Rev runtime.
 
-## Scope
+STCVRC is an independent project and is not affiliated with MetaCubeX or Clash
+Verge Rev.
 
-- Clash Verge Rev is used unmodified; this project does not maintain a UI fork.
+## Architecture
+
+- Clash Verge Rev remains the stock upstream UI, service, installer, and update
+  channel. This repository does not contain a UI fork.
+- STCVRC builds only `verge-mihomo.exe`, the core binary consumed by Clash
+  Verge Rev.
+- Local profiles, credentials, certificates, route policy, and deployment state
+  are deliberately excluded from this repository.
 - The maintained source delta is limited to OpenVPN compatibility, control-plane
-  continuity during soft rekey, and the API surface required by Clash Verge Rev.
-- Local profiles, credentials, certificates, and deployment state are not part
-  of this repository.
-- The Windows amd64 artifact is built as `verge-mihomo.exe` so it can replace
-  the stock Clash Verge Rev core without changing the UI package.
+  continuity during soft rekey, and the API behavior required by Clash Verge
+  Rev.
 
-STCVRC is an independent downstream project and is not affiliated with
-MetaCubeX or Clash Verge Rev.
+## Current release line
 
-## Features
+| Component | Accepted version |
+| --- | --- |
+| STCVRC | `v1.19.29-stcvrc.1` |
+| Mihomo base | `v1.19.29` |
+| Clash Verge Rev | `v2.5.2` |
+| Go toolchain | `go1.26.5 windows/amd64` |
+| Output | `verge-mihomo.exe` |
 
-- Local HTTP/HTTPS/SOCKS server with authentication support
-- VMess, VLESS, Shadowsocks, Trojan, Snell, TUIC, Hysteria protocol support
-- Built-in DNS server that aims to minimize DNS pollution attack impact, supports DoH/DoT upstream and fake IP.
-- Rules based off domains, GEOIP, IPCIDR or Process to forward packets to different nodes
-- Remote groups allow users to implement powerful rules. Supports automatic fallback, load balancing or auto select node
-  based off latency
-- Remote providers, allowing users to get node lists remotely instead of hard-coding in config
-- Netfilter TCP redirecting. Deploy Mihomo on your Internet gateway with `iptables`.
-- Comprehensive HTTP RESTful API controller
+The release contains the STCVRC core only. Obtain Clash Verge Rev from its
+[official v2.5.2 release](https://github.com/clash-verge-rev/clash-verge-rev/releases/tag/v2.5.2).
+
+## Reproducible Windows build
+
+```powershell
+git clone https://github.com/smart-tinker/stcvrc.git
+cd stcvrc
+git checkout v1.19.29-stcvrc.1
+.\build-windows.ps1
+```
+
+`build-windows.ps1` requires exactly Go `1.26.5`, runs the tests for the changed
+OpenVPN and outbound adapter contours, builds with fixed version metadata, and
+rejects an output whose SHA-256 differs from:
+
+```text
+71195C943BE67017C5646EA2021734BC122FA83C58A408AB6713A2B25CB6B62B
+```
+
+The equivalent build command is:
+
+```powershell
+$env:GOOS = 'windows'
+$env:GOARCH = 'amd64'
+$env:GOAMD64 = 'v1'
+$env:CGO_ENABLED = '0'
+$env:GOFLAGS = '-mod=readonly'
+go build -tags with_gvisor -trimpath -buildvcs=false `
+  -ldflags '-s -w -buildid= -X "github.com/metacubex/mihomo/constant.Version=1.19.29-STCVRC-openvpn-rekey-9e235082" -X "github.com/metacubex/mihomo/constant.BuildTime=2026-07-20T00:00:00Z"' `
+  -o .\dist\verge-mihomo.exe .
+```
+
+## Use with Clash Verge Rev
+
+Back up the bundled `verge-mihomo.exe`, stop the Clash Verge Rev service, and
+replace only that core binary. The UI package and service helper remain stock.
+The release manifest records the accepted UI installer digest and its verified
+Tauri updater signature; the UI installer itself is not redistributed here.
 
 ## Upstream documentation
 
-Configuration and API documentation is maintained by the upstream project at
+Configuration and controller API documentation is maintained by MetaCubeX at
 [wiki.metacubex.one](https://wiki.metacubex.one/).
 
-## For development
+## Credits and license
 
-Requirements:
-[Go 1.20 or newer](https://go.dev/dl/)
+STCVRC retains the upstream project history and credits. See the upstream
+project and source history for the complete contributor record.
 
-Build STCVRC:
-
-```shell
-git clone https://github.com/smart-tinker/mihomo.git stcvrc
-cd stcvrc
-go mod download
-go build -tags with_gvisor -o verge-mihomo.exe
-```
-
-Set go proxy if a connection to GitHub is not possible:
-
-```shell
-go env -w GOPROXY=https://goproxy.io,direct
-```
-
-Build with gvisor tun stack:
-
-```shell
-go build -tags with_gvisor
-```
-
-### IPTABLES configuration
-
-Work on Linux OS which supported `iptables`
-
-```yaml
-# Enable the TPROXY listener
-tproxy-port: 9898
-
-iptables:
-  enable: true # default is false
-  inbound-interface: eth0 # detect the inbound interface, default is 'lo'
-```
-
-## Debugging
-
-Check [wiki](https://wiki.metacubex.one/api/#debug) to get an instruction on using debug
-API.
-
-## Credits
-
-- [Dreamacro/clash](https://github.com/Dreamacro/clash)
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-- [riobard/go-shadowsocks2](https://github.com/riobard/go-shadowsocks2)
-- [v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)
-- [WireGuard/wireguard-go](https://github.com/WireGuard/wireguard-go)
-- [yaling888/clash-plus-pro](https://github.com/yaling888/clash)
-
-## License
-
-This software is released under the GPL-3.0 license.
-
-**In addition, any downstream projects not affiliated with `MetaCubeX` shall not contain the word `mihomo` in their names.**
+This software is released under the GPL-3.0 license. As required by the
+upstream license notice, the downstream project name does not contain the word
+`mihomo`.
