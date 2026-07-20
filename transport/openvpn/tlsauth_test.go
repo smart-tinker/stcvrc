@@ -6,11 +6,14 @@ import (
 )
 
 func TestTLSAuthClientServerRoundTrip(t *testing.T) {
-	client, err := NewTLSAuth(testStaticKey(), "1")
+	client, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewTLSAuth(testStaticKey(), "0")
+	if len(client.signKey) != 32 {
+		t.Fatalf("unexpected SHA256 tls-auth signing key length: %d", len(client.signKey))
+	}
+	server, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +24,7 @@ func TestTLSAuthClientServerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := TLSCryptHeaderSize + TLSAuthTagSize + TLSAuthPIDSize + len(plaintext); len(packet) != want {
+	if want := TLSCryptHeaderSize + 32 + TLSCryptPIDSize + len(plaintext); len(packet) != want {
 		t.Fatalf("unexpected tls-auth packet length: got %d, want %d", len(packet), want)
 	}
 
@@ -40,12 +43,41 @@ func TestTLSAuthClientServerRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTLSAuthRejectsTamperedPacket(t *testing.T) {
-	client, err := NewTLSAuth(testStaticKey(), "1")
+func TestTLSAuthServerClientRoundTrip(t *testing.T) {
+	client, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewTLSAuth(testStaticKey(), "0")
+	server, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	header := []byte{0x40, 8, 7, 6, 5, 4, 3, 2, 1}
+	plaintext := []byte("server hello over openvpn control channel")
+	packet, err := server.Wrap(header, 9, 1714567900, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, packetID, unixTime, gotPlaintext, err := client.Unwrap(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if packetID != 9 || unixTime != 1714567900 {
+		t.Fatalf("unexpected packet id/time: %d/%d", packetID, unixTime)
+	}
+	if !bytes.Equal(gotPlaintext, plaintext) {
+		t.Fatalf("unexpected plaintext: %q", gotPlaintext)
+	}
+}
+
+func TestTLSAuthRejectsTamperedPacket(t *testing.T) {
+	client, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", false)
 	if err != nil {
 		t.Fatal(err)
 	}

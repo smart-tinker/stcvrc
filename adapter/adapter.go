@@ -157,6 +157,11 @@ func (p *Proxy) MarshalJSON() ([]byte, error) {
 	mapping["routing-mark"] = proxyInfo.RoutingMark
 	mapping["provider-name"] = proxyInfo.ProviderName
 	mapping["dialer-proxy"] = proxyInfo.DialerProxy
+	if p.Type() == C.PassRule {
+		// Clash Verge Rev v2.5.x does not know the API-only PassRule type.
+		// Keep the internal routing semantics, but expose a compatible type.
+		mapping["type"] = C.Pass.String()
+	}
 
 	return json.Marshal(mapping)
 }

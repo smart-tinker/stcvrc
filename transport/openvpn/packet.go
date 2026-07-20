@@ -7,11 +7,6 @@ import (
 	"fmt"
 )
 
-type ControlCryptor interface {
-	Wrap(header []byte, packetID uint32, unixTime uint32, plaintext []byte) ([]byte, error)
-	Unwrap(packet []byte) (header []byte, packetID uint32, unixTime uint32, plaintext []byte, err error)
-}
-
 const (
 	KeyIDMask   = 0x07
 	OpcodeShift = 3
@@ -100,6 +95,14 @@ func opcodeKeyID(opcode Opcode, keyID uint8) byte {
 	return byte(opcode)<<OpcodeShift | (keyID & KeyIDMask)
 }
 
+func nextRenegotiationKeyID(current uint8) uint8 {
+	next := (current + 1) & KeyIDMask
+	if next == 0 {
+		return 1
+	}
+	return next
+}
+
 func parseOpcodeKeyID(b byte) (Opcode, uint8) {
 	return Opcode(b >> OpcodeShift), b & KeyIDMask
 }
@@ -172,7 +175,7 @@ func DecodeControlPlain(opcode Opcode, plain []byte) (ackIDs []uint32, ackRemote
 	return ackIDs, ackRemote, messageID, payload, nil
 }
 
-func (p ControlPacket) Encode(crypt ControlCryptor, packetID uint32, unixTime uint32) ([]byte, error) {
+func (p ControlPacket) Encode(crypt ControlProtection, packetID uint32, unixTime uint32) ([]byte, error) {
 	plain, err := p.EncodePlain()
 	if err != nil {
 		return nil, err
@@ -190,7 +193,7 @@ func (p ControlPacket) Encode(crypt ControlCryptor, packetID uint32, unixTime ui
 	return crypt.Wrap(header, packetID, unixTime, plain)
 }
 
-func DecodeControlPacket(crypt ControlCryptor, packet []byte) (*ControlPacket, uint32, uint32, error) {
+func DecodeControlPacket(crypt ControlProtection, packet []byte) (*ControlPacket, uint32, uint32, error) {
 	if crypt == nil {
 		if len(packet) < TLSCryptHeaderSize+1 {
 			return nil, 0, 0, errors.New("control packet too short")

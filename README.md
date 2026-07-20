@@ -1,22 +1,26 @@
 <h1 align="center">
-  <img src="Meta.png" alt="Meta Kennel" width="200">
-  <br>Meta Kernel<br>
+  STCVRC
 </h1>
 
-<h3 align="center">Another Mihomo Kernel.</h3>
+<h3 align="center">Smart Tinker Clash Verge Rev Core</h3>
 
-<p align="center">
-  <a href="https://goreportcard.com/report/github.com/MetaCubeX/mihomo">
-    <img src="https://goreportcard.com/badge/github.com/MetaCubeX/mihomo?style=flat-square">
-  </a>
-  <img src="https://img.shields.io/github/go-mod/go-version/MetaCubeX/mihomo/Alpha?style=flat-square">
-  <a href="https://github.com/MetaCubeX/mihomo/releases">
-    <img src="https://img.shields.io/github/release/MetaCubeX/mihomo/all.svg?style=flat-square">
-  </a>
-  <a href="https://github.com/MetaCubeX/mihomo">
-    <img src="https://img.shields.io/badge/release-Meta-00b4f0?style=flat-square">
-  </a>
-</p>
+STCVRC is a replaceable core for the stock
+[Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) desktop
+application. It is based on the latest accepted stable release of
+[MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo).
+
+## Scope
+
+- Clash Verge Rev is used unmodified; this project does not maintain a UI fork.
+- The maintained source delta is limited to OpenVPN compatibility, control-plane
+  continuity during soft rekey, and the API surface required by Clash Verge Rev.
+- Local profiles, credentials, certificates, and deployment state are not part
+  of this repository.
+- The Windows amd64 artifact is built as `verge-mihomo.exe` so it can replace
+  the stock Clash Verge Rev core without changing the UI package.
+
+STCVRC is an independent downstream project and is not affiliated with
+MetaCubeX or Clash Verge Rev.
 
 ## Features
 
@@ -30,29 +34,23 @@
 - Netfilter TCP redirecting. Deploy Mihomo on your Internet gateway with `iptables`.
 - Comprehensive HTTP RESTful API controller
 
-## Dashboard
+## Upstream documentation
 
-A web dashboard with first-class support for this project has been created; it can be checked out at [metacubexd](https://github.com/MetaCubeX/metacubexd).
-
-## Configration example
-
-Configuration example is located at [/docs/config.yaml](https://github.com/MetaCubeX/mihomo/blob/Alpha/docs/config.yaml).
-
-## Docs
-
-Documentation can be found in [mihomo Docs](https://wiki.metacubex.one/).
+Configuration and API documentation is maintained by the upstream project at
+[wiki.metacubex.one](https://wiki.metacubex.one/).
 
 ## For development
 
 Requirements:
 [Go 1.20 or newer](https://go.dev/dl/)
 
-Build mihomo:
+Build STCVRC:
 
 ```shell
-git clone https://github.com/MetaCubeX/mihomo.git
-cd mihomo && go mod download
-go build
+git clone https://github.com/smart-tinker/mihomo.git stcvrc
+cd stcvrc
+go mod download
+go build -tags with_gvisor -o verge-mihomo.exe
 ```
 
 Set go proxy if a connection to GitHub is not possible:

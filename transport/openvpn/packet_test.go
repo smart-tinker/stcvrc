@@ -59,11 +59,11 @@ func TestControlPacketEncodeDecodeWithTLSCrypt(t *testing.T) {
 }
 
 func TestControlPacketEncodeDecodeWithTLSAuth(t *testing.T) {
-	cryptClient, err := NewTLSAuth(testStaticKey(), "1")
+	authClient, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cryptServer, err := NewTLSAuth(testStaticKey(), "0")
+	authServer, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +80,14 @@ func TestControlPacketEncodeDecodeWithTLSAuth(t *testing.T) {
 		AckIDs:           []uint32{3, 4},
 		AckRemoteSession: remote,
 		MessageID:        9,
-		Payload:          []byte("tls auth"),
+		Payload:          []byte("tls-auth plaintext"),
 	}
-	encoded, err := packet.Encode(cryptClient, 77, 1714567890)
+	encoded, err := packet.Encode(authClient, 77, 1714567890)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	decoded, packetID, unixTime, err := DecodeControlPacket(cryptServer, encoded)
+	decoded, packetID, unixTime, err := DecodeControlPacket(authServer, encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +102,12 @@ func TestControlPacketEncodeDecodeWithTLSAuth(t *testing.T) {
 	}
 	if !bytes.Equal(decoded.Payload, packet.Payload) {
 		t.Fatalf("unexpected payload: %q", decoded.Payload)
+	}
+	if len(decoded.AckIDs) != 2 || decoded.AckIDs[0] != 3 || decoded.AckIDs[1] != 4 {
+		t.Fatalf("unexpected ack ids: %#v", decoded.AckIDs)
+	}
+	if decoded.AckRemoteSession != remote {
+		t.Fatalf("unexpected ack remote session: %x", decoded.AckRemoteSession)
 	}
 }
 

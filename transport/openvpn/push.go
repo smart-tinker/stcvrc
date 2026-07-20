@@ -5,26 +5,27 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const PushRequest = "PUSH_REQUEST"
 
 type PushReply struct {
-	Raw       string
-	Prefixes  []netip.Prefix
-	Routes    []netip.Prefix
-	DNS       []netip.Addr
-	PeerID    uint32
-	Redirect  bool
-	BlockIPv6 bool
-
-	// DataCiphers is the list of data channel ciphers pushed by the server
-	// via the "data-ciphers" option (OpenVPN 2.5+).
-	DataCiphers []string
-
-	// Cipher is the single cipher pushed by the server via the "cipher"
-	// option (legacy or fallback).
-	Cipher string
+	Raw                string
+	Prefixes           []netip.Prefix
+	Routes             []netip.Prefix
+	DNS                []netip.Addr
+	PeerID             uint32
+	Redirect           bool
+	BlockIPv6          bool
+	PingInterval       time.Duration
+	PingRestart        time.Duration
+	RenegotiateAfter   time.Duration
+	InactiveAfter      time.Duration
+	ExplicitExitNotify bool
+	DataCiphers        []string
+	Cipher             string
+	Auth               string
 }
 
 func ParsePushReply(message string) (*PushReply, error) {
@@ -92,21 +93,47 @@ func ParsePushReply(message string) (*PushReply, error) {
 			reply.Redirect = true
 		case "block-ipv6":
 			reply.BlockIPv6 = true
-		case "data-ciphers", "ncp-ciphers":
-			// "data-ciphers" (OpenVPN 2.5+) or "ncp-ciphers" (2.4 legacy name).
-			// Value is a colon-separated list of cipher names.
+		case "ping":
 			if len(fields) >= 2 {
-				for _, c := range strings.Split(fields[1], ":") {
-					c = strings.TrimSpace(c)
-					if c != "" {
-						reply.DataCiphers = append(reply.DataCiphers, c)
+				if d, ok := parsePushDurationSeconds(fields[1]); ok {
+					reply.PingInterval = d
+				}
+			}
+		case "ping-restart":
+			if len(fields) >= 2 {
+				if d, ok := parsePushDurationSeconds(fields[1]); ok {
+					reply.PingRestart = d
+				}
+			}
+		case "reneg-sec":
+			if len(fields) >= 2 {
+				if d, ok := parsePushDurationSeconds(fields[1]); ok {
+					reply.RenegotiateAfter = d
+				}
+			}
+		case "inactive":
+			if len(fields) >= 2 {
+				if d, ok := parsePushDurationSeconds(fields[1]); ok {
+					reply.InactiveAfter = d
+				}
+			}
+		case "explicit-exit-notify":
+			reply.ExplicitExitNotify = true
+		case "data-ciphers", "ncp-ciphers":
+			if len(fields) >= 2 {
+				for _, cipher := range strings.Split(fields[1], ":") {
+					if cipher = strings.TrimSpace(cipher); cipher != "" {
+						reply.DataCiphers = append(reply.DataCiphers, cipher)
 					}
 				}
 			}
 		case "cipher":
-			// Legacy single cipher push, or fallback cipher.
 			if len(fields) >= 2 {
-				reply.Cipher = strings.TrimSpace(fields[1])
+				reply.Cipher = fields[1]
+			}
+		case "auth":
+			if len(fields) >= 2 {
+				reply.Auth = fields[1]
 			}
 		}
 	}
@@ -114,6 +141,14 @@ func ParsePushReply(message string) (*PushReply, error) {
 		return nil, fmt.Errorf("openvpn push reply missing ifconfig address")
 	}
 	return reply, nil
+}
+
+func parsePushDurationSeconds(value string) (time.Duration, bool) {
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return 0, false
+	}
+	return time.Duration(seconds) * time.Second, true
 }
 
 func splitPushOptions(message string) []string {
@@ -130,6 +165,30 @@ func splitPushOptions(message string) []string {
 		}
 	}
 	return out
+}
+
+func splitPushReplyOptions(message string) ([]string, int) {
+	options := splitPushOptions(message)
+	out := options[:0]
+	continuation := 0
+	for _, option := range options {
+		fields := strings.Fields(option)
+		if len(fields) == 2 && fields[0] == "push-continuation" {
+			if value, err := strconv.Atoi(fields[1]); err == nil {
+				continuation = value
+			}
+			continue
+		}
+		out = append(out, option)
+	}
+	return out, continuation
+}
+
+func joinPushReplyOptions(options []string) string {
+	if len(options) == 0 {
+		return "PUSH_REPLY"
+	}
+	return "PUSH_REPLY," + strings.Join(options, ",")
 }
 
 func parseIPv4Ifconfig(address, maskOrPeer string) (netip.Prefix, error) {

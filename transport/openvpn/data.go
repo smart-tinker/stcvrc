@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"hash"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -42,6 +43,16 @@ func IsPingPacket(packet []byte) bool {
 }
 
 type DataChannel struct {
+	mu             sync.RWMutex
+	active         *dataChannelKey
+	send           *dataChannelKey
+	recvKeys       map[uint8]*dataChannelKey
+	generation     uint64
+	sendActivateAt time.Time
+	clock          func() time.Time
+}
+
+type dataChannelKey struct {
 	sendAEAD cipher.AEAD
 	recvAEAD cipher.AEAD
 
@@ -57,9 +68,10 @@ type DataChannel struct {
 	sendImplicitIV [DataChannelIVSize]byte
 	recvImplicitIV [DataChannelIVSize]byte
 
-	keyID  uint8
-	peerID uint32
-	header []byte
+	keyID   uint8
+	peerID  uint32
+	header  []byte
+	compLZO string
 
 	mu           sync.Mutex
 	sendPacketID uint32
@@ -72,7 +84,22 @@ type DataChannel struct {
 	randOffset int
 }
 
-func NewDataChannel(keys *KeyMaterial, cipherName, authName string, peerID uint32) (*DataChannel, error) {
+func NewDataChannel(keys *KeyMaterial, cipherName, authName string, peerID uint32, compLZO string) (*DataChannel, error) {
+	key, err := newDataChannelKey(keys, cipherName, authName, peerID, compLZO, 0)
+	if err != nil {
+		return nil, err
+	}
+	return &DataChannel{
+		active: key,
+		send:   key,
+		clock:  time.Now,
+		recvKeys: map[uint8]*dataChannelKey{
+			0: key,
+		},
+	}, nil
+}
+
+func newDataChannelKey(keys *KeyMaterial, cipherName, authName string, peerID uint32, compLZO string, keyID uint8) (*dataChannelKey, error) {
 	if keys == nil {
 		return nil, errors.New("nil openvpn key material")
 	}
@@ -88,11 +115,13 @@ func NewDataChannel(keys *KeyMaterial, cipherName, authName string, peerID uint3
 		if len(keys.SendHMACKey) < DataChannelIVSize-4 || len(keys.RecvHMACKey) < DataChannelIVSize-4 {
 			return nil, errors.New("openvpn implicit IV keys are too short")
 		}
-		d := &DataChannel{
+		d := &dataChannelKey{
 			sendAEAD: send,
 			recvAEAD: recv,
+			keyID:    keyID,
 			peerID:   peerID,
-			header:   dataHeader(peerID, 0),
+			header:   dataHeader(peerID, keyID),
+			compLZO:  compLZO,
 		}
 		copy(d.sendImplicitIV[4:], keys.SendHMACKey[:DataChannelIVSize-4])
 		copy(d.recvImplicitIV[4:], keys.RecvHMACKey[:DataChannelIVSize-4])
@@ -114,15 +143,17 @@ func NewDataChannel(keys *KeyMaterial, cipherName, authName string, peerID uint3
 	if len(keys.SendHMACKey) < authSize || len(keys.RecvHMACKey) < authSize {
 		return nil, errors.New("openvpn HMAC keys are too short")
 	}
-	d := &DataChannel{
+	d := &dataChannelKey{
 		sendBlock:   send,
 		recvBlock:   recv,
 		sendHMACKey: append([]byte(nil), keys.SendHMACKey[:authSize]...),
 		recvHMACKey: append([]byte(nil), keys.RecvHMACKey[:authSize]...),
 		authHash:    authHash,
 		authSize:    authSize,
+		keyID:       keyID,
 		peerID:      peerID,
-		header:      dataHeader(peerID, 0),
+		header:      dataHeader(peerID, keyID),
+		compLZO:     compLZO,
 	}
 	d.sendMACPool.New = func() any {
 		return hmac.New(d.authHash, d.sendHMACKey)
@@ -187,7 +218,186 @@ func (d *DataChannel) Encrypt(packet []byte) ([]byte, error) {
 	if d == nil {
 		return nil, errors.New("nil openvpn data channel")
 	}
+	key := d.sendKey()
+	if key == nil {
+		return nil, errors.New("openvpn data channel has no active key")
+	}
 
+	// Prepend comp-lzo header (0xfa = not compressed) to satisfy servers expecting the framing.
+	if key.compLZO == CompLzoYes {
+		lzoPacket := make([]byte, 1+len(packet))
+		lzoPacket[0] = lzoCompressNone
+		copy(lzoPacket[1:], packet)
+		packet = lzoPacket
+	}
+
+	return key.Encrypt(packet)
+}
+
+func (d *DataChannel) Decrypt(packet []byte) ([]byte, error) {
+	if d == nil {
+		return nil, errors.New("nil openvpn data channel")
+	}
+	keyID, err := dataPacketKeyID(packet)
+	if err != nil {
+		return nil, err
+	}
+	key := d.recvKey(keyID)
+	if key == nil {
+		return nil, fmt.Errorf("openvpn data packet uses unavailable key id %d", keyID)
+	}
+	plain, err := key.Decrypt(packet)
+	if err != nil {
+		return nil, err
+	}
+	d.promoteSendKey(keyID)
+	if key.compLZO == CompLzoYes && len(plain) > 0 {
+		decompressed, err := lzo1xDecompressSafe(plain)
+		if err != nil {
+			return nil, err
+		}
+		if len(decompressed) > 0 {
+			return decompressed, nil
+		}
+	}
+	return plain, nil
+}
+
+func (d *DataChannel) Rekey(keys *KeyMaterial, cipherName, authName string, peerID uint32, compLZO string) error {
+	return d.RekeyWithSendDelay(keys, cipherName, authName, peerID, compLZO, 0)
+}
+
+func (d *DataChannel) RekeyWithSendDelay(keys *KeyMaterial, cipherName, authName string, peerID uint32, compLZO string, activationDelay time.Duration) error {
+	if d == nil {
+		return errors.New("nil openvpn data channel")
+	}
+	active := d.activeKey()
+	nextKeyID := uint8(0)
+	previousKeyID := uint8(0)
+	if active != nil {
+		previousKeyID = active.keyID
+		nextKeyID = nextRenegotiationKeyID(active.keyID)
+	}
+	next, err := newDataChannelKey(keys, cipherName, authName, peerID, compLZO, nextKeyID)
+	if err != nil {
+		return err
+	}
+
+	d.mu.Lock()
+	if d.recvKeys == nil {
+		d.recvKeys = make(map[uint8]*dataChannelKey)
+	}
+	d.active = next
+	d.send = next
+	d.sendActivateAt = time.Time{}
+	if active != nil && activationDelay > 0 {
+		d.send = active
+		now := time.Now()
+		if d.clock != nil {
+			now = d.clock()
+		}
+		d.sendActivateAt = now.Add(activationDelay)
+	}
+	d.generation++
+	d.recvKeys[nextKeyID] = next
+	for keyID := range d.recvKeys {
+		if keyID != nextKeyID && keyID != previousKeyID {
+			delete(d.recvKeys, keyID)
+		}
+	}
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *DataChannel) RetirePreviousKeys() {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.retirePreviousKeysLocked()
+	d.mu.Unlock()
+}
+
+func (d *DataChannel) RetirePreviousKeysForGeneration(generation uint64) bool {
+	if d == nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.generation != generation {
+		return false
+	}
+	d.retirePreviousKeysLocked()
+	return true
+}
+
+func (d *DataChannel) activeGeneration() (uint64, bool) {
+	if d == nil {
+		return 0, false
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.active == nil {
+		return 0, false
+	}
+	return d.generation, true
+}
+
+func (d *DataChannel) retirePreviousKeysLocked() {
+	if d.active == nil {
+		d.send = nil
+		d.recvKeys = nil
+		d.sendActivateAt = time.Time{}
+		return
+	}
+	d.send = d.active
+	d.sendActivateAt = time.Time{}
+	d.recvKeys = map[uint8]*dataChannelKey{
+		d.active.keyID: d.active,
+	}
+}
+
+func (d *DataChannel) sendKey() *dataChannelKey {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.send == nil {
+		d.send = d.active
+	}
+	if d.active != nil && d.send != d.active && !d.sendActivateAt.IsZero() {
+		now := time.Now()
+		if d.clock != nil {
+			now = d.clock()
+		}
+		if !now.Before(d.sendActivateAt) {
+			d.send = d.active
+			d.sendActivateAt = time.Time{}
+		}
+	}
+	return d.send
+}
+
+func (d *DataChannel) promoteSendKey(keyID uint8) {
+	d.mu.Lock()
+	if d.active != nil && d.active.keyID == keyID {
+		d.send = d.active
+		d.sendActivateAt = time.Time{}
+	}
+	d.mu.Unlock()
+}
+
+func (d *DataChannel) activeKey() *dataChannelKey {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.active
+}
+
+func (d *DataChannel) recvKey(keyID uint8) *dataChannelKey {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.recvKeys[keyID]
+}
+
+func (d *dataChannelKey) Encrypt(packet []byte) ([]byte, error) {
 	packetID := d.nextPacketID()
 	if d.sendAEAD != nil {
 		return d.encryptAEAD(packet, packetID)
@@ -195,7 +405,7 @@ func (d *DataChannel) Encrypt(packet []byte) ([]byte, error) {
 	return d.encryptCBC(packet, packetID)
 }
 
-func (d *DataChannel) encryptAEAD(packet []byte, packetID uint32) ([]byte, error) {
+func (d *dataChannelKey) encryptAEAD(packet []byte, packetID uint32) ([]byte, error) {
 	header := d.header
 	var packetIDBytes [4]byte
 	binary.BigEndian.PutUint32(packetIDBytes[:], packetID)
@@ -213,7 +423,7 @@ func (d *DataChannel) encryptAEAD(packet []byte, packetID uint32) ([]byte, error
 	return out, nil
 }
 
-func (d *DataChannel) encryptCBC(packet []byte, packetID uint32) ([]byte, error) {
+func (d *dataChannelKey) encryptCBC(packet []byte, packetID uint32) ([]byte, error) {
 	header := d.header
 	blockSize := d.sendBlock.BlockSize()
 	plainLen := 4 + len(packet)
@@ -239,10 +449,7 @@ func (d *DataChannel) encryptCBC(packet []byte, packetID uint32) ([]byte, error)
 	return out, nil
 }
 
-func (d *DataChannel) Decrypt(packet []byte) ([]byte, error) {
-	if d == nil {
-		return nil, errors.New("nil openvpn data channel")
-	}
+func (d *dataChannelKey) Decrypt(packet []byte) ([]byte, error) {
 	headerSize, err := dataPacketHeaderSize(packet)
 	if err != nil {
 		return nil, err
@@ -253,7 +460,7 @@ func (d *DataChannel) Decrypt(packet []byte) ([]byte, error) {
 	return d.decryptCBC(packet, headerSize)
 }
 
-func (d *DataChannel) decryptAEAD(packet []byte, headerSize int) ([]byte, error) {
+func (d *dataChannelKey) decryptAEAD(packet []byte, headerSize int) ([]byte, error) {
 	if len(packet) < 1 {
 		return nil, errors.New("empty openvpn data packet")
 	}
@@ -284,7 +491,7 @@ func (d *DataChannel) decryptAEAD(packet []byte, headerSize int) ([]byte, error)
 	return plain, nil
 }
 
-func (d *DataChannel) decryptCBC(packet []byte, headerSize int) ([]byte, error) {
+func (d *dataChannelKey) decryptCBC(packet []byte, headerSize int) ([]byte, error) {
 	blockSize := d.recvBlock.BlockSize()
 	minPacketLen := headerSize + d.authSize + blockSize + blockSize
 	if len(packet) < minPacketLen {
@@ -339,14 +546,32 @@ func dataPacketHeaderSize(packet []byte) (int, error) {
 	}
 }
 
-func (d *DataChannel) nextPacketID() uint32 {
+func dataPacketKeyID(packet []byte) (uint8, error) {
+	if len(packet) < 1 {
+		return 0, errors.New("empty openvpn data packet")
+	}
+	opcode, keyID := parseOpcodeKeyID(packet[0])
+	switch opcode {
+	case PDataV1:
+		return keyID, nil
+	case PDataV2:
+		if len(packet) < 4 {
+			return 0, errors.New("openvpn P_DATA_V2 packet missing peer id")
+		}
+		return keyID, nil
+	default:
+		return 0, fmt.Errorf("not an openvpn data packet: %s", opcode)
+	}
+}
+
+func (d *dataChannelKey) nextPacketID() uint32 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.sendPacketID++
 	return d.sendPacketID
 }
 
-func (d *DataChannel) acceptPacketID(packetID uint32) error {
+func (d *dataChannelKey) acceptPacketID(packetID uint32) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -392,13 +617,13 @@ func dataHeader(peerID uint32, keyID uint8) []byte {
 	return []byte{opcodeKeyID(PDataV1, keyID)}
 }
 
-func (d *DataChannel) nonce(packetID uint32, implicit [DataChannelIVSize]byte) [DataChannelIVSize]byte {
+func (d *dataChannelKey) nonce(packetID uint32, implicit [DataChannelIVSize]byte) [DataChannelIVSize]byte {
 	nonce := implicit
 	binary.BigEndian.PutUint32(nonce[:4], binary.BigEndian.Uint32(nonce[:4])^packetID)
 	return nonce
 }
 
-func (d *DataChannel) fillCBCIV(iv []byte) error {
+func (d *dataChannelKey) fillCBCIV(iv []byte) error {
 	d.randMu.Lock()
 	defer d.randMu.Unlock()
 
@@ -429,7 +654,7 @@ func dataChannelHMACAppend(newHash func() hash.Hash, key, data, dst []byte) []by
 	return mac.Sum(dst)
 }
 
-func (d *DataChannel) hmacAppend(pool *sync.Pool, data, dst []byte) []byte {
+func (d *dataChannelKey) hmacAppend(pool *sync.Pool, data, dst []byte) []byte {
 	mac := pool.Get().(hash.Hash)
 	defer pool.Put(mac)
 	mac.Reset()

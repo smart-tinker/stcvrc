@@ -155,7 +155,7 @@ func DeriveClientKeyMaterial(sources KeySource2, clientSession, serverSession Se
 	}, nil
 }
 
-func InstallScriptOptionsString(proto, cipher, auth string, compLZO string) string {
+func InstallScriptOptionsString(proto, cipher, auth string, compLZO string, tlsAuth bool, keyDirection string) string {
 	protoName := "UDPv4"
 	if proto == ProtoTCP {
 		protoName = "TCPv4_CLIENT"
@@ -170,7 +170,11 @@ func InstallScriptOptionsString(proto, cipher, auth string, compLZO string) stri
 		mtu = "1544"
 		comp = "comp-lzo,"
 	}
-	return fmt.Sprintf("V4,dev-type tun,link-mtu %s,tun-mtu 1500,proto %s,%scipher %s,auth %s,keysize %s,key-method 2,tls-client", mtu, protoName, comp, cipher, auth, keysize)
+	tlsAuthOptions := ""
+	if tlsAuth {
+		tlsAuthOptions = fmt.Sprintf("keydir %s,tls-auth,", keyDirection)
+	}
+	return fmt.Sprintf("V4,dev-type tun,link-mtu %s,tun-mtu 1500,proto %s,%s%scipher %s,auth %s,keysize %s,key-method 2,tls-client", mtu, protoName, comp, tlsAuthOptions, cipher, auth, keysize)
 }
 
 func InstallScriptPeerInfo(cipher string, dataCiphers []string, compLZO string, peerInfo map[string]string) string {
@@ -178,19 +182,15 @@ func InstallScriptPeerInfo(cipher string, dataCiphers []string, compLZO string, 
 	if compLZO == CompLzoYes {
 		lzo = "IV_LZO=1\n"
 	}
-	// Build the IV_CIPHERS string. If a data-ciphers list is configured,
-	// send all entries colon-separated. Otherwise, send just the single cipher.
 	ivCiphers := cipher
 	if len(dataCiphers) > 0 {
 		normalized := make([]string, len(dataCiphers))
-		for i, c := range dataCiphers {
-			normalized[i] = normalizeCipher(c)
+		for i, candidate := range dataCiphers {
+			normalized[i] = normalizeCipher(candidate)
 		}
 		ivCiphers = strings.Join(normalized, ":")
 	}
-	info := fmt.Sprintf("IV_VER=mihomo-openvpn\nIV_PROTO=6\n%sIV_CIPHERS=%s\n", lzo, ivCiphers)
-	// Append user-defined peer-info entries (e.g. IV_HWADDR, UV_*) after the
-	// built-in fields. Keys are sorted so the output is deterministic.
+	info := fmt.Sprintf("IV_VER=mihomo-openvpn\nIV_PROTO=6\nIV_NCP=2\n%sIV_CIPHERS=%s\n", lzo, ivCiphers)
 	keys := make([]string, 0, len(peerInfo))
 	for key := range peerInfo {
 		keys = append(keys, key)
@@ -200,6 +200,16 @@ func InstallScriptPeerInfo(cipher string, dataCiphers []string, compLZO string, 
 		info += fmt.Sprintf("%s=%s\n", key, peerInfo[key])
 	}
 	return info
+}
+
+func optionValue(options, name string) string {
+	for _, option := range strings.Split(options, ",") {
+		fields := strings.Fields(strings.TrimSpace(option))
+		if len(fields) >= 2 && fields[0] == name {
+			return fields[1]
+		}
+	}
+	return ""
 }
 
 func appendOpenVPNString(out []byte, s string) []byte {

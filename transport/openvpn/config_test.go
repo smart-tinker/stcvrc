@@ -3,6 +3,7 @@ package openvpn
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 const testCert = `-----BEGIN CERTIFICATE-----
@@ -75,6 +76,68 @@ func TestClientConfigDefaults(t *testing.T) {
 	if cfg.Proto != ProtoUDP || cfg.Dev != "tun" || cfg.Cipher != CipherAES128GCM || cfg.Auth != AuthSHA256 {
 		t.Fatalf("unexpected defaults: proto=%s dev=%s cipher=%s auth=%s", cfg.Proto, cfg.Dev, cfg.Cipher, cfg.Auth)
 	}
+	if cfg.TLSMinVersion != TLSVersion12 {
+		t.Fatalf("unexpected tls-version-min default: %s", cfg.TLSMinVersion)
+	}
+	if cfg.TransitionWindow != DefaultTransitionWindow {
+		t.Fatalf("unexpected transition-window default: %s", cfg.TransitionWindow)
+	}
+}
+
+func TestClientConfigRejectsNegativeRekeyTiming(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ClientConfig)
+	}{
+		{name: "reneg-sec", mutate: func(cfg *ClientConfig) { cfg.RenegotiateAfter = -time.Second }},
+		{name: "tran-window", mutate: func(cfg *ClientConfig) { cfg.TransitionWindow = -time.Second }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := yamlStyleConfig()
+			tt.mutate(cfg)
+			if err := cfg.Prepare(); err == nil {
+				t.Fatal("expected invalid rekey timing error")
+			}
+		})
+	}
+}
+
+func TestClientConfigTLSMinVersion(t *testing.T) {
+	cfg := yamlStyleConfig()
+	cfg.TLSMinVersion = "tlsv1.0"
+
+	if err := cfg.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLSMinVersion != TLSVersion10 {
+		t.Fatalf("unexpected tls-version-min: %s", cfg.TLSMinVersion)
+	}
+}
+
+func TestClientConfigTLSMinVersionAcceptsYAMLNumberString(t *testing.T) {
+	cfg := yamlStyleConfig()
+	cfg.TLSMinVersion = "1E+00"
+
+	if err := cfg.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLSMinVersion != TLSVersion10 {
+		t.Fatalf("unexpected tls-version-min: %s", cfg.TLSMinVersion)
+	}
+}
+
+func TestClientConfigRejectsUnsupportedTLSMinVersion(t *testing.T) {
+	cfg := yamlStyleConfig()
+	cfg.TLSMinVersion = "1.4"
+
+	err := cfg.Prepare()
+	if err == nil {
+		t.Fatal("expected unsupported tls-version-min error")
+	}
+	if !strings.Contains(err.Error(), "unsupported openvpn tls-version-min") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestClientConfigRejectsUnsupportedProto(t *testing.T) {
@@ -97,6 +160,31 @@ func TestClientConfigAllowsMissingTLSCrypt(t *testing.T) {
 	}
 	if len(cfg.TLSCryptKey) != 0 {
 		t.Fatalf("unexpected tls-crypt key length: %d", len(cfg.TLSCryptKey))
+	}
+}
+
+func TestClientConfigTLSAuthFixture(t *testing.T) {
+	cfg := yamlStyleConfig()
+	cfg.TLSCrypt = nil
+	cfg.TLSAuth = []byte(testTLSCryptBlock())
+	cfg.KeyDirection = "1"
+	if err := cfg.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TLSAuthKey) != 256 {
+		t.Fatalf("unexpected tls-auth key length: %d", len(cfg.TLSAuthKey))
+	}
+}
+
+func TestClientConfigRejectsTLSCryptWithTLSAuth(t *testing.T) {
+	cfg := yamlStyleConfig()
+	cfg.TLSAuth = []byte(testTLSCryptBlock())
+	err := cfg.Prepare()
+	if err == nil {
+		t.Fatal("expected mutually exclusive tls-crypt/tls-auth error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
