@@ -89,7 +89,7 @@
     "skipped": 0,
     "scope": "local unit/fixture/PowerShell AST checks only"
   },
-  "preparationSourceHashesRechecked": true,
+  "preparationSourceHashesRechecked": false,
   "rollback": {
     "completed": "Local UI/core version pairs 2.5.5 to 2.5.8 and 2.5.2 to 2.5.8",
     "pending": [
@@ -98,7 +98,8 @@
       "Separate Work-host deployment support"
     ],
     "runtimeValidated": false,
-    "publicSources": "preparation/README.md"
+    "publicSources": "preparation/README.md",
+    "confirmDeadlineFix": "Offline AST/mock regression PASS; real integration/deadline restoration NOT_RUN"
   },
   "acceptance": {
     "newVmGate": "NOT RUN; shared VM occupied",
@@ -155,6 +156,41 @@
       "sourceForm": "Sanitized copies of actual scripts and tests, not byte-identical host deployment scripts; changes and both hashes recorded",
       "artifactReproduction": "Exact pinned core and installer binaries required for all55; otherwise54PASS and1SKIP, binaries not published"
     },
-    "runtimeAccepted": false
+    "runtimeAccepted": false,
+    "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572"
+  },
+  "preparationSourceHashStatus": {
+    "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
+    "historicalOriginalNineMatched": 9,
+    "currentOriginalNineMatched": 8,
+    "intentionalChange": "scripts/stcvrc-safe-rollout.ps1: confirm deadline fix",
+    "priorOriginalsUnchanged": 23,
+    "priorOriginals": 24,
+    "currentPublicSourceMaps": 25,
+    "newRegressionSources": 1,
+    "provenance": "preparation/provenance.json"
+  },
+  "confirmDeadlineReview": {
+    "reviewComment": "https://github.com/smart-tinker/stcvrc/pull/2#issuecomment-6191897311",
+    "overview": "CONFIRM-DEADLINE.md",
+    "runtimeAccepted": false,
+    "scope": "Actual rollback guard source change plus deterministic AST/mock regression; no core or binary changes",
+    "preparation": {
+      "testsRun": 66,
+      "passed": 66,
+      "skipped": 0,
+      "originalCases": 55,
+      "regressionCases": 11,
+      "report": "preparation/evidence/confirm-deadline/preparation-tests.json",
+      "sourceOnlyReport": "preparation/evidence/confirm-deadline/source-only/preparation-tests.json"
+    },
+    "redGreen": {
+      "red": "preparation/evidence/confirm-deadline/regression-red-report.json",
+      "green": "preparation/evidence/confirm-deadline/regression-green-report.json"
+    },
+    "immutableStagedTransactions": "Existing staged transactions are not hotpatched; only fresh staging includes the corrected source/script hash",
+    "homeReady": false,
+    "workReady": false,
+    "vmGate": "NOT_RUN"
   }
 }

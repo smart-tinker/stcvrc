@@ -15,7 +15,8 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 MODULES = ['test_stcvrc_candidate_gate', 'test_stcvrc_lab_stack', 'test_stcvrc_safe_rollout',
-           'test_stcvrc_ui_candidate_rollout', 'test_stcvrc_observer_installer']
+           'test_stcvrc_ui_candidate_rollout', 'test_stcvrc_observer_installer',
+           'test_stcvrc_confirm_deadline']
 
 
 class Results(unittest.TextTestResult):
@@ -36,7 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifacts-root', type=Path, help='External root containing local/artifacts paths; never execute binaries')
     parser.add_argument('--work-dir', type=Path, required=True, help='Caller-owned scratch directory for temporary fixtures')
-    parser.add_argument('--output-dir', type=Path, default=HERE / 'evidence')
+    parser.add_argument('--output-dir', type=Path, default=HERE / 'evidence/confirm-deadline')
     parser.add_argument('--suite', choices=['preparation', 'observer'], default='preparation')
     args = parser.parse_args()
     if os.name != 'nt':
@@ -44,7 +45,7 @@ def main():
     args.work_dir.mkdir(parents=True, exist_ok=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     tempfile.tempdir = str(args.work_dir.resolve())
-    os.environ['TEMP'] = os.environ['TMP'] = str(args.work_dir.resolve())
+    os.environ['TEMP'] = os.environ['TMP'] = os.environ['TMPDIR'] = str(args.work_dir.resolve())
     if args.artifacts_root:
         os.environ['STCVRC_PREPARATION_ARTIFACTS_ROOT'] = str(args.artifacts_root.resolve())
     else:
@@ -84,7 +85,9 @@ def main():
               'modules': modules, 'testsRun': result.testsRun, 'passed': len([row for row in result.outcomes if row['outcome'] == 'PASS']),
               'failures': len(result.failures), 'errors': len(result.errors), 'skipped': len(result.skipped),
               'pass': result.wasSuccessful(), 'seconds': round(time.monotonic() - started, 3),
-              'fullOriginal55ReproducedAgainstSanitizedCopies': args.suite == 'preparation' and result.testsRun == 55 and result.wasSuccessful() and not result.skipped,
+              'original55ReproducedAgainstSanitizedCopies': args.suite == 'preparation' and result.wasSuccessful() and not result.skipped and len([row for row in result.outcomes if not row['test'].startswith('test_stcvrc_confirm_deadline.') and row['outcome'] == 'PASS']) == 55,
+              'confirmDeadlineRegressionPassed': len([row for row in result.outcomes if row['test'].startswith('test_stcvrc_confirm_deadline.') and row['outcome'] == 'PASS']),
+              'coverage': 'Original 55 preparation cases plus the separate confirm-deadline regression module; totals count unittest cases, not subtest vectors',
               'artifactInput': 'explicit-external-root' if args.artifacts_root else 'not-supplied',
               'sourceSha256': source_hashes, 'outcomes': result.outcomes,
               'scope': 'local Python unit/fixture and extracted PowerShell AST checks; artifacts read only for SHA-256',
@@ -93,7 +96,7 @@ def main():
     name = args.suite + '-tests'
     (args.output_dir / (name + '.txt')).write_text(content, encoding='utf-8')
     (args.output_dir / (name + '.json')).write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
-    print(json.dumps({key: report[key] for key in ('testsRun', 'passed', 'failures', 'errors', 'skipped', 'pass', 'seconds', 'fullOriginal55ReproducedAgainstSanitizedCopies')}))
+    print(json.dumps({key: report[key] for key in ('testsRun', 'passed', 'failures', 'errors', 'skipped', 'pass', 'seconds', 'original55ReproducedAgainstSanitizedCopies', 'confirmDeadlineRegressionPassed')}))
     return 0 if report['pass'] else 1
 
 

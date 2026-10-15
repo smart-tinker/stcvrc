@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "exitCode": 1,
+  "testsRun": 1,
+  "failures": 1,
+  "errors": 0,
+  "expectedFailureObserved": true,
+  "observed": {
+    "deadline": "2026-10-15T12:27:20.4803005Z",
+    "guardActive": false,
+    "healthCalls": 2,
+    "healthLockWasAvailable": false,
+    "now": "2026-10-15T12:27:22.4803005Z",
+    "phase": "committed",
+    "reason": null,
+    "rejected": false
+  },
+  "testSourceVersion": "Initial one-case regression before adding boundary cases",
+  "source": "Preserved actual tool RED output before the production source fix",
+  "log": "regression-red.txt",
+  "runtimeAcceptance": false
+}

@@ -561,9 +561,21 @@ try {
         if(-not $ConsumerConfirmed){throw 'A fresh real consumer exchange must be confirmed explicitly'}
         Acquire-Lock
         if((Read-Json $StatePath).phase -cne 'awaiting-confirmation'){throw 'Candidate is not awaiting confirmation'}
-        $armed=Read-Json (Join-Path $Root 'armed.json')
-        if([DateTime]::UtcNow -ge [DateTime]::Parse($armed.deadline).ToUniversalTime().AddSeconds(-15)){throw 'Confirmation too close to rollback deadline'}
+        $armedPath=Join-Path $Root 'armed.json'
+        $armedHash=Hash $armedPath
+        $armed=Read-Json $armedPath
+        if($armed.planHash -cne (Hash $PlanPath)){throw 'Armed plan drift'}
+        if((Get-Date).ToUniversalTime() -ge [DateTime]::Parse($armed.deadline).ToUniversalTime().AddSeconds(-15)){throw 'Confirmation too close to rollback deadline'}
+        # Read-only health checks must not hold off the independent Watch rollback.
+        $Lock.Dispose()
+        $script:Lock=$null
         $null=Candidate-Check
+        Acquire-Lock
+        if((Read-Json $StatePath).phase -cne 'awaiting-confirmation'){throw 'Candidate is no longer awaiting confirmation'}
+        if((Hash $armedPath) -cne $armedHash){throw 'Armed transaction changed during confirmation'}
+        $armed=Read-Json $armedPath
+        if($armed.planHash -cne (Hash $PlanPath)){throw 'Armed plan drift'}
+        if((Get-Date).ToUniversalTime() -ge [DateTime]::Parse($armed.deadline).ToUniversalTime().AddSeconds(-15)){throw 'Confirmation too close to rollback deadline'}
         State 'committed'
         Remove-GuardTask
     } else {

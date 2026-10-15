@@ -1,0 +1,16 @@
+{
+  "sourceMaps": 25,
+  "currentOriginalAndPublicHashesMatch": true,
+  "historicalOriginalNineMatched": 9,
+  "currentOriginalNineMatched": 8,
+  "originalIntentionalChange": "scripts/stcvrc-safe-rollout.ps1",
+  "frozenPriorTreeUnchanged": true,
+  "frozenFilesChecked": 50,
+  "newReportsMatchCurrentProvenance": true,
+  "allPublicTextFilesChecked": 63,
+  "privateIdentityAndSecretScan": "PASS",
+  "coreBuildAndRetryMaterialsUnchanged": true,
+  "runtimeAccepted": false,
+  "homeReady": false,
+  "workReady": false
+}

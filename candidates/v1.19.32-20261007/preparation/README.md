@@ -1,8 +1,17 @@
+# Текущее уточнение: confirm deadline
+
+[Повторное ревью и исправление](../CONFIRM-DEADLINE.md): текущий guard
+имеет post-health deadline check и не держит lock во время health probes.
+Свежие финальные public copies: **66 PASS** с pinned artifacts,
+**65 PASS + 1 SKIP** без них. Это 55 прежних и 11 новых
+cases; runtime/TUN/recovery и Home/Work acceptance по-прежнему NOT_RUN/NO.
+Материалы первого follow-up ниже явно сохранены как historical.
+
 # Локальная проверка подготовки отката и observer
 
 Это проверяемая обезличенная копия существующих project-owned scripts, а не
-новая реализация rollback и не готовый deployment bundle. Оригиналы сохранены
-неизменными. Не запускайте entry points из `scripts/` для установки: host,
+новая реализация rollback и не готовый deployment bundle. Один оригинал guard исправлен после повторного ревью; historical hashes
+сохранены в provenance, прочие 23 прежних оригинала неизменны. Не запускайте entry points из `scripts/` для установки: host,
 account, SID и canary endpoints в этой копии заменены fixture-значениями.
 Запускается только `run_preparation.py`.
 
@@ -13,18 +22,21 @@ account, SID и canary endpoints в этой копии заменены fixture
 - Actual `stcvrc_observer.py`, его source tests, observer installer и необходимые
   Python dependencies проекта. Фикстуры находятся непосредственно в тестах;
   private profiles и исходные runtime logs не требуются и не включены.
-- Пять original preparation test modules (55 test cases) и отдельный существующий
+- Пять original preparation test modules (55 test cases), новый regression module (11 cases) и отдельный существующий
   observer source suite. Подробные test IDs и результаты — в `evidence/`.
 - `provenance.json`: original SHA-256 → public path/SHA-256 для каждого файла;
   ровно девять original hashes из исторического прогона отмечены
-  `inOriginalNine: true`. Эти девять совпали с историческим manifest.
+  `inOriginalNine: true`. До исправления они совпали9/9; сейчас8/9: guard
+  намеренно исправлен. Старые hashes и previous commit сохранены отдельно.
   Остальные dependency hashes зафиксированы свежим проходом; исторический
   manifest не содержал их, поэтому он не доказывает неизменность всех inputs.
 - `sanitization.patch`: построчный diff, но private original values перед diff
   заменены `<REDACTED_NN>`. Точные private tokens намеренно не публикуются;
   их hashes и число замен доступны в provenance.
 
-## Свежий результат 15.10.2026
+## Исторический результат 15.10.2026 до deadline fix
+
+Ниже — результаты commit `162c7fe5`, не финальных текущих inputs.
 
 - Preparation: **55 PASS, 0 failures/errors/skips**, 21.560 s; с real candidate
   installer/core только для SHA-256, без их исполнения.
@@ -79,7 +91,7 @@ py -3.13 -B "$prep\diagnose_observer_fixture.py" --work-dir $scratch
 На быстром host deadline может не исчерпаться — это не отрицание сохранённого
 измерения. Динамические результаты намеренно не обещаются bit-for-bit.
 
-Первый вызов без binaries честно даёт **54 PASS + 1 SKIP**, а не 55 PASS.
+Текущий первый вызов без binaries честно даёт **65 PASS + 1 SKIP**, а не 66 PASS.
 Пропускается только `test_candidate_pins_exact_258_artifacts`.
 Для полного прогона дополнительно передайте `--artifacts-root <root>`.
 Внешний `<root>` должен содержать два файла по pinned relative paths:

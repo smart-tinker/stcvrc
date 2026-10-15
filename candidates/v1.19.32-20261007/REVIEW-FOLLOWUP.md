@@ -1,3 +1,9 @@
+# История первого follow-up
+
+[Текущее повторное ревью: confirm deadline](CONFIRM-DEADLINE.md). Ниже —
+первый follow-up, зафиксированный в commit `162c7fe5`; его результаты не
+подменяют свежую проверку изменённого guard.
+
 # PR #2 — ответы на замечания проверки
 
 Это материалы к [ревью Оскара](https://github.com/smart-tinker/stcvrc/pull/2#issuecomment-6190995095),

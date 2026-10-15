@@ -1,0 +1,94 @@
+test_stcvrc_candidate_gate (unittest.loader._FailedTest.test_stcvrc_candidate_gate) ... ERROR
+test_approved_core_is_registered_and_read_back (test_stcvrc_lab_stack.StackTests.test_approved_core_is_registered_and_read_back) ... ok
+test_corporate_baseline_changes_only_the_core (test_stcvrc_lab_stack.StackTests.test_corporate_baseline_changes_only_the_core) ... ok
+test_desktop_acceptance_cannot_hide_failure_or_missing_evidence (test_stcvrc_lab_stack.StackTests.test_desktop_acceptance_cannot_hide_failure_or_missing_evidence) ... ok
+test_inventory_keeps_raw_instances_but_compares_templates (test_stcvrc_lab_stack.StackTests.test_inventory_keeps_raw_instances_but_compares_templates) ... ok
+test_inventory_requires_matching_collection_context (test_stcvrc_lab_stack.StackTests.test_inventory_requires_matching_collection_context) ... ok
+test_native_identity_rejects_false_new_sample_and_unstable_epoch (test_stcvrc_lab_stack.StackTests.test_native_identity_rejects_false_new_sample_and_unstable_epoch) ... ok
+test_native_identity_requires_repeated_samples_for_both_leaves (test_stcvrc_lab_stack.StackTests.test_native_identity_requires_repeated_samples_for_both_leaves) ... ok
+test_next_layout_and_device_prefix (test_stcvrc_lab_stack.StackTests.test_next_layout_and_device_prefix) ... ok
+test_pinned_pairs_and_safe_names (test_stcvrc_lab_stack.StackTests.test_pinned_pairs_and_safe_names) ... ok
+test_prelogin_observer_requires_current_boot_trigger_without_desktop (test_stcvrc_lab_stack.StackTests.test_prelogin_observer_requires_current_boot_trigger_without_desktop) ... ok
+test_programdata_requires_explicit_preservation (test_stcvrc_lab_stack.StackTests.test_programdata_requires_explicit_preservation) ... ok
+test_real_logon_verification_does_not_launch_ui (test_stcvrc_lab_stack.StackTests.test_real_logon_verification_does_not_launch_ui) ... ok
+test_unknown_stack_fails_closed (test_stcvrc_lab_stack.StackTests.test_unknown_stack_fails_closed) ... ok
+test_stcvrc_safe_rollout (unittest.loader._FailedTest.test_stcvrc_safe_rollout) ... ERROR
+test_stcvrc_ui_candidate_rollout (unittest.loader._FailedTest.test_stcvrc_ui_candidate_rollout) ... ERROR
+test_input_checks_before_install_and_protected_copy_before_task (test_stcvrc_observer_installer.ObserverInstallerTest.test_input_checks_before_install_and_protected_copy_before_task) ... ok
+test_one_boot_minute_task_no_wake_no_runtime_control (test_stcvrc_observer_installer.ObserverInstallerTest.test_one_boot_minute_task_no_wake_no_runtime_control) ... ok
+test_production_acceptance_is_guarded_uservm_only_and_restores_history (test_stcvrc_observer_installer.ObserverInstallerTest.test_production_acceptance_is_guarded_uservm_only_and_restores_history) ... ok
+test_production_resource_sample_is_bounded_and_not_zero_on_missing_worker (test_stcvrc_observer_installer.ObserverInstallerTest.test_production_resource_sample_is_bounded_and_not_zero_on_missing_worker) ... ok
+test_remove_task_preserves_history_and_requires_ownership (test_stcvrc_observer_installer.ObserverInstallerTest.test_remove_task_preserves_history_and_requires_ownership) ... ok
+test_scopes_and_rejected_targets (test_stcvrc_observer_installer.ObserverInstallerTest.test_scopes_and_rejected_targets) ... ok
+test_consumer_confirmation_remains_required (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_consumer_confirmation_remains_required) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:35:13.1612700Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 0, "healthLockWasAvailable": false, "now": "2026-10-15T12:34:13.1612700Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "A fresh real consumer exchange must be confirmed explicitly", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_final_fifteen_second_reserve_is_exclusive (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_final_fifteen_second_reserve_is_exclusive) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:47.2466576Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:33.2466576Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:48.2728589Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:33.2728589Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:49.5572430Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:33.5572430Z", "phase": "committed", "phaseAfterConfirm": "committed", "reason": null, "rejected": false, "watchRestores": 0, "watchStops": 0}
+ok
+test_health_check_crossing_deadline_cannot_commit_or_remove_guard (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_health_check_crossing_deadline_cannot_commit_or_remove_guard) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:33.8444025Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:35.8444025Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_health_failure_keeps_guard (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_health_failure_keeps_guard) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:35:18.9946323Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:36.9946323Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Fixture health check failure", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_healthy_confirm_with_enough_time_commits (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_healthy_confirm_with_enough_time_commits) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:35:20.3431205Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:38.3431205Z", "phase": "committed", "phaseAfterConfirm": "committed", "reason": null, "rejected": false, "watchRestores": 0, "watchStops": 0}
+ok
+test_immediate_health_with_sixteen_seconds_left_can_commit (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_immediate_health_with_sixteen_seconds_left_can_commit) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:37.3613461Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:21.3613461Z", "phase": "committed", "phaseAfterConfirm": "committed", "reason": null, "rejected": false, "watchRestores": 0, "watchStops": 0}
+ok
+test_initial_deadline_reserve_rejects_without_health (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_initial_deadline_reserve_rejects_without_health) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:37.6509430Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 0, "healthLockWasAvailable": false, "now": "2026-10-15T12:34:22.6509430Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_late_rejection_keeps_actual_watch_recovery_available (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_late_rejection_keeps_actual_watch_recovery_available) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:40.4272885Z", "guardActive": false, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:42.4272885Z", "phase": "rolled-back", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 1, "watchStops": 1}
+ok
+test_one_second_health_reaching_exact_reserve_cannot_commit (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_one_second_health_reaching_exact_reserve_cannot_commit) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:34:42.0131427Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:27.0131427Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_rearmed_or_changed_plan_during_health_cannot_commit (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_rearmed_or_changed_plan_during_health_cannot_commit) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:35:27.6132783Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:45.6132783Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Armed transaction changed during confirmation", "rejected": true, "watchRestores": 0, "watchStops": 0}
+CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:35:29.1963192Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:47.1963192Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Armed plan drift", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_watch_rollback_during_health_cannot_be_overwritten_by_confirm (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_watch_rollback_during_health_cannot_be_overwritten_by_confirm) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:35:30.7819748Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T12:34:48.7819748Z", "phase": "rolled-back", "phaseAfterConfirm": "rolled-back", "reason": "Candidate is no longer awaiting confirmation", "rejected": true, "watchRestores": 1, "watchStops": 1}
+ok
+
+======================================================================
+ERROR: test_stcvrc_candidate_gate (unittest.loader._FailedTest.test_stcvrc_candidate_gate)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_stcvrc_candidate_gate
+Traceback (most recent call last):
+  File "C:\Program Files\Python313\Lib\unittest\loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+  File "<review-root>\scripts\test_stcvrc_candidate_gate.py", line 7, in <module>
+    import stmc_yaml
+  File "<review-root>\scripts\stmc_yaml.py", line 9, in <module>
+    import yaml
+ModuleNotFoundError: No module named 'yaml'
+
+
+======================================================================
+ERROR: test_stcvrc_safe_rollout (unittest.loader._FailedTest.test_stcvrc_safe_rollout)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_stcvrc_safe_rollout
+Traceback (most recent call last):
+  File "C:\Program Files\Python313\Lib\unittest\loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+  File "<review-root>\scripts\test_stcvrc_safe_rollout.py", line 17, in <module>
+    import stmc_yaml
+  File "<review-root>\scripts\stmc_yaml.py", line 9, in <module>
+    import yaml
+ModuleNotFoundError: No module named 'yaml'
+
+
+======================================================================
+ERROR: test_stcvrc_ui_candidate_rollout (unittest.loader._FailedTest.test_stcvrc_ui_candidate_rollout)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_stcvrc_ui_candidate_rollout
+Traceback (most recent call last):
+  File "C:\Program Files\Python313\Lib\unittest\loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+  File "<review-root>\scripts\test_stcvrc_ui_candidate_rollout.py", line 17, in <module>
+    import stmc_yaml
+  File "<review-root>\scripts\stmc_yaml.py", line 9, in <module>
+    import yaml
+ModuleNotFoundError: No module named 'yaml'
+
+
+----------------------------------------------------------------------
+Ran 33 tests in 22.466s
+
+FAILED (errors=3)
