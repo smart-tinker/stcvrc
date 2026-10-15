@@ -27,6 +27,7 @@ Verge Rev.
 
 This branch stages the source of local candidate `792d4c3e` (Mihomo
 `v1.19.32`) for review. See [candidate manifest](candidates/v1.19.32-20261007/manifest.json).
+Follow-up: [verification results and reproducible candidate build](candidates/v1.19.32-20261007/REVIEW-FOLLOWUP.md).
 The published release below remains unchanged. The candidate is **not accepted
 for installation**: the new full-stack laboratory gate has not run.
 

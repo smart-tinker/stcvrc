@@ -1,0 +1,2 @@
+# Preserve reviewed bytes (CRLF/BOM included) for source/report SHA-256 checks.
+* -text

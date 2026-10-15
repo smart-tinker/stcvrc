@@ -1,0 +1,515 @@
+{
+  "schema": 1,
+  "historicalCheckUtc": "2026-10-15T10:12:13.259862+00:00",
+  "historicalTests": {
+    "testsRun": 55,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "pass": true,
+    "modules": [
+      "test_stcvrc_candidate_gate",
+      "test_stcvrc_lab_stack",
+      "test_stcvrc_safe_rollout",
+      "test_stcvrc_ui_candidate_rollout",
+      "test_stcvrc_observer_installer"
+    ]
+  },
+  "originalNineMatched": 9,
+  "records": [
+    {
+      "originalPath": "scripts/test_stcvrc_candidate_gate.py",
+      "originalSha256": "91d98bf5bcf8ac723b125c6565606a765696cce91be51b30251ee8a252aeec94",
+      "publicPath": "scripts/test_stcvrc_candidate_gate.py",
+      "publicSha256": "6b782e7f8d525c933a2cfc20c5fe7bcc5db8a6399a01429ab36012dd4fdcd7b1",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 2
+        },
+        {
+          "kind": "artifact_input_adapter",
+          "description": "Explicit external artifact root; only missing optional binaries skip, supplied wrong bytes still fail SHA-256 comparison."
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_lab_stack.py",
+      "originalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
+      "publicPath": "scripts/test_stcvrc_lab_stack.py",
+      "publicSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
+      "changes": [],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_safe_rollout.py",
+      "originalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8",
+      "publicPath": "scripts/test_stcvrc_safe_rollout.py",
+      "publicSha256": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "883c18c1be780fa3e17544c0d99d620f96b63781cb5eb4c72cdf81ba6c396b20",
+          "publicToken": "FixtureService",
+          "count": 2
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_ui_candidate_rollout.py",
+      "originalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8",
+      "publicPath": "scripts/test_stcvrc_ui_candidate_rollout.py",
+      "publicSha256": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 5
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 3
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_observer_installer.py",
+      "originalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541",
+      "publicPath": "scripts/test_stcvrc_observer_installer.py",
+      "publicSha256": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 4
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/stcvrc_lab_stack.py",
+      "originalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
+      "publicPath": "scripts/stcvrc_lab_stack.py",
+      "publicSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
+      "changes": [],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
+      "originalSha256": "c3c92ea97ad86958685514d04467f35aebb3bf385f3b96cd0e1a538ef6338ec4",
+      "publicPath": "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
+      "publicSha256": "5d9b6108f5f9a71854f75e20e06024eff09424ef6ce7762b9c370a9422d5cd67",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "1b968944430d870d2eeb3b71d4af8272c60edd49eeaa748736c0716ebf24ad74",
+          "publicToken": "S-1-5-21-1-2-3-1001",
+          "count": 6
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 16
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 6
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "cad624c280b58dad356099d5a574906a2537ebe31a84c7b822440defb559a08a",
+          "publicToken": "fixture_relay",
+          "count": 2
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/uservm-stcvrc-fullstack.remote.ps1",
+      "originalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6",
+      "publicPath": "scripts/uservm-stcvrc-fullstack.remote.ps1",
+      "publicSha256": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "85a39ab37b2336833f95492a8f1f4d47bb3a91f09955eb346dd3e715b72ecd63",
+          "publicToken": "fixtureservice",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "ded883d4863b853a2d734153c76b59032442cdc6c3bf0e8352e391af2baf582b",
+          "publicToken": "desktop.example.invalid",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "de4a5d468a200aeebc70c893e1215d5c9129559d21de9618c76c16f9e66cb351",
+          "publicToken": "gitlab-a.example.invalid",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "8e682867defdab88b6c5861ca3e9a896cef54cf702966ca0bcdc16c2163a83a3",
+          "publicToken": "gitlab-b.example.invalid",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "99c1a80e02ade8be0d0b5f0c7f8cce7fd8a709ec59a1b6b2eb531eb4493303a2",
+          "publicToken": "198.51.100.32",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "c20948eeb811469e0e0e919ebf7a2d438f754670b9a8dd689b12e2e72ebc79e9",
+          "publicToken": "192.0.2.32",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "8a531428474ece32b37dc49946b2f745c14dce0dfad2effb6ecaaf0f40c04d42",
+          "publicToken": "192.0.2.78",
+          "count": 1
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/install-stcvrc-observer-lab.ps1",
+      "originalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042",
+      "publicPath": "scripts/install-stcvrc-observer-lab.ps1",
+      "publicSha256": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "1b968944430d870d2eeb3b71d4af8272c60edd49eeaa748736c0716ebf24ad74",
+          "publicToken": "S-1-5-21-1-2-3-1001",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "883c18c1be780fa3e17544c0d99d620f96b63781cb5eb4c72cdf81ba6c396b20",
+          "publicToken": "FixtureService",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 5
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 2
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/prepare-stcvrc-safe-rollout.py",
+      "originalSha256": "bdeb30107e91e714ad6be9a50ac8ddf6833b2b4077f5909133f50bc08d3d5e32",
+      "publicPath": "scripts/prepare-stcvrc-safe-rollout.py",
+      "publicSha256": "d5f04f343d3e5d5fc6fdc295bc6b574ce94c4e04fc9af287a9a7dbaa4bdebe9f",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "9daef8394268201c3380b9d3d7c63035dd9878ad0d7b1b926073aa3850d9a297",
+          "publicToken": "FIXTURE-HOME",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 2
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/stcvrc-safe-rollout.ps1",
+      "originalSha256": "9b7a4848a15ada7dc3fc3cc37d331ea16b128eb264d42b17b670c38584a78630",
+      "publicPath": "scripts/stcvrc-safe-rollout.ps1",
+      "publicSha256": "5ed150f0d6a7f1f72482e4c72508372a9a5bb0d6ba07fb1240ac2f99da03b8b9",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "9daef8394268201c3380b9d3d7c63035dd9878ad0d7b1b926073aa3850d9a297",
+          "publicToken": "FIXTURE-HOME",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        }
+      ],
+      "inOriginalNine": true
+    },
+    {
+      "originalPath": "scripts/stmc_yaml.py",
+      "originalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
+      "publicPath": "scripts/stmc_yaml.py",
+      "publicSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
+      "changes": [],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/stcvrc_single_egress.py",
+      "originalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
+      "publicPath": "scripts/stcvrc_single_egress.py",
+      "publicSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
+      "changes": [],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/stcvrc_observer.py",
+      "originalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+      "publicPath": "scripts/stcvrc_observer.py",
+      "publicSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+      "changes": [],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/preserve-stcvrc-evidence.ps1",
+      "originalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
+      "publicPath": "scripts/preserve-stcvrc-evidence.ps1",
+      "publicSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
+      "changes": [],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/uservm-stcvrc-ui-autostart.remote.ps1",
+      "originalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7",
+      "publicPath": "scripts/uservm-stcvrc-ui-autostart.remote.ps1",
+      "publicSha256": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "883c18c1be780fa3e17544c0d99d620f96b63781cb5eb4c72cdf81ba6c396b20",
+          "publicToken": "FixtureService",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 3
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/uservm-stcvrc-desktop-autostart.remote.ps1",
+      "originalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7",
+      "publicPath": "scripts/uservm-stcvrc-desktop-autostart.remote.ps1",
+      "publicSha256": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "1b968944430d870d2eeb3b71d4af8272c60edd49eeaa748736c0716ebf24ad74",
+          "publicToken": "S-1-5-21-1-2-3-1001",
+          "count": 2
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 5
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 2
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/uservm-stcvrc-safe-rollout.remote.ps1",
+      "originalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542",
+      "publicPath": "scripts/uservm-stcvrc-safe-rollout.remote.ps1",
+      "publicSha256": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/invoke-uservm-stcvrc-safe-rollout.py",
+      "originalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6",
+      "publicPath": "scripts/invoke-uservm-stcvrc-safe-rollout.py",
+      "publicSha256": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "883c18c1be780fa3e17544c0d99d620f96b63781cb5eb4c72cdf81ba6c396b20",
+          "publicToken": "FixtureService",
+          "count": 2
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 3
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/invoke-uservm-stcvrc-autoselect.py",
+      "originalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73",
+      "publicPath": "scripts/invoke-uservm-stcvrc-autoselect.py",
+      "publicSha256": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "85c8606d7fffb04abadbf073100eac1cba9ffef8646f6532d24081d8a6f1be34",
+          "publicToken": "C:\\review-fixture\\unavailable-key",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "39730903ecf69329da507059366fb2198af1fcb1f7990e88a0c811350ff2a0d9",
+          "publicToken": "fixture@192.0.2.137",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "85a39ab37b2336833f95492a8f1f4d47bb3a91f09955eb346dd3e715b72ecd63",
+          "publicToken": "fixtureservice",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "fa5b69a1118b31101bb2c3a21ea04b0842e1e49d7345bed31d256f84f57bbbc4",
+          "publicToken": "fixture-relay",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "cad624c280b58dad356099d5a574906a2537ebe31a84c7b822440defb559a08a",
+          "publicToken": "fixture_relay",
+          "count": 4
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/stcvrc_lab_transport.py",
+      "originalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
+      "publicPath": "scripts/stcvrc_lab_transport.py",
+      "publicSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
+      "changes": [],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/stcvrc_corporate_gate.py",
+      "originalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
+      "publicPath": "scripts/stcvrc_corporate_gate.py",
+      "publicSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
+      "changes": [],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/stcvrc_rotation_gate.py",
+      "originalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0",
+      "publicPath": "scripts/stcvrc_rotation_gate.py",
+      "publicSha256": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "1b968944430d870d2eeb3b71d4af8272c60edd49eeaa748736c0716ebf24ad74",
+          "publicToken": "S-1-5-21-1-2-3-1001",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 2
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_observer.py",
+      "originalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1",
+      "publicPath": "scripts/test_stcvrc_observer.py",
+      "publicSha256": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "551ddf8b5dff17e9c4ad007928473c61f3b47c71bcec1a659100f30d49669c5c",
+          "publicToken": "192.0.2.13",
+          "count": 2
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "0bc77bae91d83b66c20fa481a5df2a0c5caaf98e95f4ac23cb43ca3ca58cb485",
+          "publicToken": "192.0.2",
+          "count": 2
+        },
+        {
+          "kind": "test_fixture_isolation",
+          "description": "Active probe scheduling fixtures now stub unrelated live host_view; actual observer code and 25-second stage deadline remain unchanged. Dedicated host tests retain their real behavior. First unisolated failure and diagnostic are preserved."
+        }
+      ],
+      "inOriginalNine": false
+    }
+  ],
+  "diffBoundary": "sanitization.patch has private source tokens REDACTED before diff; source hashes authenticate full originals locally; public hashes authenticate independently runnable copies. This is not byte-identical host deployment code.",
+  "notAccepted": [
+    "candidate TUN/recovery",
+    "atomic observer/UI/core restoration",
+    "Work host rollout",
+    "VM integration/reboot/cleanup",
+    "Home/Work readiness"
+  ]
+}

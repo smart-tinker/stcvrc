@@ -67,7 +67,7 @@
   "core": {
     "bytes": 61108736,
     "sha256": "b072d09f0754b92cbe737757d2c63111d20ecf00e5d90b534ce2f9492feb9986",
-    "sourceBinding": "2026-10-07 build record plus matching actual hash; buildvcs=false omits source commit"
+    "sourceBinding": "Fresh real rebuild from published source commit 3d0127d8cc24a6d6c10f7063dad4e0fd97565432; exact binary SHA-256 reproduced. See build-candidate.ps1, BUILD.md and build-report.json. The deterministic binary omits VCS metadata (-buildvcs=false)."
   },
   "observer": {
     "generation": "r16c",
@@ -97,7 +97,8 @@
       "Atomic observer plus UI/core rollback",
       "Separate Work-host deployment support"
     ],
-    "runtimeValidated": false
+    "runtimeValidated": false,
+    "publicSources": "preparation/README.md"
   },
   "acceptance": {
     "newVmGate": "NOT RUN; shared VM occupied",
@@ -106,7 +107,7 @@
     "workReady": false,
     "productionChanges": false
   },
-  "scope": "Public source review only; no private profiles, access details, host-bound scripts, raw reports or binaries",
+  "scope": "Public source review, sanitized operational sources and local test/build reports only; no private profiles, access details, raw runtime reports or binaries; no installation authorization",
   "focusedSourceChecks": {
     "scope": "offline Go1.26.5 with_gvisor targeted tests; no VM/runtime contact",
     "packages": {
@@ -115,6 +116,45 @@
       "adapter/outboundgroup": "PASS 7.290s"
     },
     "diffCheck": "PASS",
-    "newVmGate": "NOT RUN"
+    "newVmGate": "NOT RUN",
+    "pushRequestRetry": {
+      "sourceCommit": "3d0127d8cc24a6d6c10f7063dad4e0fd97565432",
+      "status": "PASS",
+      "subtests": 3,
+      "report": "push-retry-report.json",
+      "log": "push-retry.jsonl"
+    }
+  },
+  "reviewFollowup": {
+    "reviewComment": "https://github.com/smart-tinker/stcvrc/pull/2#issuecomment-6190995095",
+    "sourceSnapshot": "3d0127d8cc24a6d6c10f7063dad4e0fd97565432",
+    "overview": "REVIEW-FOLLOWUP.md",
+    "candidateBuild": {
+      "recipe": "build-candidate.ps1",
+      "instructions": "BUILD.md",
+      "report": "build-report.json",
+      "sha256Reproduced": true
+    },
+    "preparation": {
+      "instructions": "preparation/README.md",
+      "provenance": "preparation/provenance.json",
+      "sanitizationDiff": "preparation/sanitization.patch",
+      "report": "preparation/evidence/preparation-tests.json",
+      "testsRun": 55,
+      "passed": 55,
+      "skipped": 0,
+      "observerTests": {
+        "testsRun": 73,
+        "passed": 73,
+        "report": "preparation/evidence/observer-tests.json",
+        "firstFailureRetained": "preparation/evidence/observer-first-run.json",
+        "diagnostic": "preparation/evidence/observer-fixture-diagnostic.json",
+        "change": "Public active test fixture isolates host_view; production collector unchanged"
+      },
+      "originalNineHashesRechecked": 9,
+      "sourceForm": "Sanitized copies of actual scripts and tests, not byte-identical host deployment scripts; changes and both hashes recorded",
+      "artifactReproduction": "Exact pinned core and installer binaries required for all55; otherwise54PASS and1SKIP, binaries not published"
+    },
+    "runtimeAccepted": false
   }
 }

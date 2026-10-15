@@ -1,0 +1,283 @@
+{
+  "schema": 1,
+  "checkedUtc": "2026-10-15T11:47:08.676208+00:00",
+  "pythonVersion": "3.13.13",
+  "platform": "win32",
+  "suite": "preparation",
+  "modules": [
+    "test_stcvrc_candidate_gate",
+    "test_stcvrc_lab_stack",
+    "test_stcvrc_safe_rollout",
+    "test_stcvrc_ui_candidate_rollout",
+    "test_stcvrc_observer_installer"
+  ],
+  "testsRun": 55,
+  "passed": 54,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 1,
+  "pass": true,
+  "seconds": 20.259,
+  "fullOriginal55ReproducedAgainstSanitizedCopies": false,
+  "artifactInput": "not-supplied",
+  "sourceSha256": {
+    "scripts/test_stcvrc_candidate_gate.py": "6b782e7f8d525c933a2cfc20c5fe7bcc5db8a6399a01429ab36012dd4fdcd7b1",
+    "scripts/test_stcvrc_lab_stack.py": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
+    "scripts/test_stcvrc_safe_rollout.py": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
+    "scripts/test_stcvrc_ui_candidate_rollout.py": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
+    "scripts/test_stcvrc_observer_installer.py": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
+    "scripts/stcvrc_lab_stack.py": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
+    "scripts/invoke-uservm-stcvrc-desktop-autostart.py": "5d9b6108f5f9a71854f75e20e06024eff09424ef6ce7762b9c370a9422d5cd67",
+    "scripts/uservm-stcvrc-fullstack.remote.ps1": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
+    "scripts/install-stcvrc-observer-lab.ps1": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
+    "scripts/prepare-stcvrc-safe-rollout.py": "d5f04f343d3e5d5fc6fdc295bc6b574ce94c4e04fc9af287a9a7dbaa4bdebe9f",
+    "scripts/stcvrc-safe-rollout.ps1": "5ed150f0d6a7f1f72482e4c72508372a9a5bb0d6ba07fb1240ac2f99da03b8b9",
+    "scripts/stmc_yaml.py": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
+    "scripts/stcvrc_single_egress.py": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
+    "scripts/stcvrc_observer.py": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+    "scripts/preserve-stcvrc-evidence.ps1": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
+    "scripts/uservm-stcvrc-ui-autostart.remote.ps1": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
+    "scripts/uservm-stcvrc-desktop-autostart.remote.ps1": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
+    "scripts/uservm-stcvrc-safe-rollout.remote.ps1": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
+    "scripts/invoke-uservm-stcvrc-safe-rollout.py": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
+    "scripts/invoke-uservm-stcvrc-autoselect.py": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
+    "scripts/stcvrc_lab_transport.py": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
+    "scripts/stcvrc_corporate_gate.py": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
+    "scripts/stcvrc_rotation_gate.py": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
+    "scripts/test_stcvrc_observer.py": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9"
+  },
+  "outcomes": [
+    {
+      "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_candidate_pins_exact_258_artifacts",
+      "outcome": "SKIP",
+      "reason": "Exact candidate binaries required: pass --artifacts-root to run_preparation.py"
+    },
+    {
+      "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_home_rollback_uses_current_approved_owner_runtime_and_exact_pair",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_invalid_cli_pairs_and_mixed_gates_fail_before_remote_setup",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_observer_installer_accepts_only_reviewed_owner_versions",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_post_rollback_readback_accepts_only_actual_source_core",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_work_rollback_preserves_legacy_source_and_exact_target",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_approved_core_is_registered_and_read_back",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_corporate_baseline_changes_only_the_core",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_desktop_acceptance_cannot_hide_failure_or_missing_evidence",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_inventory_keeps_raw_instances_but_compares_templates",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_inventory_requires_matching_collection_context",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_native_identity_rejects_false_new_sample_and_unstable_epoch",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_native_identity_requires_repeated_samples_for_both_leaves",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_next_layout_and_device_prefix",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_pinned_pairs_and_safe_names",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_prelogin_observer_requires_current_boot_trigger_without_desktop",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_programdata_requires_explicit_preservation",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_real_logon_verification_does_not_launch_ui",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_lab_stack.StackTests.test_unknown_stack_fails_closed",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_approved_core_registered_in_both_directions_before_service_start",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_approved_core_uses_official_helper_and_verifies_result",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_completed_watchdog_serializes_task_cleanup",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_config_rollback_readback_uses_the_actual_starting_stack",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_confirmation_requires_consumer_and_deadline",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_core_rollback_replays_changed_manual_selector",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_history_hook_fails_closed_and_checks_pinned_helper",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_history_required_before_runtime_or_deadline_mutation",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_http_retry_is_bounded_and_preserves_first_failure",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_launch_is_scheduler_owned",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_metadata_only_foreign_pins_removed",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_captures_foreign_and_unrelated_selectors",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_does_not_reset_foreign_selection",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_lab_never_copies_corporate_vpn",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_requires_reviewed_topology_and_two_references",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_stages_only_two_files_and_preserves_registry_bytes",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_recovery_does_not_require_intact_candidate",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_rejected_lab_baseline_does_not_authorize_full_cleanup",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_expectations_only_add_owner_pipe_and_disabled_dns_preference",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_migration_has_preservation_and_guarded_selector_restore",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_migration_installer_bound_and_arguments",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_migration_only_updates_implicit_tun_ipv6_default",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_serialization_requires_pinned_semantic_comparison",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_system_transaction_uses_existing_guard_and_owner_task",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_safe_rollout.SafeRolloutTest.test_watchdog_armed_before_runtime_mutation",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_downgrade_restores_home_approved_service_not_legacy_work_layout",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_home_preflight_starts_from_approved_service_layout",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_home_runtime_checkpoint_is_before_for_preflight_and_rollback",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_home_upgrade_uses_actual_owner_runtime_and_restores_approved_generation",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_transaction_guard_accepts_only_reviewed_ui_pairs_and_layouts",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer_installer.ObserverInstallerTest.test_input_checks_before_install_and_protected_copy_before_task",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer_installer.ObserverInstallerTest.test_one_boot_minute_task_no_wake_no_runtime_control",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer_installer.ObserverInstallerTest.test_production_acceptance_is_guarded_uservm_only_and_restores_history",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer_installer.ObserverInstallerTest.test_production_resource_sample_is_bounded_and_not_zero_on_missing_worker",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer_installer.ObserverInstallerTest.test_remove_task_preserves_history_and_requires_ownership",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer_installer.ObserverInstallerTest.test_scopes_and_rejected_targets",
+      "outcome": "PASS"
+    }
+  ],
+  "scope": "local Python unit/fixture and extracted PowerShell AST checks; artifacts read only for SHA-256",
+  "remoteCommands": 0,
+  "vmGate": "NOT_RUN",
+  "homeReady": false,
+  "notAccepted": [
+    "candidate TUN/recovery",
+    "atomic observer/UI/core restoration",
+    "Work host rollout",
+    "VM integration/reboot/cleanup",
+    "Home/Work readiness"
+  ]
+}

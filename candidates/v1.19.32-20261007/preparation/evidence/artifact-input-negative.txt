@@ -1,0 +1,20 @@
+E
+======================================================================
+ERROR: test_candidate_pins_exact_258_artifacts (test_stcvrc_candidate_gate.CandidateTransactionTests.test_candidate_pins_exact_258_artifacts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<review-root>\scripts\test_stcvrc_candidate_gate.py", line 117, in test_candidate_pins_exact_258_artifacts
+    self.assertEqual(hashlib.sha256((artifact_root/candidate[file_key]).read_bytes()).hexdigest(),candidate[hash_key])
+                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\Python313\Lib\pathlib\_abc.py", line 625, in read_bytes
+    with self.open(mode='rb') as f:
+         ~~~~~~~~~^^^^^^^^^^^
+  File "C:\Program Files\Python313\Lib\pathlib\_local.py", line 537, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '<empty-artifacts-fixture>\\local\\artifacts\\stcvrc-next-20261015\\Clash.Verge_2.5.8_x64-setup.exe'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.013s
+
+FAILED (errors=1)
