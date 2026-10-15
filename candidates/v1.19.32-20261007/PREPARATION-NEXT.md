@@ -1,3 +1,5 @@
+> Текущее уточнение ownership race: [OBSERVER-DIRECTORY-CLAIM.md](OBSERVER-DIRECTORY-CLAIM.md). Ниже сохранён исторический отчёт.
+
 > Текущий статус: в этом source найдены два rollback-дефекта. Исправления и новое evidence: [OBSERVER-RECOVERY.md](OBSERVER-RECOVERY.md). Ниже сохранён исторический отчёт92 PASS; он не покрывал оба полных failure paths.
 
 # Подготовка candidate TUN и общего отката observer + UI/core

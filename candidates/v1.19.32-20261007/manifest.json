@@ -226,5 +226,26 @@
     "vmGate": "NOT_RUN",
     "homeReady": false,
     "workReady": false
+  },
+  "observerDirectoryClaimReview": {
+    "reviewedCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+    "overview": "OBSERVER-DIRECTORY-CLAIM.md",
+    "checkedUtc": "2026-10-15T23:30:12.366537+00:00",
+    "testsRun": 108,
+    "passed": 108,
+    "skipped": 0,
+    "newRegressionCases": 3,
+    "newRegressionTests": [
+      "test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_foreign_directory_after_last_absence_check_is_preserved_by_apply_and_rollback",
+      "test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_full_apply_preserves_empty_foreign_directory_after_last_absence_check",
+      "test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_full_apply_preserves_foreign_directory_created_after_last_absence_check"
+    ],
+    "sourceMaps": 29,
+    "report": "preparation/evidence/observer-directory-claim/preparation-tests.json",
+    "scope": "Windows-host offline AST/temporary-file fixtures; no native scheduler/service/network recovery",
+    "runtimeAccepted": false,
+    "vmGate": "NOT_RUN",
+    "homeReady": false,
+    "workReady": false
   }
 }

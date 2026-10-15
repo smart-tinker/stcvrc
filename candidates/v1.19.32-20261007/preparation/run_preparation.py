@@ -37,7 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifacts-root', type=Path, help='External root containing local/artifacts paths; never execute binaries')
     parser.add_argument('--work-dir', type=Path, required=True, help='Caller-owned scratch directory for temporary fixtures')
-    parser.add_argument('--output-dir', type=Path, default=HERE / 'evidence/observer-recovery')
+    parser.add_argument('--output-dir', type=Path, default=HERE / 'evidence/observer-directory-claim')
     parser.add_argument('--suite', choices=['preparation', 'observer'], default='preparation')
     args = parser.parse_args()
     if os.name != 'nt':
@@ -86,7 +86,7 @@ def main():
               'failures': len(result.failures), 'errors': len(result.errors), 'skipped': len(result.skipped),
               'pass': result.wasSuccessful(), 'seconds': round(time.monotonic() - started, 3),
               'confirmDeadlineRegressionPassed': len([row for row in result.outcomes if row['test'].startswith('test_stcvrc_confirm_deadline.') and row['outcome'] == 'PASS']),
-              'coverage': 'Current preparation modules, including Confirm deadline, candidate TUN, observer transaction and rollback failure paths; unittest cases, not subtest vectors',
+              'coverage': 'Current preparation modules, including Confirm deadline, candidate TUN, observer transaction and rollback failure paths and directory-claim race; unittest cases, not subtest vectors',
               'artifactInput': 'explicit-external-root' if args.artifacts_root else 'not-supplied',
               'sourceSha256': source_hashes, 'outcomes': result.outcomes,
               'scope': 'local Python unit/fixture and extracted PowerShell AST checks; artifacts read only for SHA-256',

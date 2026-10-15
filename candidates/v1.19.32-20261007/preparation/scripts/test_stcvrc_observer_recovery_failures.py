@@ -1,8 +1,9 @@
 """Execute full production rollback paths against isolated offline fixtures.
 
-Only AST-selected PowerShell functions run: no script entry point, real tasks,
-services, processes, network requests, ACL changes or VM access. Payload and
-transaction state are real temporary files; task primitives are in-memory.
+Only AST-selected PowerShell functions and the selected transaction try block
+run: no full script startup/Guard, real task or service mutations, process
+launches, network requests, ACL changes or VM access. Payload and transaction
+state are real temporary files; task primitives are in-memory.
 """
 import base64
 import json
@@ -18,7 +19,7 @@ SOURCE = Path(__file__).with_name("stcvrc-safe-rollout.ps1")
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell offline rollback fixture")
 class ObserverRecoveryFailureTest(unittest.TestCase):
-    def run_scenario(self, failure="none", foreign=False, mode="baseline"):
+    def run_scenario(self, failure="none", foreign=False, mode="baseline", full_apply=False):
         scratch = os.environ.get("TMPDIR") or str(Path(os.environ["LOCALAPPDATA"]) / "hermes/cache/scratch")
         with tempfile.TemporaryDirectory(prefix="stcvrc-recovery-", dir=scratch) as tmp:
             code = r"""
@@ -27,7 +28,7 @@ $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+(Join-Path $env:ProgramFiles
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile('__SOURCE__',[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Production source parse failure'}
-# Define functions, never execute the operational script entry point.
+# Define production functions without executing full script startup/Guard.
 foreach($f in $ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst]},$true)){
  . ([ScriptBlock]::Create($f.Extent.Text))
 }
@@ -35,12 +36,14 @@ $Root='__ROOT__';$StatePath=Join-Path $Root 'state.json'
 $observer=Join-Path $Root 'observer';$Core=Join-Path $Root 'core.exe';$ExecutingCore=$Core
 $Ui=Join-Path $env:WINDIR 'System32\cmd.exe';$ServiceName='fixture-service'
 $CachePath=Join-Path $Root 'cache-absent';$TaskName='fixture-guard';$ApplyTaskName='fixture-apply'
-$failure='__FAILURE__';$foreign=__FOREIGN__;$fixtureMode='__FIXTURE_MODE__'
+$failure='__FAILURE__';$foreign=__FOREIGN__;$fixtureMode='__FIXTURE_MODE__';$fullApply=__FULL_APPLY__
 $absent=$foreign -or $fixtureMode -cne 'baseline'
 $script:events=@();$script:disableCount=0;$script:stopCount=0;$script:unregisterCount=0
 $script:startCount=0;$script:guardActive=$true;$script:taskPresent=$true;$script:taskEnabled=$true
 $script:taskXml='candidate-task-xml';$script:taskArguments='candidate-args'
 $script:taskDescription='foreign transaction';$script:forcedOverwriteCount=0
+$script:copyObserverCalls=0;$script:rootRaceInjected=$false;$script:baselineCalls=0
+$script:foreignStopObserverCalls=0;$script:guardTaskPresent=$false
 [IO.File]::WriteAllText($Core,'candidate-core')
 [IO.File]::WriteAllText((Join-Path $Root 'core.old'),'baseline-core')
 [IO.File]::WriteAllText((Join-Path $Root 'mutation.started'),'fixture')
@@ -69,13 +72,21 @@ $o=@{root=$observer;task='fixture-observer';oldPresent=(-not $absent);
  newManifestHash=(Hash (Join-Path $Root 'observer.new\manifest.json'));
  oldTaskHash=(Hash (Join-Path $Root 'observer-task.old.xml'));oldArguments='baseline-args';newArguments='candidate-args'}
 if($absent){$o.oldFiles=[pscustomobject]@{};$o.oldTaskHash=$null;$o.oldArguments=$null;$o.oldManifestHash=$null}
-$Plan=@{policy='ui-update';oldVersion='baseline-version';entries=@(@{id='core';target=$Core;before=(Hash (Join-Path $Root 'core.old'))});observer=$o}
+$Plan=@{policy='ui-update';oldVersion='baseline-version';newVersion='candidate-version';uiTask='fixture-ui';entries=@(@{id='core';target=$Core;before=(Hash (Join-Path $Root 'core.old'))});observer=$o}
 $PlanPath=Join-Path $Root 'plan.json';Write-Json $PlanPath $Plan
 # Instrument the real Stop-Observer without replacing its ownership decisions.
 $stopObserverActual=${function:Stop-Observer}
 $script:stopObserverCalls=0
-function Stop-Observer {$script:stopObserverCalls++;. $stopObserverActual}
+function Stop-Observer {
+ $script:stopObserverCalls++
+ if($script:rootRaceInjected){$script:foreignStopObserverCalls++}
+ . $stopObserverActual
+}
 function Get-ScheduledTask($TaskName,$ErrorAction){
+ if($fullApply -and $TaskName -ceq 'fixture-guard'){
+  if($script:guardTaskPresent){@{fixture='guard'}}
+  return
+ }
  if($TaskName -cne $o.task){throw 'Unexpected task lookup'}
  if($script:taskPresent){@{TaskPath='\';Description=$script:taskDescription;Settings=@{Enabled=$script:taskEnabled};
   Actions=@(@{Execute=(Join-Path $observer 'bin\python.exe');Arguments=$script:taskArguments;WorkingDirectory=(Join-Path $observer 'bin')});
@@ -86,8 +97,16 @@ function Disable-ScheduledTask($TaskName){
  if($fixtureMode -ceq 'interrupted-disable' -and $script:disableCount -eq 1){throw 'fixture-interrupted-after-disable-before-receipt'}
 }
 function Stop-ScheduledTask($TaskName){$script:stopCount++}
-function Start-ScheduledTask($TaskName){$script:startCount++;$script:taskEnabled=$true;$script:events+='observer-started'}
+function Start-ScheduledTask($TaskName){
+ if($fullApply -and $TaskName -ceq 'fixture-guard'){
+  Write-Json (Join-Path $Root 'watch-ready.json') @{pid=$PID;session=0}
+  $script:events+='guard-started'
+  return
+ }
+ $script:startCount++;$script:taskEnabled=$true;$script:events+='observer-started'
+}
 function Register-ScheduledTask($TaskName,$Xml,$Action,$Trigger,$Settings,$Principal,$Description,[switch]$Force){
+ if($fullApply -and $TaskName -ceq 'fixture-guard'){$script:guardTaskPresent=$true;return}
  if($Xml){
   if($Xml -cne 'baseline-task-xml'){throw 'Unexpected fixture task registration'}
   $script:taskPresent=$true;$script:taskArguments='baseline-args';$script:taskXml=$Xml;$script:taskEnabled=$true
@@ -103,12 +122,21 @@ function Register-ScheduledTask($TaskName,$Xml,$Action,$Trigger,$Settings,$Princ
 }
 function Unregister-ScheduledTask($TaskName,[switch]$Confirm){$script:unregisterCount++;$script:taskPresent=$false}
 function Export-ScheduledTask($TaskName){
+ if($fullApply -and $TaskName -ceq 'fixture-ui'){return 'fixture-ui-task-xml'}
  # Real scheduler XML changes when Disable-ScheduledTask flips Enabled. Keep
  # an actual namespaced XML document so production normalization runs here.
  if($script:taskXml -ceq 'baseline-task-xml'){$script:taskXml}
  else{'<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description>'+[Security.SecurityElement]::Escape($script:taskDescription)+'</Description></RegistrationInfo><Settings><Enabled>'+([string]$script:taskEnabled).ToLowerInvariant()+'</Enabled><FixtureGeneration>'+[Security.SecurityElement]::Escape($script:taskXml)+'</FixtureGeneration></Settings></Task>'}
 }
-function Get-CimInstance($ClassName){if($ClassName -cne 'Win32_Process'){throw 'Unexpected fixture CIM call'};@()}
+function Get-CimInstance($ClassName,$Filter){
+ if($fullApply){
+  if($ClassName -ceq 'Win32_Service'){return @{PathName=$ServiceExe}}
+  if($ClassName -ceq 'Win32_OperatingSystem'){return @{LastBootUpTime=[DateTime]::Parse('2000-01-01T00:00:00Z')}}
+  if($ClassName -ceq 'Win32_Process' -and $Filter){return @{CreationDate=[DateTime]::Parse('2000-01-01T00:00:00Z')}}
+ }
+ if($ClassName -cne 'Win32_Process'){throw 'Unexpected fixture CIM call'}
+ @()
+}
 function Assert-ObserverAcl {}
 function Assert-ObserverSchedule($Xml){}
 function Set-Acl($LiteralPath,$AclObject){}
@@ -121,13 +149,22 @@ function New-ScheduledTaskAction($Execute,$Argument,$WorkingDirectory){
  @{Execute=$Execute;Arguments=$Argument;WorkingDirectory=$WorkingDirectory}
 }
 function New-ScheduledTaskTrigger([switch]$AtStartup,[switch]$Once,$At,$RepetitionInterval){@{fixture=$true}}
-function New-ScheduledTaskSettingsSet($MultipleInstances,$ExecutionTimeLimit,[switch]$StartWhenAvailable,[switch]$AllowStartIfOnBatteries,[switch]$DontStopIfGoingOnBatteries){@{Enabled=$true}}
+function New-ScheduledTaskSettingsSet($MultipleInstances,$ExecutionTimeLimit,$RestartCount,$RestartInterval,[switch]$StartWhenAvailable,[switch]$AllowStartIfOnBatteries,[switch]$DontStopIfGoingOnBatteries){@{Enabled=$true}}
 function New-ScheduledTaskPrincipal($UserId,$LogonType,$RunLevel){@{UserId=$UserId;LogonType=$LogonType;RunLevel=$RunLevel}}
 function Preserve-History($Label){}
 function Stop-Runtime {$script:events+='core-stopped'}
-function Install-UiGeneration($New){if($New){throw 'Unexpected candidate install'};$script:events+='baseline-ui-installed'}
-function Register-ApprovedCore($Hash){$script:events+='baseline-core-registered'}
+function Install-UiGeneration($New){
+ if($New){if(-not $fullApply){throw 'Unexpected candidate install'};$script:events+='candidate-ui-installed'}
+ else{$script:events+='baseline-ui-installed'}
+}
+function Register-ApprovedCore($Hash){
+ if($fullApply -and $Hash -ceq $Plan.entries[0].after){$script:events+='candidate-core-registered'}
+ else{$script:events+='baseline-core-registered'}
+}
 function Register-UiService($Hash){}
+function Get-OwnerUiTask {@{fixture='owner-ui'}}
+function Remove-ApplyTask {$script:events+='apply-task-removed'}
+function Candidate-Check {throw 'Fixture candidate health reached after failed root acquisition'}
 function Start-Service($Name){$script:events+='service-started'}
 function Start-OwnerUi {$script:events+='owner-ui-started'}
 function Wait-Core($Version){
@@ -145,19 +182,45 @@ function Check-Http {
 }
 function Remove-GuardTask {$script:guardActive=$false;$script:events+='guard-removed'}
 function Snapshot-Observer {
- $map=@{}
+ $map=[ordered]@{}
  if(Test-Path -LiteralPath $observer){
-  foreach($file in @(Microsoft.PowerShell.Management\Get-ChildItem -LiteralPath $observer -Recurse -File)){
+  foreach($file in @(Microsoft.PowerShell.Management\Get-ChildItem -LiteralPath $observer -Recurse -File|Sort-Object FullName)){
    $map[$file.FullName.Substring($observer.Length+1)]=Hash $file.FullName
   }
  }
- @{files=$map;taskPresent=$script:taskPresent;taskEnabled=$script:taskEnabled;taskXml=$script:taskXml;taskArguments=$script:taskArguments;taskDescription=$script:taskDescription}|ConvertTo-Json -Depth 5 -Compress
+ @{rootPresent=(Test-Path -LiteralPath $observer);files=$map;taskPresent=$script:taskPresent;taskEnabled=$script:taskEnabled;taskXml=$script:taskXml;taskArguments=$script:taskArguments;taskDescription=$script:taskDescription}|ConvertTo-Json -Depth 5 -Compress
 }
 if($absent -and -not $foreign){[IO.Directory]::Delete($observer,$true);$script:taskPresent=$false}
+# Run the actual last absence check, then inject the competing installation
+# before Apply-Observer reaches its following Test-Path/mutation boundary.
+$assertObserverBaselineActual=${function:Assert-ObserverBaseline}
+function Assert-ObserverBaseline {
+ & $assertObserverBaselineActual
+ $script:baselineCalls++
+ if($fixtureMode -cin @('root-race','root-race-empty') -and -not $script:rootRaceInjected -and (-not $fullApply -or $script:baselineCalls -eq 2)){
+  [IO.Directory]::CreateDirectory($observer)|Out-Null
+  if($fixtureMode -ceq 'root-race'){
+  [IO.Directory]::CreateDirectory((Join-Path $observer 'bin'))|Out-Null
+  [IO.Directory]::CreateDirectory((Join-Path $observer 'data'))|Out-Null
+  [IO.File]::WriteAllText((Join-Path $observer '.stcvrc-observer'),'STCVRC_OBSERVER_V1')
+  [IO.File]::WriteAllText((Join-Path $observer 'bin\\python.exe'),'foreign-directory-race-python')
+  [IO.File]::WriteAllText((Join-Path $observer 'bin\\stcvrc_observer.py'),'foreign-directory-race-observer')
+  [IO.File]::WriteAllText((Join-Path $observer 'data\\history.jsonl'),'history survives rollback')
+  [IO.File]::WriteAllBytes((Join-Path $observer 'data\\foreign-owned.bin'),[byte[]]@(0,17,128,255))
+  $foreignFiles=@{'bin/python.exe'=(Hash (Join-Path $observer 'bin\\python.exe'));'bin/stcvrc_observer.py'=(Hash (Join-Path $observer 'bin\\stcvrc_observer.py'))}
+  Write-Json (Join-Path $observer 'manifest.json') @{schemaVersion=77;owner='foreign-directory-race';files=$foreignFiles}
+  $script:taskPresent=$true;$script:taskEnabled=$false;$script:taskXml='foreign-directory-race-task-xml'
+  $script:taskArguments='foreign-directory-race-args';$script:taskDescription='foreign directory owner'
+  }
+  $script:rootRaceInjected=$true;$script:events+='foreign-root-created-after-baseline'
+  $script:foreignObserverBefore=Snapshot-Observer
+ }
+}
 $copyObserverActual=${function:Copy-ObserverPayload}
 function Copy-ObserverPayload([bool]$Candidate){
+ $script:copyObserverCalls++
  & $copyObserverActual $Candidate
- if($Candidate -and $absent -and -not $foreign){
+ if($Candidate -and $absent -and -not $foreign -and $fixtureMode -cnotin @('root-race','root-race-empty')){
   [IO.Directory]::CreateDirectory((Join-Path $observer 'data'))|Out-Null
   [IO.File]::WriteAllText((Join-Path $observer 'data\history.jsonl'),'history survives rollback')
   if($fixtureMode -ceq 'partial-apply'){throw 'fixture-partial-apply-failure'}
@@ -165,19 +228,37 @@ function Copy-ObserverPayload([bool]$Candidate){
 }
 $before=Snapshot-Observer
 $applyRejected=$false;$applyReason=$null
-if($absent){
+$rollbackRejected=$false;$rollbackReason=$null
+if($fullApply){
+ # Invoke the real outer Apply try/catch/finally, including its actual recovery
+ # call and file lock. Only host effect boundaries above are fixture adapters.
+ $transactionTry=@($ast.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.TryStatementAst]})
+ if($transactionTry.Count -ne 1){throw 'Expected unique production transaction try/catch/finally'}
+ $Mode='Apply';$LabPause='None';$DeadlineSeconds=300;$Lock=$null
+ $ServiceExe=Join-Path $Root 'fixture-service.exe';$PowerShell='fixture-not-executed'
+ [IO.File]::WriteAllText($Core,'baseline-core')
+ [IO.File]::WriteAllText((Join-Path $Root 'core.new'),'candidate-core')
+ $Plan.entries[0].replace=$true;$Plan.entries[0].after=Hash (Join-Path $Root 'core.new')
+ Write-Json $PlanPath $Plan
+ [IO.File]::Delete((Join-Path $Root 'core.old'))
+ [IO.File]::Delete((Join-Path $Root 'mutation.started'))
+ try{. ([ScriptBlock]::Create($transactionTry[0].Extent.Text))}catch{$applyRejected=$true;$applyReason=$_.Exception.Message}
+ $rollbackRejected=(Test-Path -LiteralPath (Join-Path $Root 'rollback-result.json')) -and -not (Read-Json (Join-Path $Root 'rollback-result.json')).pass
+ if($rollbackRejected){$rollbackReason=$applyReason}
+ if($script:rootRaceInjected){$before=$script:foreignObserverBefore}
+}elseif($absent){
  # The empty baseline was captured before this separately-owned installation.
  # It deliberately has exact candidate bytes and normal task identity: hashes
  # or a generic observer marker do not prove ownership by this transaction.
  try{Apply-Observer}catch{$applyRejected=$true;$applyReason=$_.Exception.Message}
+ if($fixtureMode -cin @('root-race','root-race-empty') -and $script:rootRaceInjected){$before=$script:foreignObserverBefore}
  if($fixtureMode -cin @('task-replaced','task-hash-drift')){
   $script:taskXml='foreign-replacement-task-xml'
   if($fixtureMode -ceq 'task-replaced'){$script:taskDescription='replacement foreign transaction'}
   $before=Snapshot-Observer
  }
 }
-$rollbackRejected=$false;$rollbackReason=$null
-try{Restore-Old}catch{$rollbackRejected=$true;$rollbackReason=$_.Exception.Message}
+if(-not $fullApply){try{Restore-Old}catch{$rollbackRejected=$true;$rollbackReason=$_.Exception.Message}}
 $repeatRejected=$false;$repeatReason=$null
 if($fixtureMode -ceq 'complete-apply-repeat' -and -not $rollbackRejected){
  try{Restore-Old}catch{$repeatRejected=$true;$repeatReason=$_.Exception.Message}
@@ -196,6 +277,11 @@ $history=Join-Path $observer 'data\history.jsonl'
 $historyPreserved=(Test-Path -LiteralPath $history) -and [IO.File]::ReadAllText($history) -ceq 'history survives rollback'
 $foreignTaskAfter=@{xml=$script:taskXml;arguments=$script:taskArguments;description=$script:taskDescription;enabled=$script:taskEnabled}|ConvertTo-Json -Compress
 $payloadRemoved=(-not (Test-Path -LiteralPath (Join-Path $observer 'bin\python.exe'))) -and (-not (Test-Path -LiteralPath (Join-Path $observer 'bin\stcvrc_observer.py'))) -and (-not (Test-Path -LiteralPath (Join-Path $observer 'manifest.json')))
+$lockReleased=$false
+try {
+ $probe=[IO.File]::Open((Join-Path $Root 'transaction.lock'),'OpenOrCreate','ReadWrite','None')
+ $probe.Dispose();$lockReleased=$true
+}catch{}
 @{scope='offline AST fixtures; no live tasks/services/network/VM';failure=$failure;foreign=$foreign;
  applyRejected=$applyRejected;applyReason=$applyReason;rollbackRejected=$rollbackRejected;rollbackReason=$rollbackReason;
   repeatRejected=$repeatRejected;repeatReason=$repeatReason;
@@ -205,6 +291,14 @@ $payloadRemoved=(-not (Test-Path -LiteralPath (Join-Path $observer 'bin\python.e
  observerUnchanged=((Snapshot-Observer) -ceq $before);phase=$phase;guardActive=$script:guardActive;
  successRecorded=($null -ne $result -and $result.pass -eq $true);events=$script:events;
   taskPresent=$script:taskPresent;taskEnabled=$script:taskEnabled;
+  rootRaceInjected=$script:rootRaceInjected;copyObserverCalls=$script:copyObserverCalls;startCount=$script:startCount;
+  baselineCalls=$script:baselineCalls;fullApply=$fullApply;lockReleased=$lockReleased;foreignStopObserverCalls=$script:foreignStopObserverCalls;
+  rootRaceBefore=$(if($script:rootRaceInjected){$before|ConvertFrom-Json}else{$null});
+  rootRaceAfter=$(if($script:rootRaceInjected){Snapshot-Observer|ConvertFrom-Json}else{$null});
+  rootClaimPresent=(Test-Path -LiteralPath (Join-Path $Root 'observer-created.json'));
+  taskIntentPresent=(Test-Path -LiteralPath (Join-Path $Root 'observer-task.intent.json'));
+  taskClaimPresent=(Test-Path -LiteralPath (Join-Path $Root 'observer-task.created.json'));
+  transactionMarkerPresent=(Test-Path -LiteralPath (Join-Path $observer '.stcvrc-transaction'));
   stopObserverCalls=$script:stopObserverCalls;disableCount=$script:disableCount;stopCount=$script:stopCount;unregisterCount=$script:unregisterCount}|ConvertTo-Json -Depth 6 -Compress
 """
             replacements = {
@@ -213,6 +307,7 @@ $payloadRemoved=(-not (Test-Path -LiteralPath (Join-Path $observer 'bin\python.e
                 "__FAILURE__": failure,
                 "__FOREIGN__": "$true" if foreign else "$false",
                 "__FIXTURE_MODE__": mode,
+                "__FULL_APPLY__": "$true" if full_apply else "$false",
             }
             for token, value in replacements.items():
                 code = code.replace(token, value)
@@ -294,6 +389,63 @@ $payloadRemoved=(-not (Test-Path -LiteralPath (Join-Path $observer 'bin\python.e
         self.assertEqual(report["disableCount"], 0, report)
         self.assertEqual(report["stopCount"], 0, report)
         self.assertEqual(report["unregisterCount"], 0, report)
+
+    def test_foreign_directory_after_last_absence_check_is_preserved_by_apply_and_rollback(self):
+        report = self.run_scenario(mode="root-race")
+        self.assertTrue(report["rootRaceInjected"], report)
+        self.assertTrue(report["applyRejected"], report)
+        self.assert_failed_rollback_retains_guard(report)
+        self.assertIn("baseline-ui-installed", report["events"], report)
+        self.assertEqual(report["copyObserverCalls"], 0, report)
+        self.assertTrue(report["observerUnchanged"], report)
+        self.assertFalse(report["rootClaimPresent"], report)
+        self.assertFalse(report["taskIntentPresent"], report)
+        self.assertFalse(report["taskClaimPresent"], report)
+        self.assertFalse(report["transactionMarkerPresent"], report)
+        for counter in ("stopObserverCalls", "disableCount", "stopCount", "unregisterCount", "startCount", "forcedOverwriteCount"):
+            self.assertEqual(report[counter], 0, report)
+
+    def assert_full_apply_collision_is_preserved(self, report):
+        self.assertTrue(report["fullApply"], report)
+        self.assertTrue(report["rootRaceInjected"], report)
+        self.assertEqual(report["baselineCalls"], 2, report)
+        self.assertTrue(report["applyRejected"], report)
+        self.assertTrue(report["rollbackRejected"], report)
+        self.assertTrue(report["coreRestored"], report)
+        self.assertIn("candidate-ui-installed", report["events"], report)
+        self.assertIn("candidate-core-registered", report["events"], report)
+        self.assertIn("baseline-ui-installed", report["events"], report)
+        self.assertIn("baseline-core-registered", report["events"], report)
+        self.assertEqual(report["copyObserverCalls"], 0, report)
+        self.assertTrue(report["observerUnchanged"], report)
+        self.assertEqual(report["rootRaceBefore"], report["rootRaceAfter"], report)
+        self.assertFalse(report["rootClaimPresent"], report)
+        self.assertFalse(report["taskIntentPresent"], report)
+        self.assertFalse(report["taskClaimPresent"], report)
+        self.assertFalse(report["transactionMarkerPresent"], report)
+        for counter in ("foreignStopObserverCalls", "disableCount", "stopCount", "unregisterCount", "startCount", "forcedOverwriteCount"):
+            self.assertEqual(report[counter], 0, report)
+        self.assertFalse(report["successRecorded"], report)
+        self.assertTrue(report["guardActive"], report)
+        # The real outer Apply catch preserves FAIL but names its terminal
+        # phase rollback-failed after Restore-Old records rollback-incomplete.
+        self.assertEqual(report["phase"], "rollback-failed", report)
+        self.assertIn("apply-task-removed", report["events"], report)
+        self.assertTrue(report["lockReleased"], report)
+
+    def test_full_apply_preserves_foreign_directory_created_after_last_absence_check(self):
+        report = self.run_scenario(mode="root-race", full_apply=True)
+        self.assert_full_apply_collision_is_preserved(report)
+        self.assertTrue(report["historyPreserved"], report)
+        self.assertTrue(report["taskPresent"], report)
+        self.assertFalse(report["taskEnabled"], report)
+
+    def test_full_apply_preserves_empty_foreign_directory_after_last_absence_check(self):
+        report = self.run_scenario(mode="root-race-empty", full_apply=True)
+        self.assert_full_apply_collision_is_preserved(report)
+        self.assertEqual(report["rootRaceAfter"]["files"], {}, report)
+        self.assertTrue(report["rootRaceAfter"]["rootPresent"], report)
+        self.assertFalse(report["taskPresent"], report)
 
     def test_foreign_task_replacement_after_own_install_is_not_stopped_or_removed(self):
         report = self.run_scenario(mode="task-replaced")

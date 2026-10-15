@@ -1,3 +1,5 @@
+> Directory ownership follow-up: [актуальная проверка](../OBSERVER-DIRECTORY-CLAIM.md). VM/runtime acceptance остаётся открытой.
+
 > Rollback follow-up: [исправления и актуальная проверка](../OBSERVER-RECOVERY.md). VM/runtime recovery не принято.
 
 > Актуальное продолжение: [candidate TUN и общий rollback](../PREPARATION-NEXT.md). Ниже сохранено описание предыдущих прогонов; текущие source hashes — в provenance.json. Runtime gates остаются открыты.

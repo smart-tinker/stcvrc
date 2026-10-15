@@ -291,22 +291,26 @@ function Apply-Observer {
         $quiesced=Read-Json (Join-Path $Root 'observer-quiesced.json')
         if(-not $task -or $task.Settings.Enabled -ne $false -or (Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $quiesced.taskHash){throw 'Observer task changed during UI upgrade'}
     }
-    if(-not (Test-Path -LiteralPath $o.root)){
-        $null=New-Item -ItemType Directory -Path $o.root
-        # Creation is exclusive (no -Force); a pre-existing root is never claimed.
-        if(-not $o.oldPresent){
-            $stream=[IO.File]::Open((Join-Path $o.root '.stcvrc-transaction'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-            try {$bytes=[Text.Encoding]::UTF8.GetBytes($Root);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
-            Write-Json (Join-Path $Root 'observer-created.json') @{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath)}
-        }
+    if(-not $o.oldPresent){
+        # Prepare inside the owned transaction, then acquire the destination
+        # exclusively. Move fails if any root appeared after the absence check;
+        # never adopt an existing directory or fall back to copying into it.
+        $createdRoot=Join-Path $Root 'observer.create'
+        No-Reparse $createdRoot
+        $null=New-Item -ItemType Directory -Path $createdRoot
         $acl=[Security.AccessControl.DirectorySecurity]::new()
         $acl.SetAccessRuleProtection($true,$false)
         foreach($sid in @('S-1-5-18','S-1-5-32-544')){
             $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
         }
-        Set-Acl -LiteralPath $o.root -AclObject $acl
-        [IO.File]::WriteAllText((Join-Path $o.root '.stcvrc-observer'),'STCVRC_OBSERVER_V1')
+        Set-Acl -LiteralPath $createdRoot -AclObject $acl
+        [IO.File]::WriteAllText((Join-Path $createdRoot '.stcvrc-observer'),'STCVRC_OBSERVER_V1')
+        $stream=[IO.File]::Open((Join-Path $createdRoot '.stcvrc-transaction'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try {$bytes=[Text.Encoding]::UTF8.GetBytes($Root);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+        [IO.Directory]::Move($createdRoot,$o.root)
+        Write-Json (Join-Path $Root 'observer-created.json') @{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath)}
     }
+    if(-not (Assert-ObserverClaim)){throw 'Observer payload write requires transaction ownership'}
     Copy-ObserverPayload $true
     Assert-ObserverAcl
     if(-not $o.oldPresent){
