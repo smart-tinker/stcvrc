@@ -1,0 +1,7 @@
+TUN_SELECTOR_WATCH_OBSERVATION {"recoveryLockAvailable": true, "selector": "VPS-POOL", "firstWriteSerialized": true, "laterRejected": true, "puts": 1, "firstReachedIo": true}
+test_watch_completed_between_leaves_blocks_later_selector_write (test_stcvrc_tun_gate.CandidateTunTests.test_watch_completed_between_leaves_blocks_later_selector_write) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.053s
+
+OK

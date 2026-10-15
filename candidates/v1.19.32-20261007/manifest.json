@@ -89,21 +89,22 @@
     "skipped": 0,
     "scope": "local unit/fixture/PowerShell AST checks only"
   },
-  "preparationSourceHashesRechecked": false,
+  "preparationSourceHashesRechecked": true,
   "rollback": {
     "completed": "Local UI/core version pairs 2.5.5 to 2.5.8 and 2.5.2 to 2.5.8",
     "pending": [
-      "Candidate TUN/recovery",
-      "Atomic observer plus UI/core rollback",
+      "Candidate live TUN/recovery acceptance",
+      "Live observer plus UI/core timeout rollback and cleanup",
       "Separate Work-host deployment support"
     ],
     "runtimeValidated": false,
     "publicSources": "preparation/README.md",
-    "confirmDeadlineFix": "Offline AST/mock regression PASS; real integration/deadline restoration NOT_RUN"
+    "confirmDeadlineFix": "Offline AST/mock regression PASS; real integration/deadline restoration NOT_RUN",
+    "localPreparationFollowup": "PREPARATION-NEXT.md"
   },
   "acceptance": {
-    "newVmGate": "NOT RUN; shared VM occupied",
-    "beforeVmWindow": "Fresh same-context baseline/backup; do not restore an older baseline over newer changes",
+    "newVmGate": "NOT RUN in this continuation; previous shared-VM occupied dependency removed by coordinator",
+    "beforeVmWindow": "Fresh live availability, same-context preflight and backup; preserve current state, not September baseline",
     "homeReady": false,
     "workReady": false,
     "productionChanges": false
@@ -192,5 +193,22 @@
     "homeReady": false,
     "workReady": false,
     "vmGate": "NOT_RUN"
+  },
+  "preparationNext": {
+    "priorCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+    "instructions": "PREPARATION-NEXT.md",
+    "checkedUtc": "2026-10-15T15:32:52.153704+00:00",
+    "testsRun": 92,
+    "passed": 92,
+    "skipped": 0,
+    "report": "preparation/evidence/preparation-next/preparation-tests.json",
+    "currentSourceMaps": 28,
+    "sourcePrepared": [
+      "candidate TUN/recovery",
+      "joint observer/UI/core transaction"
+    ],
+    "vmGate": "NOT_RUN",
+    "homeReady": false,
+    "workReady": false
   }
 }

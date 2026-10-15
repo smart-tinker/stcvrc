@@ -2,11 +2,13 @@
 import base64
 import argparse
 import hashlib
+from datetime import datetime
 import json
 from pathlib import Path
 import runpy
 import sys
 import time
+import zipfile
 
 import stmc_yaml
 from stcvrc_observer import observer_profile, LISTENERS, TARGETS
@@ -17,6 +19,8 @@ from stcvrc_rotation_gate import LISTENER as ROTATION_LISTENER
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--observer-bundle',type=Path,help='Unpacked payload directory with manifest.json and adjacent .zip')
+parser.add_argument('--atomic-observer-bundle',type=Path,help='Pinned observer payload staged inside the candidate SYSTEM transaction; fresh absent userVM baseline only')
+parser.add_argument('--atomic-observer-label',choices=('home','work'),default='home')
 parser.add_argument('--observer-production',action='store_true',help='Accept the production installer on disposable userVM, then remove its exact footprint')
 parser.add_argument('--via-fixture_relay',action='store_true')
 parser.add_argument('--reboot',action='store_true')
@@ -33,12 +37,18 @@ parser.add_argument('--observer-config-gate',action='store_true',help='Only obse
 parser.add_argument('--ui-migration-gate',action='store_true',help='Bounded stock UI2.5.2 -> 2.5.5 -> 2.5.2 transition, no TUN')
 parser.add_argument('--ui-rollout-gate',action='store_true',help='Existing SYSTEM transaction: full UI/core upgrade and automatic rollback')
 parser.add_argument('--ui-rollout-target-stack',choices=('next','candidate'),default='next',help='Pinned full UI/core target; source is --stack')
-parser.add_argument('--tun-gate',action='store_true',help='Transient userVM TUN under the existing unconfirmed core rollback')
+parser.add_argument('--tun-gate',action='store_true',help='Transient userVM TUN under unconfirmed core rollback or exact candidate UI/core rollback')
 args=parser.parse_args()
+if args.atomic_observer_bundle and (not args.ui_rollout_gate or args.ui_rollout_target_stack!='candidate' or args.observer_bundle or args.observer_production or args.reboot):
+    parser.error('Atomic observer requires only the candidate UI/core transaction, without a separate installer or reboot')
+if args.atomic_observer_bundle and (not args.atomic_observer_bundle.is_dir() or not (args.atomic_observer_bundle/'manifest.json').is_file() or not args.atomic_observer_bundle.with_suffix('.zip').is_file()):
+    parser.error('Atomic observer bundle must be an unpacked directory with manifest.json and adjacent .zip')
+if not args.atomic_observer_bundle and args.atomic_observer_label!='home':
+    parser.error('Atomic observer label requires its bundle')
 if args.observer_config_gate and (not args.core_rollout_gate or args.observer_bundle or args.tun_gate):
     parser.error('Observer config gate requires core-rollout-gate without observer bundle/TUN')
-if args.tun_gate and (not args.core_rollout_gate or args.observer_bundle):
-    parser.error('TUN gate requires core-rollout-gate without observer bundle')
+if args.tun_gate and (not (args.core_rollout_gate or (args.ui_rollout_gate and args.ui_rollout_target_stack=='candidate')) or args.observer_bundle):
+    parser.error('TUN gate requires core-rollout-gate or exact candidate UI transaction, without a separate observer installer')
 if args.observer_production and (not args.observer_bundle or args.stack not in ('next','candidate')):
     parser.error('Production observer acceptance requires next stack and the pinned bundle')
 if args.observer_bundle and (not args.observer_bundle.is_dir()
@@ -212,6 +222,110 @@ def packet_counters(action, timeout=60):
         " --seconds "+str(args.corporate_idle_seconds),timeout))
 
 
+def stage_transaction_files(stage,target):
+    # The observer package has nested payload paths. One pinned archive avoids
+    # per-file transports and still verifies every extracted byte before Launch.
+    files=sorted(path for path in stage.rglob('*') if path.is_file())
+    if not files or any(path.is_symlink() or (getattr(path.lstat(),'st_file_attributes',0)&1024) for path in stage.rglob('*')):
+        raise RuntimeError('Unsafe or empty transaction staging')
+    hashes={path.relative_to(stage).as_posix():H['hash_file'](path) for path in files}
+    payload=local/'transaction-input.zip'
+    with zipfile.ZipFile(payload,'w',compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in files:archive.write(path,path.relative_to(stage).as_posix())
+        archive.writestr('_staged-hashes.json',json.dumps(hashes))
+    remote=target+'\\transaction-input.zip'
+    upload(payload,remote)
+    ps("$p='"+remote+"';if((Get-FileHash -LiteralPath $p).Hash -ine '"+H['hash_file'](payload)+"'){throw 'Transaction archive hash mismatch'};Expand-Archive -LiteralPath $p -DestinationPath '"+target+"';Remove-Item -LiteralPath $p",timeout=180)
+    ps("$root='"+target+"';$h=[IO.File]::ReadAllText((Join-Path $root '_staged-hashes.json'))|ConvertFrom-Json;foreach($e in $h.PSObject.Properties){if((Get-FileHash -LiteralPath (Join-Path $root $e.Name)).Hash -ine $e.Value){throw 'Transaction input hash mismatch'}}",read_only=True)
+
+
+def atomic_observer_baseline():
+    # This lab path does not acquire ownership of an existing observer.
+    observed=json.loads(ps(r"""
+if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
+$root='C:\ProgramData\STCVRC-observer'
+@{rootAbsent=(-not (Test-Path -LiteralPath $root));taskAbsent=(-not (Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue));workersAbsent=(@(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}).Count -eq 0)}|ConvertTo-Json -Compress
+""",read_only=True))
+    if not all(observed.get(key) is True for key in ('rootAbsent','taskAbsent','workersAbsent')):
+        raise RuntimeError('Atomic observer lab requires a fresh absent baseline; existing deployment is not owned by this harness')
+    return observed
+
+
+def atomic_observer_health(target,observer_sha):
+    until=time.monotonic()+65
+    while time.monotonic()<until:
+        observed=json.loads(ps(r"""
+$tx='__TRANSACTION__';$root='C:\ProgramData\STCVRC-observer'
+$plan=[IO.File]::ReadAllText(($tx+'\plan.json'))|ConvertFrom-Json
+$armed=[IO.File]::ReadAllText(($tx+'\armed.json'))|ConvertFrom-Json
+$phase=([IO.File]::ReadAllText(($tx+'\state.json'))|ConvertFrom-Json).phase
+$task=Get-ScheduledTask -TaskName 'STCVRC-Observer'
+$info=Get-ScheduledTaskInfo -TaskName 'STCVRC-Observer'
+$sid=if($task.Principal.UserId -like 'S-1-*'){$task.Principal.UserId}else{([Security.Principal.NTAccount]::new($task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}
+$owned=($sid -ceq 'S-1-5-18' -and $task.Actions.Count -eq 1 -and $task.Actions[0].Execute -ceq ($root+'\bin\python.exe') -and $task.Actions[0].Arguments -ceq $plan.observer.newArguments -and $task.Actions[0].WorkingDirectory -ceq ($root+'\bin'))
+$file=Get-ChildItem -LiteralPath ($root+'\data\timeline') -Filter '*.jsonl' -ErrorAction SilentlyContinue|Sort-Object Name|Select-Object -Last 1
+$row=$null
+if($file){$last=Get-Content -LiteralPath $file.FullName -Tail 1|ConvertFrom-Json;$row=@{observedUtc=$last.observedUtc;label=$last.label;checkpoint=$last.checkpoint;observerSha256=$last.observerSha256;coreSha256=$last.binaries.core.sha256;components=$last.components}}
+@{phase=$phase;manifestMatch=((Get-FileHash -LiteralPath ($root+'\manifest.json')).Hash -ieq $plan.observer.newManifestHash);taskOwned=$owned;taskState=[string]$task.State;taskResult=$info.LastTaskResult;armedAt=$armed.processCreated;row=$row}|ConvertTo-Json -Depth 6 -Compress
+""".replace('__TRANSACTION__',target),timeout=20,read_only=True))
+        row=observed.get('row') or {}
+        fresh=False
+        try:fresh=datetime.fromisoformat(row['observedUtc'].replace('Z','+00:00'))>=datetime.fromisoformat(observed['armedAt'].replace('Z','+00:00'))
+        except (KeyError,TypeError,ValueError):pass
+        if (observed.get('phase')=='awaiting-confirmation' and observed.get('manifestMatch') is True
+                and observed.get('taskOwned') is True and observed.get('taskState')=='Ready'
+                and observed.get('taskResult')==0 and fresh and row.get('label')==args.atomic_observer_label
+                and row.get('checkpoint') in ('new','ok') and row.get('observerSha256')==observer_sha
+                and row.get('coreSha256')==STACKS['candidate']['coreSha256']
+                and all(row.get('components',{}).get(key)=='ok' for key in ('host','controller','binaries'))):
+            return observed
+        if observed.get('phase')!='awaiting-confirmation':break
+        time.sleep(2)
+    raise RuntimeError('Candidate observer has no fresh completed pinned row/task result before the bounded timeout')
+
+
+def atomic_observer_cleanup(target):
+    # An absent-baseline transaction preserves its newly collected history.
+    # Archive that history before removing only this run's inactive lab remainder.
+    guard=r"""
+if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
+$tx='__TRANSACTION__';$root=[IO.Path]::GetFullPath('C:\ProgramData\STCVRC-observer')
+$plan=[IO.File]::ReadAllText(($tx+'\plan.json'))|ConvertFrom-Json
+$state=[IO.File]::ReadAllText(($tx+'\state.json'))|ConvertFrom-Json
+$armed=[IO.File]::ReadAllText(($tx+'\armed.json'))|ConvertFrom-Json
+$rollback=[IO.File]::ReadAllText(($tx+'\rollback-result.json'))|ConvertFrom-Json
+if(-not $plan.lab -or $plan.host -cne 'LABHOST' -or $plan.root -cne $tx -or $root -cne 'C:\ProgramData\STCVRC-observer' -or $plan.observer.root -cne $root -or $plan.observer.task -cne 'STCVRC-Observer' -or $plan.observer.oldPresent -isnot [bool] -or $plan.observer.oldPresent -or $state.phase -cne 'rolled-back'){throw 'Observer lab cleanup scope mismatch'}
+if($armed.planHash -ine (Get-FileHash -LiteralPath ($tx+'\plan.json')).Hash -or $rollback.pass -ne $true -or $rollback.observerRestored -ne $true){throw 'Observer rollback identity/result unconfirmed'}
+if(Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue){throw 'Observer task still present'}
+if(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}){throw 'Observer worker still present'}
+if(Test-Path -LiteralPath $root){
+ $ancestor=$root;while($ancestor){if((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Observer reparse ancestor'};$ancestor=Split-Path -Parent $ancestor}
+ if([IO.File]::ReadAllText(($root+'\.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Observer cleanup marker mismatch'}
+ $items=@(Get-ChildItem -LiteralPath $root -Recurse -Force)
+ if($items|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Observer cleanup reparse'}
+ if(Get-ChildItem -LiteralPath $root -Directory|Where-Object Name -notin @('data','bin')){throw 'Unexpected observer directory'}
+ if($items|Where-Object {-not $_.PSIsContainer -and $_.FullName -cne ($root+'\.stcvrc-observer') -and -not $_.FullName.StartsWith(($root+'\data\'),[StringComparison]::OrdinalIgnoreCase)}){throw 'Observer payload or unexpected file remains'}
+ if(($items|Where-Object {-not $_.PSIsContainer}|Measure-Object Length -Sum).Sum -gt 67108864){throw 'Observer evidence size limit'}
+}
+""".replace('__TRANSACTION__',target)
+    observed=json.loads(ps(guard+"\n@{rootPresent=[bool](Test-Path -LiteralPath $root)}|ConvertTo-Json -Compress",read_only=True))
+    if observed['rootPresent']:
+        archive=control+'\\atomic-observer-evidence.zip'
+        ps(guard+"\nCompress-Archive -LiteralPath $root -DestinationPath '"+archive+"'",timeout=120)
+        download(archive,local/'atomic-observer-evidence.zip')
+        # Re-evaluate the same ownership/inactive guards after archival too.
+        ps(guard+"\nRemove-Item -LiteralPath $root -Recurse -Force")
+    return atomic_observer_baseline()
+
+
+def lab_cleanup_allowed():
+    if report.get('pendingSystemTransaction'):
+        report['cleanupError']='SYSTEM transaction recovery unconfirmed; lab retained for its independent guard'
+        report['pass']=False
+        return False
+    return True
+
+
 def core_rollout_gate(ui_update=False):
     print(json.dumps({'stage':'ui-system-transaction' if ui_update else 'approved-core-transaction'}),flush=True)
     snapshot=local/'core-input';(snapshot/'profiles').mkdir(parents=True)
@@ -247,13 +361,14 @@ def core_rollout_gate(ui_update=False):
     if ui_update:command += ['--source-stack',original_name,'--target-stack',target_name]
     if not ui_update or approved_source:command += ['--runtime-config',str(snapshot/'owner-runtime.yaml')]
     if args.observer_config_gate:command += ['--observer-config']
+    if args.atomic_observer_bundle:
+        entry_baseline=atomic_observer_baseline()
+        report['atomicObserverBeforeTransaction']=entry_baseline
+        command += ['--observer-bundle',str(args.atomic_observer_bundle),'--observer-baseline-absent',
+                    '--observer-label',args.atomic_observer_label]
     H['command'](command,60)
     ps("if(Test-Path -LiteralPath '"+target+"'){throw 'Transaction exists'};$null=New-Item -ItemType Directory -Path '"+target+"'")
-    hashes={path.name:H['hash_file'](path) for path in stage.iterdir() if path.is_file()}
-    for path in stage.iterdir():
-        if path.is_file():upload(path,target+'\\'+path.name)
-    encoded=base64.b64encode(json.dumps(hashes).encode('ascii')).decode('ascii')
-    ps("$root='"+target+"';$h=[Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('"+encoded+"'))|ConvertFrom-Json;foreach($e in $h.PSObject.Properties){if((Get-FileHash -LiteralPath (Join-Path $root $e.Name)).Hash -ine $e.Value){throw 'Transaction input hash mismatch'}}",read_only=True)
+    stage_transaction_files(stage,target)
     entry={'preflight':json.loads(ps("& '"+target+"\\transaction.ps1' -Mode Preflight -Transaction '"+target+"'",50,read_only=True))}
     if args.tun_gate:
         source=PROJECT/'scripts/uservm-stcvrc-tun-gate.ps1'
@@ -261,10 +376,13 @@ def core_rollout_gate(ui_update=False):
         ps("if((Get-FileHash -LiteralPath '"+target+"\\tun-gate.ps1').Hash -ine '"+H['hash_file'](source)+"'){throw 'TUN gate hash mismatch'}",read_only=True)
     try:
         deadline=300 if ui_update or args.tun_gate else 180
+        # Submission may succeed remotely even when the management reply is lost.
+        report['pendingSystemTransaction']=target
         entry['launch']=json.loads(ps("& '"+target+"\\transaction.ps1' -Mode Launch -Transaction '"+target+"' -DeadlineSeconds "+str(deadline),40))
         until=time.monotonic()+deadline+200
         phases=[]
         tun_submitted=False
+        atomic_checked=False
         observer_checked=False
         while time.monotonic()<until:
             try:
@@ -293,7 +411,16 @@ foreach($pair in @(@('4VPS',18981),@('GC',18982))){
 $listeners=($core.Count -eq 1 -and $ports.Count -eq 2 -and @($ports|Where-Object {$_.LocalAddress -cne '127.0.0.1' -or $_.OwningProcess -ne $core[0].ProcessId}).Count -eq 0)
 @{pass=($listeners -and @($rows|Where-Object {-not $_.success}).Count -eq 0);listenersOwnedLoopback=$listeners;applications=$rows}|ConvertTo-Json -Depth 5 -Compress
 """,55,read_only=True))
-            if args.tun_gate and phase=='awaiting-confirmation' and not tun_submitted:
+            if args.atomic_observer_bundle and phase=='awaiting-confirmation' and not atomic_checked:
+                atomic_checked=True
+                observer_manifest=json.loads((args.atomic_observer_bundle/'manifest.json').read_text())
+                try:
+                    entry['atomicObserverCandidate']=atomic_observer_health(target,observer_manifest['files']['bin/stcvrc_observer.py'])
+                except (RuntimeError,TransportFailure) as exc:
+                    # Do not start outer restoration while the independent guard
+                    # still owns a pending transaction. Wait for rollback below.
+                    entry['atomicObserverCandidateError']=type(exc).__name__
+            if args.tun_gate and phase=='awaiting-confirmation' and not tun_submitted and (not args.atomic_observer_bundle or 'atomicObserverCandidate' in entry):
                 tun_submitted=True
                 print(json.dumps({'stage':'TUN-under-SYSTEM-deadline'}),flush=True)
                 try:
@@ -308,6 +435,7 @@ $listeners=($core.Count -eq 1 -and $ports.Count -eq 2 -and @($ports|Where-Object
         entry['phases']=phases
         if phase!='rolled-back':
             raise RuntimeError('Automatic core rollback did not complete in the bounded window')
+        report['pendingSystemTransaction']=None
         for name in ('candidate-result.json','rollback-result.json','history-before-result.json'):
             download(target+'\\'+name,local/('core-'+name))
         candidate=json.loads((local/'core-candidate-result.json').read_text(encoding='utf-8-sig'))
@@ -317,6 +445,8 @@ $listeners=($core.Count -eq 1 -and $ports.Count -eq 2 -and @($ports|Where-Object
                        and rollback['executingCoreHash']==original_stack['coreSha256'])
         if args.observer_config_gate:
             entry['pass'] &= entry.get('observerConfig',{}).get('pass') is True and rollback.get('uiStopped') is False
+        if args.atomic_observer_bundle:
+            entry['pass'] &= 'atomicObserverCandidate' in entry and rollback.get('observerRestored') is True
         if args.tun_gate:
             download(target+'\\tun-result.json',local/'tun-result.json')
             entry['tun']=json.loads((local/'tun-result.json').read_text(encoding='utf-8-sig'))
@@ -335,6 +465,8 @@ $listeners=($core.Count -eq 1 -and $ports.Count -eq 2 -and @($ports|Where-Object
         ps("$root='"+target+"';$files=@(Get-ChildItem -LiteralPath $root -File|Where-Object {$_.Name -match '(result|error|worker|ready)\\.json$' -or $_.Name -in @('state.json','armed.json')});$dirs=@(Get-ChildItem -LiteralPath $root -Directory -Filter 'history-*');$paths=@($files.FullName)+@($dirs.FullName);if($paths.Count){Compress-Archive -LiteralPath $paths -DestinationPath '"+zip_path+"'}",120)
         if ps("[bool](Test-Path -LiteralPath '"+zip_path+"')",read_only=True)=='True':
             download(zip_path,local/'core-transaction-evidence.zip')
+        if args.atomic_observer_bundle:
+            entry['atomicObserverRestored']=atomic_observer_cleanup(target)
 
 
 def ui_migration_gate():
@@ -423,6 +555,8 @@ while(-not(Test-Path -LiteralPath $result)){{if((Get-Date) -gt $until){{throw 'D
 
 
 try:
+    if args.atomic_observer_bundle:
+        report['atomicObserverBaseline']=atomic_observer_baseline()
     if args.observer_bundle:
         ps("if(Test-Path -LiteralPath '"+protected+"'){throw 'Observer footprint'};if(Get-ScheduledTask -TaskName 'STCVRC-Observer*' -ErrorAction SilentlyContinue){throw 'Observer tasks'}")
     ps(r"""
@@ -763,6 +897,9 @@ except Exception as exc:
     if isinstance(exc, RuntimeError) and str(exc).startswith('ssh.exe exit '):
         report['transportFailure'] = str(exc)
 finally:
+    if not lab_cleanup_allowed():
+        # Do not race the independent Watch with a second restoration path.
+        prepared=created=False
     if prepared:
         try:
             ps("$logs='"+app+"\\logs';if(Test-Path -LiteralPath $logs){if(Get-ChildItem -LiteralPath $logs -Recurse -Force|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Log reparse'};if((Get-ChildItem -LiteralPath $logs -Recurse -File|Measure-Object Length -Sum).Sum -gt 33554432){throw 'Lab evidence size limit'};& '"+control+"\\preserve.ps1' -AppDirectory '"+app+"' -Destination '"+control+"\\cvr-evidence' -MaxLogBytes 33554432 -RequireComplete -SkipEvents;Compress-Archive -LiteralPath '"+control+"\\cvr-evidence' -DestinationPath '"+control+"\\cvr-evidence.zip'}",120)

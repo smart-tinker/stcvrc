@@ -32,7 +32,7 @@ class CandidateTransactionTests(unittest.TestCase):
                    'lab':r'C:\Users\FixtureUser\stcvrc-fullstack-lab','stamp':'20261015-120000','PROJECT':ROOT,
                    'STACKS':STACKS,'sys':__import__('sys'),'hashlib':hashlib,'stmc_yaml':stmc_yaml,'json':__import__('json'),
                    'download':download,'H':{'command':command},
-                   'args':SimpleNamespace(stack=source,ui_rollout_target_stack='candidate',observer_config_gate=False),
+                   'args':SimpleNamespace(stack=source,ui_rollout_target_stack='candidate',observer_config_gate=False,atomic_observer_bundle=None),
                    'report':{'setup':{'groups':[{'name':'FOREIGN-EGRESS','now':'GC','type':'Selector'}]}}}
             exec(code,scope)
             with self.assertRaises(PreparationReached):scope['core_rollout_gate'](ui_update=True)
@@ -78,19 +78,18 @@ foreach($version in @('2.5.6','2.5.9','3.0.0','invalid')){
         self.assertEqual(json.loads(result.stdout.decode('utf-8-sig'))['rejected'],4)
 
     def test_invalid_cli_pairs_and_mixed_gates_fail_before_remote_setup(self):
-        import subprocess,sys
-        script=ROOT/'scripts/invoke-uservm-stcvrc-desktop-autostart.py'
+        # Compile only argument validation, not the runtime/SSH entrypoint.
+        from test_stcvrc_tun_gate import harness_arguments
         prefix=['--preserve-service-state']
         cases=(['--ui-rollout-gate','--stack','candidate'],
                ['--ui-rollout-gate','--stack','next','--ui-rollout-target-stack','candidate','--reboot'],
                ['--stack','accepted','--ui-rollout-target-stack','candidate'],
-               ['--stack','accepted','--ui-rollout-gate','--ui-rollout-target-stack','candidate','--tun-gate'])
+               ['--stack','accepted','--ui-rollout-gate','--ui-rollout-target-stack','next','--tun-gate'])
         for args in cases:
             with self.subTest(args=args):
-                command='import runpy,sys;sys.path.insert(0,'+repr(str(ROOT/'scripts'))+');sys.argv='+repr([str(script),*prefix,*args])+';runpy.run_path('+repr(str(script))+',run_name="__main__")'
-                result=subprocess.run([sys.executable,'-B','-c',command],capture_output=True,timeout=20)
-                self.assertEqual(result.returncode,2,result.stderr.decode(errors='replace'))
-                self.assertIn(b'error:',result.stderr)
+                with self.assertRaises(SystemExit) as result:
+                    harness_arguments(prefix+args)
+                self.assertEqual(result.exception.code,2)
 
     def test_post_rollback_readback_accepts_only_actual_source_core(self):
         text=(ROOT/'scripts/invoke-uservm-stcvrc-desktop-autostart.py').read_text(encoding='utf-8')

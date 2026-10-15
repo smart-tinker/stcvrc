@@ -1,3 +1,5 @@
+> Актуальное продолжение: [candidate TUN и общий rollback](../PREPARATION-NEXT.md). Ниже сохранено описание предыдущих прогонов; текущие source hashes — в provenance.json. Runtime gates остаются открыты.
+
 # Текущее уточнение: confirm deadline
 
 [Повторное ревью и исправление](../CONFIRM-DEADLINE.md): текущий guard

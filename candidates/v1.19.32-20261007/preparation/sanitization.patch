@@ -4,14 +4,14 @@
              raise PreparationReached()
          import hashlib
          with tempfile.TemporaryDirectory(dir=ROOT/'local/labs',prefix='candidate-input-test-') as directory:
--            scope={'local':Path(directory),'app':r'C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
--                   'lab':r'C:\Users\<REDACTED_07>\stcvrc-fullstack-lab','stamp':'20261015-120000','PROJECT':ROOT,
+-            scope={'local':Path(directory),'app':r'C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
+-                   'lab':r'C:\Users\<REDACTED_06>\stcvrc-fullstack-lab','stamp':'20261015-120000','PROJECT':ROOT,
 +            scope={'local':Path(directory),'app':r'C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
 +                   'lab':r'C:\Users\FixtureUser\stcvrc-fullstack-lab','stamp':'20261015-120000','PROJECT':ROOT,
                     'STACKS':STACKS,'sys':__import__('sys'),'hashlib':hashlib,'stmc_yaml':stmc_yaml,'json':__import__('json'),
                     'download':download,'H':{'command':command},
-                    'args':SimpleNamespace(stack=source,ui_rollout_target_stack='candidate',observer_config_gate=False),
-@@ -107,9 +107,13 @@
+                    'args':SimpleNamespace(stack=source,ui_rollout_target_stack='candidate',observer_config_gate=False,atomic_observer_bundle=None),
+@@ -106,9 +106,13 @@
  
      def test_candidate_pins_exact_258_artifacts(self):
          import hashlib
@@ -32,12 +32,12 @@
              selectors = {'FOREIGN-EGRESS': 'GC', 'OTHER': 'REJECT'}
              (root / 'selectors.json').write_text(json.dumps(selectors))
              output = root / 'local/transaction'
--            argv = ['prepare', '--provider-repair', '--lab', '--host', '<REDACTED_08>',
+-            argv = ['prepare', '--provider-repair', '--lab', '--host', '<REDACTED_07>',
 +            argv = ['prepare', '--provider-repair', '--lab', '--host', 'LABHOST',
                      '--app-root', str(app), '--old-core', str(core), '--bundle', str(bundle),
                      '--yaml-validator', str(validator), '--output', str(output),
--                    '--target-app-root', r'C:\Users\<REDACTED_03>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
--                    '--target-transaction-root', r'C:\Users\<REDACTED_03>\stcvrc-fullstack-lab\transactions\stcvrc-safe-1',
+-                    '--target-app-root', r'C:\Users\<REDACTED_02>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
+-                    '--target-transaction-root', r'C:\Users\<REDACTED_02>\stcvrc-fullstack-lab\transactions\stcvrc-safe-1',
 +                    '--target-app-root', r'C:\Users\FixtureService\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
 +                    '--target-transaction-root', r'C:\Users\FixtureService\stcvrc-fullstack-lab\transactions\stcvrc-safe-1',
                      '--selectors-json', str(root / 'selectors.json')]
@@ -49,7 +49,7 @@
  $ast=[Management.Automation.Language.Parser]::ParseFile('__SOURCE__',[ref]$tokens,[ref]$errors)
  $f=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Guard'},$true)
  . ([ScriptBlock]::Create($f.Extent.Text))
--$env:COMPUTERNAME='<REDACTED_08>';$Root='C:\Users\<REDACTED_07>\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000'
+-$env:COMPUTERNAME='<REDACTED_07>';$Root='C:\Users\<REDACTED_06>\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000'
 +$env:COMPUTERNAME='LABHOST';$Root='C:\Users\FixtureUser\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000'
  $Core='C:\Program Files\Clash Verge\verge-mihomo.exe';$ExecutingCore=$Core;$ServiceExe='service';$ApprovalHelper='helper'
  $Mode='Watch';$LabPause='None'
@@ -57,16 +57,16 @@
  function No-Reparse($Path){}
  function Assert-UiVersion($Expected){}
  function Get-OwnerUiTask {}
--function Get-CimInstance($Class,$Filter){@{LocalPath='C:\Users\<REDACTED_07>'}}
+-function Get-CimInstance($Class,$Filter){@{LocalPath='C:\Users\<REDACTED_06>'}}
 +function Get-CimInstance($Class,$Filter){@{LocalPath='C:\Users\FixtureUser'}}
  $sid='S-1-5-21-1-2-3-1001'
  $sha=[Security.Cryptography.SHA256]::Create()
  try{$ownerHash=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::ASCII.GetBytes($sid)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
--$app='C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev'
+-$app='C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev'
 +$app='C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev'
  $targets=@{core=$Core;profile=($app+'\profiles\one.yaml');runtime=($app+'\clash-verge.yaml');registry=($app+'\profiles.yaml');settings=($app+'\verge.yaml')}
  $entries=@(foreach($id in $targets.Keys){[pscustomobject]@{id=$id;target=$targets[$id];replace=($id -ceq 'core')}})
--$Plan=@{schema=1;host='<REDACTED_08>';lab=$true;root=$Root;appRoot=$app;policy='ui-update';runtimeLayout='ui-migration';uiTask='Clash Verge';uiInstallers=@{old='fixture';new='fixture'};settingsExpectedSha256='fixture';ownerRuntimeSha256='fixture';oldOwnerRuntimeSha256='fixture';serviceOwnerSid=$sid;serviceOwnerDirectory=('C:\ProgramData\clash-verge-service\users\'+$ownerHash);scriptSha256='fixture';yamlValidatorSha256='fixture';profileFile='one.yaml';entries=$entries}
+-$Plan=@{schema=1;host='<REDACTED_07>';lab=$true;root=$Root;appRoot=$app;policy='ui-update';runtimeLayout='ui-migration';uiTask='Clash Verge';uiInstallers=@{old='fixture';new='fixture'};settingsExpectedSha256='fixture';ownerRuntimeSha256='fixture';oldOwnerRuntimeSha256='fixture';serviceOwnerSid=$sid;serviceOwnerDirectory=('C:\ProgramData\clash-verge-service\users\'+$ownerHash);scriptSha256='fixture';yamlValidatorSha256='fixture';profileFile='one.yaml';entries=$entries}
 +$Plan=@{schema=1;host='LABHOST';lab=$true;root=$Root;appRoot=$app;policy='ui-update';runtimeLayout='ui-migration';uiTask='Clash Verge';uiInstallers=@{old='fixture';new='fixture'};settingsExpectedSha256='fixture';ownerRuntimeSha256='fixture';oldOwnerRuntimeSha256='fixture';serviceOwnerSid=$sid;serviceOwnerDirectory=('C:\ProgramData\clash-verge-service\users\'+$ownerHash);scriptSha256='fixture';yamlValidatorSha256='fixture';profileFile='one.yaml';entries=$entries}
  foreach($pair in @(@('2.5.2','2.5.5','legacy'),@('2.5.2','2.5.8','legacy'),@('2.5.5','2.5.8','approved'))){
   $Plan.oldUiVersion=$pair[0];$Plan.uiVersion=$pair[1];$Plan.oldRuntimeLayout=$pair[2]
@@ -75,12 +75,12 @@
              validator.write_bytes(b'fixture-validator')
              output = root / 'local/transaction'
              argv = ['prepare', '--ui-update', '--source-stack', 'next', '--target-stack', 'candidate',
--                    '--lab', '--host', '<REDACTED_08>', '--app-root', str(app), '--old-core', str(root / 'next.exe'),
+-                    '--lab', '--host', '<REDACTED_07>', '--app-root', str(app), '--old-core', str(root / 'next.exe'),
 +                    '--lab', '--host', 'LABHOST', '--app-root', str(app), '--old-core', str(root / 'next.exe'),
                      '--candidate-core', str(root / 'candidate.exe'), '--service-owner-sid', sid,
                      '--runtime-config', str(root / 'owner.yaml'), '--yaml-validator', str(validator),
--                    '--output', str(output), '--target-app-root', r'C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
--                    '--target-transaction-root', r'C:\Users\<REDACTED_07>\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000',
+-                    '--output', str(output), '--target-app-root', r'C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
+-                    '--target-transaction-root', r'C:\Users\<REDACTED_06>\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000',
 +                    '--output', str(output), '--target-app-root', r'C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
 +                    '--target-transaction-root', r'C:\Users\FixtureUser\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000',
                      '--selectors-json', str(root / 'selectors.json')]
@@ -92,7 +92,7 @@
      def test_production_acceptance_is_guarded_uservm_only_and_restores_history(self):
          harness=SCRIPT.with_name('invoke-uservm-stcvrc-desktop-autostart.py').read_text()
          restore=SCRIPT.with_name('uservm-stcvrc-desktop-autostart.remote.ps1').read_text()
--        self.assertIn('-Production -ExpectedComputerName <REDACTED_08> -Label home',harness)
+-        self.assertIn('-Production -ExpectedComputerName <REDACTED_07> -Label home',harness)
 +        self.assertIn('-Production -ExpectedComputerName LABHOST -Label home',harness)
          self.assertIn("args.observer_production and (not args.observer_bundle or args.stack not in ('next','candidate'))",harness)
          self.assertIn('productionRemoveTaskPreservesHistory',harness)
@@ -101,7 +101,7 @@
          block=restore[restore.index("} elseif($Action -eq 'Restore'){"):]
          self.assertLess(block.index("'observer-production.run'"),block.index('Read-Driver Cleanup'))
          self.assertIn("ReadAllText($observerIntent) -cne $runId",block)
--        self.assertIn('-Action RemoveTask -Production -ExpectedComputerName <REDACTED_08>',block)
+-        self.assertIn('-Action RemoveTask -Production -ExpectedComputerName <REDACTED_07>',block)
 +        self.assertIn('-Action RemoveTask -Production -ExpectedComputerName LABHOST',block)
          self.assertNotIn('Remove-Item -LiteralPath $observerIntent',block)
  
@@ -110,7 +110,7 @@
  $f=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-ObserverScope'},$true)
  . ([ScriptBlock]::Create($f.Extent.Text))
  $sid='S-1-5-21-1-2-3-1001'
--$lab=Resolve-ObserverScope $false '' 'lab' '' '<REDACTED_08>'
+-$lab=Resolve-ObserverScope $false '' 'lab' '' '<REDACTED_07>'
 +$lab=Resolve-ObserverScope $false '' 'lab' '' 'LABHOST'
  if($lab.root -cne 'C:\ProgramData\STCVRC-observer-lab' -or $lab.task -cne 'STCVRC-Observer-Lab'){throw 'Lab contract changed'}
  foreach($label in @('home','work')){
@@ -119,7 +119,7 @@
   @($true,'','home',$sid,'FIXTURE'),
   @($true,'FIXTURE','lab',$sid,'FIXTURE'),
   @($true,'FIXTURE','home','invalid','FIXTURE'),
-- @($false,'','home','','<REDACTED_08>'),
+- @($false,'','home','','<REDACTED_07>'),
 + @($false,'','home','','LABHOST'),
   @($false,'','lab','','FIXTURE')
  )
@@ -127,96 +127,121 @@
 --- original-redacted/scripts/invoke-uservm-stcvrc-desktop-autostart.py
 +++ public/scripts/invoke-uservm-stcvrc-desktop-autostart.py
 @@ -1,4 +1,4 @@
--"""Approved <REDACTED_07>-session gate with exact restoration of pre-existing CVR data."""
+-"""Approved <REDACTED_06>-session gate with exact restoration of pre-existing CVR data."""
 +"""Approved FixtureUser-session gate with exact restoration of pre-existing CVR data."""
  import base64
  import argparse
  import hashlib
-@@ -18,9 +18,9 @@
- parser=argparse.ArgumentParser(description=__doc__)
- parser.add_argument('--observer-bundle',type=Path,help='Unpacked payload directory with manifest.json and adjacent .zip')
+@@ -22,9 +22,9 @@
+ parser.add_argument('--atomic-observer-bundle',type=Path,help='Pinned observer payload staged inside the candidate SYSTEM transaction; fresh absent userVM baseline only')
+ parser.add_argument('--atomic-observer-label',choices=('home','work'),default='home')
  parser.add_argument('--observer-production',action='store_true',help='Accept the production installer on disposable userVM, then remove its exact footprint')
--parser.add_argument('--via-<REDACTED_10>',action='store_true')
+-parser.add_argument('--via-<REDACTED_09>',action='store_true')
 +parser.add_argument('--via-fixture_relay',action='store_true')
  parser.add_argument('--reboot',action='store_true')
--parser.add_argument('--await-logon',action='store_true',help='Require real <REDACTED_07> logon after reboot; no manual UI launch')
+-parser.add_argument('--await-logon',action='store_true',help='Require real <REDACTED_06> logon after reboot; no manual UI launch')
 +parser.add_argument('--await-logon',action='store_true',help='Require real FixtureUser logon after reboot; no manual UI launch')
  parser.add_argument('--stack',choices=STACKS,default='accepted')
  parser.add_argument('--preserve-service-state',action='store_true')
  parser.add_argument('--corporate-canaries',action='store_true',help='Separately approved parallel LT/Elitech sessions; loopback-only')
-@@ -68,14 +68,14 @@
+@@ -78,14 +78,14 @@
  
  H = runpy.run_path(str(Path(__file__).with_name('invoke-uservm-stcvrc-safe-rollout.py')))
  PROJECT, RUNTIME, RELEASE = H['PROJECT'], H['RUNTIME'], H['RELEASE']
--if args.via_<REDACTED_10>:
+-if args.via_<REDACTED_09>:
 +if args.via_fixture_relay:
      H['ACCESS']['OPTIONS'][:]=H['ACCESS']['ssh_options'](True)
  H['ACCESS']['OPTIONS'][:]=lab_options(H['ACCESS']['OPTIONS'])
  stamp = time.strftime('%Y%m%d-%H%M%S')
  local = PROJECT / 'local/labs' / ('stcvrc-desktop-autostart-' + stamp)
  local.mkdir(parents=True, exist_ok=False)
--lab = r'C:\Users\<REDACTED_07>\stcvrc-fullstack-lab'
--control = r'C:\Users\<REDACTED_07>\stcvrc-autostart-control'
+-lab = r'C:\Users\<REDACTED_06>\stcvrc-fullstack-lab'
+-control = r'C:\Users\<REDACTED_06>\stcvrc-autostart-control'
 +lab = r'C:\Users\FixtureUser\stcvrc-fullstack-lab'
 +control = r'C:\Users\FixtureUser\stcvrc-autostart-control'
  report = {'startedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'error': None, 'pass':False,
            'cleanupError': None, 'homeBefore': H['hash_file'](RUNTIME)}
  created = prepared = False
-@@ -84,9 +84,9 @@
+@@ -94,9 +94,9 @@
  observer_task='STCVRC-Observer' if args.observer_production else 'STCVRC-Observer-Lab'
  observer_marker='.stcvrc-observer' if args.observer_production else '.stcvrc-observer-lab'
  observer_marker_value='STCVRC_OBSERVER_V1' if args.observer_production else 'STCVRC_OBSERVER_LAB_V1'
--production_arg=" -Production -ExpectedComputerName <REDACTED_08> -Label home" if args.observer_production else ''
--observer_owner_arg=" -ServiceOwnerSid '<REDACTED_02>'" if args.stack in ('next','next-baseline','candidate') else ''
--app=r'C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev'
+-production_arg=" -Production -ExpectedComputerName <REDACTED_07> -Label home" if args.observer_production else ''
+-observer_owner_arg=" -ServiceOwnerSid '<REDACTED_01>'" if args.stack in ('next','next-baseline','candidate') else ''
+-app=r'C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev'
 +production_arg=" -Production -ExpectedComputerName LABHOST -Label home" if args.observer_production else ''
 +observer_owner_arg=" -ServiceOwnerSid 'S-1-5-21-1-2-3-1001'" if args.stack in ('next','next-baseline','candidate') else ''
 +app=r'C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev'
  
  
  def ps(code, timeout=60, *, read_only=False):
-@@ -215,7 +215,7 @@
+@@ -242,7 +242,7 @@
+ def atomic_observer_baseline():
+     # This lab path does not acquire ownership of an existing observer.
+     observed=json.loads(ps(r"""
+-if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong VM'}
++if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
+ $root='C:\ProgramData\STCVRC-observer'
+ @{rootAbsent=(-not (Test-Path -LiteralPath $root));taskAbsent=(-not (Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue));workersAbsent=(@(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}).Count -eq 0)}|ConvertTo-Json -Compress
+ """,read_only=True))
+@@ -288,13 +288,13 @@
+     # An absent-baseline transaction preserves its newly collected history.
+     # Archive that history before removing only this run's inactive lab remainder.
+     guard=r"""
+-if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong VM'}
++if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
+ $tx='__TRANSACTION__';$root=[IO.Path]::GetFullPath('C:\ProgramData\STCVRC-observer')
+ $plan=[IO.File]::ReadAllText(($tx+'\plan.json'))|ConvertFrom-Json
+ $state=[IO.File]::ReadAllText(($tx+'\state.json'))|ConvertFrom-Json
+ $armed=[IO.File]::ReadAllText(($tx+'\armed.json'))|ConvertFrom-Json
+ $rollback=[IO.File]::ReadAllText(($tx+'\rollback-result.json'))|ConvertFrom-Json
+-if(-not $plan.lab -or $plan.host -cne '<REDACTED_07>' -or $plan.root -cne $tx -or $root -cne 'C:\ProgramData\STCVRC-observer' -or $plan.observer.root -cne $root -or $plan.observer.task -cne 'STCVRC-Observer' -or $plan.observer.oldPresent -isnot [bool] -or $plan.observer.oldPresent -or $state.phase -cne 'rolled-back'){throw 'Observer lab cleanup scope mismatch'}
++if(-not $plan.lab -or $plan.host -cne 'LABHOST' -or $plan.root -cne $tx -or $root -cne 'C:\ProgramData\STCVRC-observer' -or $plan.observer.root -cne $root -or $plan.observer.task -cne 'STCVRC-Observer' -or $plan.observer.oldPresent -isnot [bool] -or $plan.observer.oldPresent -or $state.phase -cne 'rolled-back'){throw 'Observer lab cleanup scope mismatch'}
+ if($armed.planHash -ine (Get-FileHash -LiteralPath ($tx+'\plan.json')).Hash -or $rollback.pass -ne $true -or $rollback.observerRestored -ne $true){throw 'Observer rollback identity/result unconfirmed'}
+ if(Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue){throw 'Observer task still present'}
+ if(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}){throw 'Observer worker still present'}
+@@ -329,7 +329,7 @@
  def core_rollout_gate(ui_update=False):
      print(json.dumps({'stage':'ui-system-transaction' if ui_update else 'approved-core-transaction'}),flush=True)
      snapshot=local/'core-input';(snapshot/'profiles').mkdir(parents=True)
--    sid='<REDACTED_02>'
+-    sid='<REDACTED_01>'
 +    sid='S-1-5-21-1-2-3-1001'
      owner=r'C:\ProgramData\clash-verge-service\users'+'\\'+hashlib.sha256(sid.encode('ascii')).hexdigest()
      for name in ('profiles.yaml','verge.yaml'):
          download(app+'\\'+name,snapshot/name)
-@@ -238,7 +238,7 @@
+@@ -352,7 +352,7 @@
      stage=local/'core-transaction'
      target=lab+'\\transactions\\stcvrc-safe-'+stamp
      command=[sys.executable,'-B',str(PROJECT/'scripts/prepare-stcvrc-safe-rollout.py'),
--        '--ui-update' if ui_update else '--core-update','--lab','--host','<REDACTED_08>','--app-root',str(snapshot),
+-        '--ui-update' if ui_update else '--core-update','--lab','--host','<REDACTED_07>','--app-root',str(snapshot),
 +        '--ui-update' if ui_update else '--core-update','--lab','--host','LABHOST','--app-root',str(snapshot),
          '--old-core',str(PROJECT/original_stack['core']),
          '--candidate-core',str(PROJECT/target_stack['core']),
          '--service-owner-sid',sid,
-@@ -395,7 +395,7 @@
+@@ -527,7 +527,7 @@
  if(Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue){throw 'Invocation already running'}
  """ + f"""
  $a=New-ScheduledTaskAction -Execute 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' -Argument '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{control}\\desktop.ps1" -Action {action}'
--$p=New-ScheduledTaskPrincipal -UserId '<REDACTED_02>' -LogonType Interactive -RunLevel Highest
+-$p=New-ScheduledTaskPrincipal -UserId '<REDACTED_01>' -LogonType Interactive -RunLevel Highest
 +$p=New-ScheduledTaskPrincipal -UserId 'S-1-5-21-1-2-3-1001' -LogonType Interactive -RunLevel Highest
  $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
  $null=Register-ScheduledTask -TaskName $task -Action $a -Principal $p -Settings $s
  Start-ScheduledTask -TaskName $task
-@@ -426,21 +426,21 @@
+@@ -560,21 +560,21 @@
      if args.observer_bundle:
          ps("if(Test-Path -LiteralPath '"+protected+"'){throw 'Observer footprint'};if(Get-ScheduledTask -TaskName 'STCVRC-Observer*' -ErrorAction SilentlyContinue){throw 'Observer tasks'}")
      ps(r"""
--if($env:COMPUTERNAME -cne '<REDACTED_08>'){throw 'Wrong VM'}
--$sid='<REDACTED_02>'
+-if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong VM'}
+-$sid='<REDACTED_01>'
 +if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
 +$sid='S-1-5-21-1-2-3-1001'
  $desktop=@(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Where-Object {$_.SessionId -gt 0 -and (Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid).Sid -eq $sid})
--if($desktop.Count -ne 1){throw 'Approved <REDACTED_07> desktop missing'}
+-if($desktop.Count -ne 1){throw 'Approved <REDACTED_06> desktop missing'}
 +if($desktop.Count -ne 1){throw 'Approved FixtureUser desktop missing'}
  if(Get-CimInstance Win32_Process | Where-Object Name -match 'clash|mihomo'){throw 'Existing runtime'}
  foreach($n in @('Clash Verge','Clash Verge (Admin)','STCVRC-userVM-Desktop-Gate','STCVRC-userVM-Autostart-Cleanup')){if(Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue){throw 'Existing task'}}
--foreach($p in @('C:\Users\<REDACTED_07>\stcvrc-fullstack-lab','C:\Users\<REDACTED_07>\stcvrc-autostart-control','C:\Program Files\Clash Verge')){if(Test-Path -LiteralPath $p){throw 'Existing footprint'}}
--$p='C:\Users\<REDACTED_07>';while($p){if((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Reparse ancestor'};$p=Split-Path -Parent $p}
+-foreach($p in @('C:\Users\<REDACTED_06>\stcvrc-fullstack-lab','C:\Users\<REDACTED_06>\stcvrc-autostart-control','C:\Program Files\Clash Verge')){if(Test-Path -LiteralPath $p){throw 'Existing footprint'}}
+-$p='C:\Users\<REDACTED_06>';while($p){if((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Reparse ancestor'};$p=Split-Path -Parent $p}
 +foreach($p in @('C:\Users\FixtureUser\stcvrc-fullstack-lab','C:\Users\FixtureUser\stcvrc-autostart-control','C:\Program Files\Clash Verge')){if(Test-Path -LiteralPath $p){throw 'Existing footprint'}}
 +$p='C:\Users\FixtureUser';while($p){if((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Reparse ancestor'};$p=Split-Path -Parent $p}
  """)
@@ -225,39 +250,39 @@
      probe=local/'transfer-probe.bin'
      probe.write_bytes(b'STCVRC_TRANSFER_V1\n'*64)
      upload(probe,lab+'\\input\\transfer-probe.bin')
--    actual=ps("if($env:COMPUTERNAME -cne '<REDACTED_08>'){throw 'Wrong VM'};(Get-FileHash -LiteralPath '"+lab+"\\input\\transfer-probe.bin').Hash",read_only=True)
+-    actual=ps("if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong VM'};(Get-FileHash -LiteralPath '"+lab+"\\input\\transfer-probe.bin').Hash",read_only=True)
 +    actual=ps("if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'};(Get-FileHash -LiteralPath '"+lab+"\\input\\transfer-probe.bin').Hash",read_only=True)
      download(lab+'\\input\\transfer-probe.bin',local/'transfer-return.bin')
      report['transferPass']=(actual.lower()==H['hash_file'](probe)==H['hash_file'](local/'transfer-return.bin'))
      if not report['transferPass']:
-@@ -606,7 +606,7 @@
+@@ -740,7 +740,7 @@
      # Distinct evidence avoids a cross-account delete and reuse of an earlier sample.
      report['taskLaunch'] = step('Test', 120)['value']
      report['afterCanaries'] = step('CanaryAfter', 40)['value']
--    download(r'C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev\verge.yaml', local / 'after-settings.yaml')
+-    download(r'C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev\verge.yaml', local / 'after-settings.yaml')
 +    download(r'C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev\verge.yaml', local / 'after-settings.yaml')
      report['flagPersisted'] = stmc_yaml.load((local / 'after-settings.yaml').read_bytes()).get('enable_auto_launch') is True
      report['selectorsPreserved'] = report['taskLaunch']['selectors'] == {'FOREIGN-EGRESS': 'GC', 'LAB-UNCHANGED': 'REJECT'}
      report['pass'] = all([report['taskLaunch']['pass'], report['baselineCanaries']['pass'], report['afterCanaries']['pass'], report['flagPersisted'], report['selectorsPreserved']])
-@@ -691,7 +691,7 @@
+@@ -825,7 +825,7 @@
          report['routingStartupContract']='after-logon' if args.await_logon else 'before-logon'
          print(json.dumps({'stage':'Reboot','awaitLogon':args.await_logon}),flush=True)
          try:
--            ps("if($env:COMPUTERNAME -cne '<REDACTED_08>'){throw 'Wrong host'};shutdown.exe /r /t 5 /d p:4:1;if($LASTEXITCODE -ne 0){throw 'Reboot request failed'}")
+-            ps("if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong host'};shutdown.exe /r /t 5 /d p:4:1;if($LASTEXITCODE -ne 0){throw 'Reboot request failed'}")
 +            ps("if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong host'};shutdown.exe /r /t 5 /d p:4:1;if($LASTEXITCODE -ne 0){throw 'Reboot request failed'}")
          except TransportFailure as exc:
              report['rebootSubmissionUncertain']=exc.kind
          deadline=time.monotonic()+360
-@@ -725,18 +725,18 @@
+@@ -859,18 +859,18 @@
              report['preloginObserver']=prelogin_observer_check(report['observerAfterBoot'],after_boot,state['interactiveCount'])
              if not report['preloginObserver']['pass'] or not report['historySurvivedBoot']:
                  raise RuntimeError('Pre-login observer proof failed')
--            report['stage']='Await<REDACTED_07>Logon'
+-            report['stage']='Await<REDACTED_06>Logon'
 +            report['stage']='AwaitFixtureUserLogon'
              print(json.dumps({'stage':report['stage'],'seconds':360,'launchUiManually':False}),flush=True)
              deadline=time.monotonic()+360
              while True:
--                count=int(ps("$sid='<REDACTED_02>';@(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\"|Where-Object {$_.SessionId -gt 0 -and (Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid).Sid -eq $sid}).Count",read_only=True))
+-                count=int(ps("$sid='<REDACTED_01>';@(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\"|Where-Object {$_.SessionId -gt 0 -and (Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid).Sid -eq $sid}).Count",read_only=True))
 +                count=int(ps("$sid='S-1-5-21-1-2-3-1001';@(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\"|Where-Object {$_.SessionId -gt 0 -and (Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid).Sid -eq $sid}).Count",read_only=True))
                  report['logonDesktopCount']=count
                  if count==1:
@@ -265,32 +290,32 @@
                      break
                  if count>1 or time.monotonic()>=deadline:
                      report['logonWaitOutcome']='multiple-desktops' if count>1 else 'timeout'
--                    raise RuntimeError('Expected single <REDACTED_07> logon not observed within guard window')
+-                    raise RuntimeError('Expected single <REDACTED_06> logon not observed within guard window')
 +                    raise RuntimeError('Expected single FixtureUser logon not observed within guard window')
                  time.sleep(10)
              report['logonLaunch']=step('VerifyLogon',120)['value']
              report['logonCanaries']=step('CanaryLogon',40)['value']
-@@ -773,7 +773,7 @@
+@@ -910,7 +910,7 @@
              report['pass']=False
          if args.stack in ('next','next-baseline','candidate') or args.ui_rollout_gate or args.ui_migration_gate:
              try:
--                owner_key=hashlib.sha256(b'<REDACTED_02>').hexdigest()
+-                owner_key=hashlib.sha256(b'<REDACTED_01>').hexdigest()
 +                owner_key=hashlib.sha256(b'S-1-5-21-1-2-3-1001').hexdigest()
                  owner_root='C:\\ProgramData\\clash-verge-service\\users\\'+owner_key
                  saved=ps("$r='C:\\ProgramData\\clash-verge-service';if(Test-Path -LiteralPath '"+owner_root+"\\logs'){if([IO.File]::ReadAllText(($r+'\\.stcvrc-desktop-state')) -cne '"+stamp+"'){throw 'Not lab service state'};$logs='"+owner_root+"\\logs';if(Get-ChildItem -LiteralPath $logs -Recurse -Force|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Log reparse'};if((Get-ChildItem -LiteralPath $logs -Recurse -File|Measure-Object Length -Sum).Sum -gt 134217728){throw 'Lab evidence size limit'};$null=& '"+control+"\\preserve.ps1' -AppDirectory '"+owner_root+"' -Destination '"+control+"\\service-evidence' -MaxLogBytes 134217728 -RequireComplete -SkipEvents;Compress-Archive -LiteralPath '"+control+"\\service-evidence' -DestinationPath '"+control+"\\service-evidence.zip';'SAVED'}else{'NO_LOGS'}",180)
                  if saved == 'SAVED':
-@@ -833,12 +833,12 @@
+@@ -970,12 +970,12 @@
                  raise RuntimeError('Restoration verification failed; control directory retained')
          if created:
              ps(r"""
--if($env:COMPUTERNAME -cne '<REDACTED_08>'){throw 'Wrong VM'}
+-if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong VM'}
 +if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
  if(Get-CimInstance Win32_Process | Where-Object Name -match 'clash|mihomo'){throw 'Runtime still present'}
  if(Get-ScheduledTask | Where-Object TaskName -match 'STCVRC|Clash Verge'){throw 'Tasks still present'}
--foreach($entry in @(@('C:\Users\<REDACTED_07>\stcvrc-fullstack-lab','.codex-stcvrc-fullstack-lab','STCVRC_FULLSTACK_LAB_V1'),@('C:\Users\<REDACTED_07>\stcvrc-autostart-control','.stcvrc-desktop-gate','STCVRC_DESKTOP_GATE_V1'))){
+-foreach($entry in @(@('C:\Users\<REDACTED_06>\stcvrc-fullstack-lab','.codex-stcvrc-fullstack-lab','STCVRC_FULLSTACK_LAB_V1'),@('C:\Users\<REDACTED_06>\stcvrc-autostart-control','.stcvrc-desktop-gate','STCVRC_DESKTOP_GATE_V1'))){
 +foreach($entry in @(@('C:\Users\FixtureUser\stcvrc-fullstack-lab','.codex-stcvrc-fullstack-lab','STCVRC_FULLSTACK_LAB_V1'),@('C:\Users\FixtureUser\stcvrc-autostart-control','.stcvrc-desktop-gate','STCVRC_DESKTOP_GATE_V1'))){
   $p=[IO.Path]::GetFullPath($entry[0]);if(-not(Test-Path -LiteralPath $p)){continue}
-- if($p -notin @('C:\Users\<REDACTED_07>\stcvrc-fullstack-lab','C:\Users\<REDACTED_07>\stcvrc-autostart-control')){throw 'Unsafe exact path'}
+- if($p -notin @('C:\Users\<REDACTED_06>\stcvrc-fullstack-lab','C:\Users\<REDACTED_06>\stcvrc-autostart-control')){throw 'Unsafe exact path'}
 + if($p -notin @('C:\Users\FixtureUser\stcvrc-fullstack-lab','C:\Users\FixtureUser\stcvrc-autostart-control')){throw 'Unsafe exact path'}
   if([IO.File]::ReadAllText((Join-Path $p $entry[1])) -cne $entry[2]){throw 'Missing guard'}
   if(Get-ChildItem -LiteralPath $p -Filter 'saved-*'){throw 'Backups remain'}
@@ -301,7 +326,7 @@
      [string]$ExpectedStockCoreVersion = '1.19.29',
      [string]$ExpectedCustomCoreToken = '1.19.29-STCVRC-openvpn-rekey-9e235082',
      [string]$ExpectedPrimaryEgress,
--    [string]$ExpectedGreenEgress = '<REDACTED_14>',
+-    [string]$ExpectedGreenEgress = '<REDACTED_13>',
 +    [string]$ExpectedGreenEgress = '198.51.100.32',
      [int]$MixedPort = 7897,
      [int]$ControllerPort = 9097
@@ -310,7 +335,7 @@
  function Invoke-RdpCanary {
      $connection = $null
      try {
--        $connection = Open-SocksCommand -HostName '<REDACTED_11>' -Port 3389
+-        $connection = Open-SocksCommand -HostName '<REDACTED_10>' -Port 3389
 +        $connection = Open-SocksCommand -HostName 'desktop.example.invalid' -Port 3389
          [byte[]]$request = @(0x03,0x00,0x00,0x13,0x0e,0xe0,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x08,0x00,0x03,0x00,0x00,0x00)
          $connection.Stream.Write($request, 0, $request.Length)
@@ -319,14 +344,14 @@
  Set-ProxyGroup -Group 'VPS-DEFAULT' -Selection 'FOREIGN-EGRESS'
  Set-ProxyGroup -Group 'ELITECH-ROUTE' -Selection 'ELITECH-OPENVPN'
  $routes = [ordered]@{
--    lt = Invoke-HttpCanary -Name 'LT HTTP' -Url 'http://<REDACTED_15>/'
--    ltGitLab = Invoke-HttpCanary -Name 'LT GitLab' -Url 'http://<REDACTED_12>/'
--    elitechGitLab = Invoke-HttpCanary -Name 'ELITECH GitLab' -Url 'http://<REDACTED_13>/'
+-    lt = Invoke-HttpCanary -Name 'LT HTTP' -Url 'http://<REDACTED_14>/'
+-    ltGitLab = Invoke-HttpCanary -Name 'LT GitLab' -Url 'http://<REDACTED_11>/'
+-    elitechGitLab = Invoke-HttpCanary -Name 'ELITECH GitLab' -Url 'http://<REDACTED_12>/'
 +    lt = Invoke-HttpCanary -Name 'LT HTTP' -Url 'http://192.0.2.32/'
 +    ltGitLab = Invoke-HttpCanary -Name 'LT GitLab' -Url 'http://gitlab-a.example.invalid/'
 +    elitechGitLab = Invoke-HttpCanary -Name 'ELITECH GitLab' -Url 'http://gitlab-b.example.invalid/'
      elitechRdp = Invoke-RdpCanary
--    osenSsh = Invoke-SshCanary -Name 'OSEN SSH' -HostName '<REDACTED_16>'
+-    osenSsh = Invoke-SshCanary -Name 'OSEN SSH' -HostName '<REDACTED_15>'
 +    osenSsh = Invoke-SshCanary -Name 'OSEN SSH' -HostName '192.0.2.78'
      ru = Invoke-HttpCanary -Name 'RU direct' -Url 'https://ya.ru/'
  }
@@ -335,7 +360,7 @@
      $runtimeCore -and $runtimeCore.sessionId -eq 0 -and $runtimeCore.ownerSid -ceq 'S-1-5-18' -and
      $parent -and $parent.Name -ceq 'clash-verge-service.exe'
  )
--$uiOwnershipPass = $runtimeUi -and $runtimeUi.owner -match '(?i)\\<REDACTED_05>$'
+-$uiOwnershipPass = $runtimeUi -and $runtimeUi.owner -match '(?i)\\<REDACTED_04>$'
 +$uiOwnershipPass = $runtimeUi -and $runtimeUi.owner -match '(?i)\\fixtureservice$'
  $profilePass = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash -ceq $ExpectedProfileSha256
  $tunAbsentDuringRun = @(
@@ -346,7 +371,7 @@
          if(-not $ExpectedComputerName -or $ExpectedComputerName -cne $HostName -or $Label -cnotin @('home','work') -or $ServiceOwnerSid -cnotmatch '^S-1-5-21-\d+-\d+-\d+-\d+$'){throw 'Production requires explicit host, label and service owner'}
          return @{root='C:\ProgramData\STCVRC-observer';task='STCVRC-Observer';marker='.stcvrc-observer';value='STCVRC_OBSERVER_V1'}
      }
--    if($HostName -cne '<REDACTED_08>' -or $Label -cne 'lab'){throw 'Lab installer only accepts <REDACTED_08>/lab'}
+-    if($HostName -cne '<REDACTED_07>' -or $Label -cne 'lab'){throw 'Lab installer only accepts <REDACTED_07>/lab'}
 +    if($HostName -cne 'LABHOST' -or $Label -cne 'lab'){throw 'Lab installer only accepts LABHOST/lab'}
      @{root='C:\ProgramData\STCVRC-observer-lab';task='STCVRC-Observer-Lab';marker='.stcvrc-observer-lab';value='STCVRC_OBSERVER_LAB_V1'}
  }
@@ -355,13 +380,13 @@
  if($Action -eq 'Install') {
      if((Test-Path -LiteralPath $root) -or (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)){throw 'Existing lab footprint'}
      if($ServiceOwnerSid){
--        if(-not $Production -and ($ServiceOwnerSid -cne '<REDACTED_02>' -or $AppDirectory -cne 'C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Unapproved lab service owner'}
+-        if(-not $Production -and ($ServiceOwnerSid -cne '<REDACTED_01>' -or $AppDirectory -cne 'C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Unapproved lab service owner'}
 +        if(-not $Production -and ($ServiceOwnerSid -cne 'S-1-5-21-1-2-3-1001' -or $AppDirectory -cne 'C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Unapproved lab service owner'}
          $profile=Get-CimInstance Win32_UserProfile -Filter "SID='$ServiceOwnerSid'"
          if(-not $profile -or $profile.LocalPath -notmatch '^C:\\Users\\[^\\]+$' -or $AppDirectory -ine (Join-Path $profile.LocalPath 'AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Owner profile differs'}
          $version=(Get-Item -LiteralPath 'C:\Program Files\Clash Verge\clash-verge.exe').VersionInfo.ProductVersion
          if(($version.Split('.')[0..2] -join '.') -cnotin @('2.5.5','2.5.7','2.5.8')){throw 'Unreviewed owner-scoped UI version'}
--        if(-not $Production -and [IO.File]::ReadAllText('C:\ProgramData\clash-verge-service\.stcvrc-desktop-state') -cne [IO.File]::ReadAllText('C:\Users\<REDACTED_07>\stcvrc-autostart-control\run-id.txt')){throw 'Not current lab service state'}
+-        if(-not $Production -and [IO.File]::ReadAllText('C:\ProgramData\clash-verge-service\.stcvrc-desktop-state') -cne [IO.File]::ReadAllText('C:\Users\<REDACTED_06>\stcvrc-autostart-control\run-id.txt')){throw 'Not current lab service state'}
 +        if(-not $Production -and [IO.File]::ReadAllText('C:\ProgramData\clash-verge-service\.stcvrc-desktop-state') -cne [IO.File]::ReadAllText('C:\Users\FixtureUser\stcvrc-autostart-control\run-id.txt')){throw 'Not current lab service state'}
      }
      Assert-NoReparse $Bundle
@@ -369,8 +394,8 @@
      $source=(Resolve-Path -LiteralPath $Bundle).Path
      $app=(Resolve-Path -LiteralPath $AppDirectory).Path
      if(-not $Production){
--        if($app -cnotin @('C:\Users\<REDACTED_03>\stcvrc-observer-lab\app','C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Unexpected lab app root'}
--        if($app -clike 'C:\Users\<REDACTED_07>\*' -and [IO.File]::ReadAllText('C:\Users\<REDACTED_07>\stcvrc-autostart-control\isolated.ok') -cne 'STCVRC_ISOLATED_V1'){throw 'Desktop isolation gate missing'}
+-        if($app -cnotin @('C:\Users\<REDACTED_02>\stcvrc-observer-lab\app','C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Unexpected lab app root'}
+-        if($app -clike 'C:\Users\<REDACTED_06>\*' -and [IO.File]::ReadAllText('C:\Users\<REDACTED_06>\stcvrc-autostart-control\isolated.ok') -cne 'STCVRC_ISOLATED_V1'){throw 'Desktop isolation gate missing'}
 +        if($app -cnotin @('C:\Users\FixtureService\stcvrc-observer-lab\app','C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev')){throw 'Unexpected lab app root'}
 +        if($app -clike 'C:\Users\FixtureUser\*' -and [IO.File]::ReadAllText('C:\Users\FixtureUser\stcvrc-autostart-control\isolated.ok') -cne 'STCVRC_ISOLATED_V1'){throw 'Desktop isolation gate missing'}
      }
@@ -378,31 +403,31 @@
      if((Get-FileHash -LiteralPath (Join-Path $source 'manifest.json') -Algorithm SHA256).Hash -ine $ManifestSha256){throw 'Manifest hash mismatch'}
 --- original-redacted/scripts/prepare-stcvrc-safe-rollout.py
 +++ public/scripts/prepare-stcvrc-safe-rollout.py
-@@ -87,7 +87,7 @@
+@@ -175,7 +175,7 @@
      p.add_argument('--runtime-config', type=Path, help='Read-only actual owner-runtime snapshot for core-update or approved-layout UI source')
      p.add_argument('--yaml-validator', type=Path, default=PROJECT / 'local/artifacts/stcvrc-rollout-validator-20260906/yaml-equivalence.exe')
      p.add_argument('--output', type=Path, required=True)
--    p.add_argument('--host', choices=['<REDACTED_06>', '<REDACTED_08>'], required=True)
+-    p.add_argument('--host', choices=['<REDACTED_05>', '<REDACTED_07>'], required=True)
 +    p.add_argument('--host', choices=['FIXTURE-HOME', 'LABHOST'], required=True)
      p.add_argument('--target-app-root', required=True)
      p.add_argument('--target-transaction-root', required=True)
      p.add_argument('--selectors-json', type=Path)
-@@ -122,7 +122,7 @@
+@@ -219,7 +219,7 @@
              p.error('UI migration requires the actual owner runtime only for an approved source layout')
      elif not args.bundle or args.candidate_core or args.service_owner_sid or args.runtime_config:
          p.error('Profile migration requires bundle; owner-scoped core options require core-update')
--    if args.lab != (args.host == '<REDACTED_08>'):
+-    if args.lab != (args.host == '<REDACTED_07>'):
 +    if args.lab != (args.host == 'LABHOST'):
          raise ValueError('Lab/host scope mismatch')
      if args.service_owner_directory:
          if not re.fullmatch(r'C:\\ProgramData\\clash-verge-service\\users\\[0-9a-f]{64}',
 --- original-redacted/scripts/stcvrc-safe-rollout.ps1
 +++ public/scripts/stcvrc-safe-rollout.ps1
-@@ -64,7 +64,7 @@
+@@ -323,7 +323,7 @@
      if($profileRoot -notmatch '^C:\\Users\\[^\\]+$' -or $Plan.appRoot -ine $expectedApp){throw 'AppData owner boundary mismatch'}
      $parent=if($Plan.lab){Join-Path $profileRoot 'stcvrc-fullstack-lab\transactions'}else{Join-Path $profileRoot 'Documents\HomeLab\projects\stcvrc\local\rollouts'}
      if((Split-Path -Parent $Root) -ine $parent -or (Split-Path -Leaf $Root) -notmatch '^stcvrc-safe-[0-9-]+$'){throw 'Unsafe transaction root'}
--    if(($Plan.lab -and $env:COMPUTERNAME -cne '<REDACTED_08>') -or (-not $Plan.lab -and $env:COMPUTERNAME -cne '<REDACTED_06>')){throw 'Wrong host scope'}
+-    if(($Plan.lab -and $env:COMPUTERNAME -cne '<REDACTED_07>') -or (-not $Plan.lab -and $env:COMPUTERNAME -cne '<REDACTED_05>')){throw 'Wrong host scope'}
 +    if(($Plan.lab -and $env:COMPUTERNAME -cne 'LABHOST') -or (-not $Plan.lab -and $env:COMPUTERNAME -cne 'FIXTURE-HOME')){throw 'Wrong host scope'}
      if($LabPause -ne 'None' -and -not $Plan.lab){throw 'Fault injection is lab-only'}
      No-Reparse $Root; No-Reparse $Plan.appRoot; No-Reparse $Core
@@ -413,7 +438,7 @@
  $ProgressPreference='SilentlyContinue'
  $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
  $lab=Join-Path $env:USERPROFILE 'stcvrc-fullstack-lab'
--if($env:COMPUTERNAME -cne '<REDACTED_08>' -or $env:USERPROFILE -notin @('C:\Users\<REDACTED_03>','C:\Users\<REDACTED_07>')){throw 'Wrong lab identity'}
+-if($env:COMPUTERNAME -cne '<REDACTED_07>' -or $env:USERPROFILE -notin @('C:\Users\<REDACTED_02>','C:\Users\<REDACTED_06>')){throw 'Wrong lab identity'}
 +if($env:COMPUTERNAME -cne 'LABHOST' -or $env:USERPROFILE -notin @('C:\Users\FixtureService','C:\Users\FixtureUser')){throw 'Wrong lab identity'}
  . (Join-Path $lab 'fullstack.ps1') -Mode Library -LabRoot $lab
  Assert-GuardedLab
@@ -422,7 +447,7 @@
      }
      [IO.File]::WriteAllText($marker,(@{sid=$sid;ui=$UiPath}|ConvertTo-Json -Compress))
      $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$script+'" -Action Cleanup'
--    if($env:USERPROFILE -ieq 'C:\Users\<REDACTED_07>'){
+-    if($env:USERPROFILE -ieq 'C:\Users\<REDACTED_06>'){
 +    if($env:USERPROFILE -ieq 'C:\Users\FixtureUser'){
          if(-not(Test-Path -LiteralPath $desktopGuard)){throw 'Desktop restore guard missing'}
          $arguments='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$desktopGuard+'" -Action Restore'
@@ -431,7 +456,7 @@
      }
      $guard=Get-ScheduledTask -TaskName $cleanupTask -ErrorAction SilentlyContinue
      if($guard){
--        if(-not $guard.Actions[0].Arguments.Contains($script) -and -not ($env:USERPROFILE -ieq 'C:\Users\<REDACTED_07>' -and $guard.Actions[0].Arguments.Contains($desktopGuard))){throw 'Unknown cleanup task'}
+-        if(-not $guard.Actions[0].Arguments.Contains($script) -and -not ($env:USERPROFILE -ieq 'C:\Users\<REDACTED_06>' -and $guard.Actions[0].Arguments.Contains($desktopGuard))){throw 'Unknown cleanup task'}
 +        if(-not $guard.Actions[0].Arguments.Contains($script) -and -not ($env:USERPROFILE -ieq 'C:\Users\FixtureUser' -and $guard.Actions[0].Arguments.Contains($desktopGuard))){throw 'Unknown cleanup task'}
          Unregister-ScheduledTask -TaskName $cleanupTask -Confirm:$false
      }
@@ -442,10 +467,10 @@
  $ErrorActionPreference='Stop'
  $ProgressPreference='SilentlyContinue'
  $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
--$root='C:\Users\<REDACTED_07>\stcvrc-autostart-control'
--$lab='C:\Users\<REDACTED_07>\stcvrc-fullstack-lab'
--$sid='<REDACTED_02>'
--if($env:COMPUTERNAME -cne '<REDACTED_08>' -or $env:USERPROFILE -ine 'C:\Users\<REDACTED_07>' -or [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $sid){throw 'Wrong desktop identity'}
+-$root='C:\Users\<REDACTED_06>\stcvrc-autostart-control'
+-$lab='C:\Users\<REDACTED_06>\stcvrc-fullstack-lab'
+-$sid='<REDACTED_01>'
+-if($env:COMPUTERNAME -cne '<REDACTED_07>' -or $env:USERPROFILE -ine 'C:\Users\<REDACTED_06>' -or [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $sid){throw 'Wrong desktop identity'}
 +$root='C:\Users\FixtureUser\stcvrc-autostart-control'
 +$lab='C:\Users\FixtureUser\stcvrc-fullstack-lab'
 +$sid='S-1-5-21-1-2-3-1001'
@@ -457,8 +482,8 @@
      @{pass=$true;paths=@($plan).Count}
  }
  $allowedPaths=@(
--    'C:\Users\<REDACTED_07>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
--    'C:\Users\<REDACTED_07>\AppData\Local\io.github.clash-verge-rev.clash-verge-rev',
+-    'C:\Users\<REDACTED_06>\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
+-    'C:\Users\<REDACTED_06>\AppData\Local\io.github.clash-verge-rev.clash-verge-rev',
 +    'C:\Users\FixtureUser\AppData\Roaming\io.github.clash-verge-rev.clash-verge-rev',
 +    'C:\Users\FixtureUser\AppData\Local\io.github.clash-verge-rev.clash-verge-rev',
      (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Clash Verge.lnk'),
@@ -468,7 +493,7 @@
          $observerIntent=Join-Path $root 'observer-production.run'
          if(Test-Path -LiteralPath $observerIntent){
              if([IO.File]::ReadAllText($observerIntent) -cne $runId){throw 'Unexpected observer acceptance owner'}
--            $null=& (Join-Path $root 'observer-install.ps1') -Action RemoveTask -Production -ExpectedComputerName <REDACTED_08> -Label home -ServiceOwnerSid '<REDACTED_02>'
+-            $null=& (Join-Path $root 'observer-install.ps1') -Action RemoveTask -Production -ExpectedComputerName <REDACTED_07> -Label home -ServiceOwnerSid '<REDACTED_01>'
 +            $null=& (Join-Path $root 'observer-install.ps1') -Action RemoveTask -Production -ExpectedComputerName LABHOST -Label home -ServiceOwnerSid 'S-1-5-21-1-2-3-1001'
          }
          $packetCleanupFailed=$false
@@ -479,7 +504,7 @@
  $ErrorActionPreference='Stop'
  $ProgressPreference='SilentlyContinue'
  $lab=Join-Path $env:USERPROFILE 'stcvrc-fullstack-lab'
--if($env:COMPUTERNAME -cne '<REDACTED_08>'){throw 'Wrong host'}
+-if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong host'}
 +if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong host'}
  . (Join-Path $lab 'fullstack.ps1') -Mode Library -LabRoot $lab
  Assert-GuardedLab
@@ -490,7 +515,7 @@
      baseline_accepted = False
      try:
          discovery = json.loads(ps("""
--if($env:COMPUTERNAME -cne '<REDACTED_08>'){throw 'Wrong host'}
+-if($env:COMPUTERNAME -cne '<REDACTED_07>'){throw 'Wrong host'}
 +if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong host'}
  $p=Join-Path $env:USERPROFILE 'stcvrc-fullstack-lab'
  if(Test-Path -LiteralPath $p){throw 'Lab exists'}
@@ -499,7 +524,7 @@
  @{profile=$env:USERPROFILE;app=(Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev');lab=$p}|ConvertTo-Json -Compress
  """))
          lab, remote_app = discovery['lab'], discovery['app']
--        if discovery['profile'] != r'C:\Users\<REDACTED_03>':
+-        if discovery['profile'] != r'C:\Users\<REDACTED_02>':
 +        if discovery['profile'] != r'C:\Users\FixtureService':
              raise RuntimeError('Unexpected VM profile root')
          ps(f"$p='{lab}';if(Test-Path -LiteralPath $p){{throw 'Exists'}};$null=New-Item -ItemType Directory -Path $p;foreach($n in @('input','input\\rules','logs','transactions')){{$null=New-Item -ItemType Directory -Path (Join-Path $p $n)}};[IO.File]::WriteAllText((Join-Path $p '.codex-stcvrc-fullstack-lab'),'STCVRC_FULLSTACK_LAB_V1')")
@@ -508,7 +533,7 @@
              stage = local / ('stcvrc-safe-' + stamp + '-' + str(index))
              command([sys.executable, '-B', str(PROJECT / 'scripts/prepare-stcvrc-safe-rollout.py'),
                       '--app-root', str(source_app), '--old-core', str(baseline_core),
--                     '--bundle', str(bundle), '--output', str(stage), '--host', '<REDACTED_08>', '--lab',
+-                     '--bundle', str(bundle), '--output', str(stage), '--host', '<REDACTED_07>', '--lab',
 +                     '--bundle', str(bundle), '--output', str(stage), '--host', 'LABHOST', '--lab',
                       '--target-app-root', remote_app, '--target-transaction-root', target,
                       '--selectors-json', str(local / 'selectors.json')] +
@@ -517,7 +542,7 @@
              try:
                  ps(f"""
  $p=[IO.Path]::GetFullPath('{lab}').TrimEnd('\\')
--if($env:COMPUTERNAME -cne '<REDACTED_08>' -or $p -ine 'C:\\Users\\<REDACTED_03>\\stcvrc-fullstack-lab'){{throw 'Unsafe staging root'}}
+-if($env:COMPUTERNAME -cne '<REDACTED_07>' -or $p -ine 'C:\\Users\\<REDACTED_02>\\stcvrc-fullstack-lab'){{throw 'Unsafe staging root'}}
 +if($env:COMPUTERNAME -cne 'LABHOST' -or $p -ine 'C:\\Users\\FixtureService\\stcvrc-fullstack-lab'){{throw 'Unsafe staging root'}}
  if([IO.File]::ReadAllText((Join-Path $p '.codex-stcvrc-fullstack-lab')) -cne 'STCVRC_FULLSTACK_LAB_V1'){{throw 'Missing staging guard'}}
  $parent=$p
@@ -528,10 +553,10 @@
  
  PROJECT = Path(__file__).resolve().parents[1]
  HOME = PROJECT.parents[1]
--KEY = Path(r"<REDACTED_01>")
+-KEY = Path(r"<REDACTED_00>")
 +KEY = Path(r"C:\review-fixture\unavailable-key")
  KNOWN = HOME / "vm_known_hosts"
--TARGET = "<REDACTED_04>"
+-TARGET = "<REDACTED_03>"
 +TARGET = "fixture@192.0.2.137"
  CORE = PROJECT / "local/artifacts/stcvrc-v1.19.29/verge-mihomo.exe"
  EXPECTED = "71195C943BE67017C5646EA2021734BC122FA83C58A408AB6713A2B25CB6B62B"
@@ -540,13 +565,13 @@
  SCP = str(Path(os.environ['WINDIR']) / 'System32/OpenSSH/scp.exe')
  
  
--def ssh_options(via_<REDACTED_10>=False):
+-def ssh_options(via_<REDACTED_09>=False):
 +def ssh_options(via_fixture_relay=False):
      options = list(OPTIONS)
--    if via_<REDACTED_10>:
+-    if via_<REDACTED_09>:
 +    if via_fixture_relay:
          options[1] = (Path.home() / '.ssh/config').as_posix()
--        options += ['-J', '<REDACTED_09>']
+-        options += ['-J', '<REDACTED_08>']
 +        options += ['-J', 'fixture-relay']
      return options
  
@@ -555,10 +580,10 @@
      parser.add_argument('--profile-input', type=Path)
      parser.add_argument('--skip-body-download', action='store_true')
      parser.add_argument('--four-choices', action='store_true')
--    parser.add_argument('--via-<REDACTED_10>', action='store_true')
+-    parser.add_argument('--via-<REDACTED_09>', action='store_true')
 +    parser.add_argument('--via-fixture_relay', action='store_true')
      args=parser.parse_args()
--    OPTIONS = ssh_options(args.via_<REDACTED_10>)
+-    OPTIONS = ssh_options(args.via_<REDACTED_09>)
 +    OPTIONS = ssh_options(args.via_fixture_relay)
      if args.four_choices and not args.synthetic_only:
          parser.error('--four-choices currently requires --synthetic-only')
@@ -567,7 +592,7 @@
      driver_ready = False
      try:
          discovery = json.loads(ps("""
--if($env:COMPUTERNAME -ine '<REDACTED_08>'){throw 'Wrong host'}
+-if($env:COMPUTERNAME -ine '<REDACTED_07>'){throw 'Wrong host'}
 +if($env:COMPUTERNAME -ine 'LABHOST'){throw 'Wrong host'}
  $lab=[IO.Path]::GetFullPath((Join-Path $env:USERPROFILE 'stcvrc-autoselect-lab')).TrimEnd('\\')
  if(Test-Path -LiteralPath $lab){throw 'Lab already exists'}
@@ -576,7 +601,7 @@
  [ordered]@{host=$env:COMPUTERNAME;lab=$lab;labAbsent=$true}|ConvertTo-Json -Compress
  """))
          remote = discovery["lab"]
--        if not remote.lower().startswith("c:\\users\\<REDACTED_05>") or not remote.endswith("\\stcvrc-autoselect-lab"):
+-        if not remote.lower().startswith("c:\\users\\<REDACTED_04>") or not remote.endswith("\\stcvrc-autoselect-lab"):
 +        if not remote.lower().startswith("c:\\users\\fixtureservice") or not remote.endswith("\\stcvrc-autoselect-lab"):
              raise RuntimeError("Unexpected remote owner path")
          report["discovery"] = discovery
@@ -587,10 +612,10 @@
  CORE_RSS_LIMIT = 256 * MIB
  LISTENER = {'name': 'STCVRC-ROTATION-REJECT', 'type': 'http',
              'listen': '127.0.0.1', 'port': 18985, 'proxy': 'REJECT'}
--CONTROL = Path(r'C:\Users\<REDACTED_07>\stcvrc-autostart-control')
+-CONTROL = Path(r'C:\Users\<REDACTED_06>\stcvrc-autostart-control')
 +CONTROL = Path(r'C:\Users\FixtureUser\stcvrc-autostart-control')
  SERVICE = Path(r'C:\ProgramData\clash-verge-service')
--OWNER = hashlib.sha256(b'<REDACTED_02>').hexdigest()
+-OWNER = hashlib.sha256(b'<REDACTED_01>').hexdigest()
 +OWNER = hashlib.sha256(b'S-1-5-21-1-2-3-1001').hexdigest()
  
  
@@ -599,10 +624,10 @@
      parser.add_argument('--run-id', required=True)
      parser.add_argument('--core-sha256', required=True)
      args = parser.parse_args()
--    if os.environ.get('COMPUTERNAME') != '<REDACTED_08>':
+-    if os.environ.get('COMPUTERNAME') != '<REDACTED_07>':
 +    if os.environ.get('COMPUTERNAME') != 'LABHOST':
          raise RuntimeError('Wrong host')
--    safe_path(CONTROL, Path(r'C:\Users\<REDACTED_07>'))
+-    safe_path(CONTROL, Path(r'C:\Users\<REDACTED_06>'))
 +    safe_path(CONTROL, Path(r'C:\Users\FixtureUser'))
      if (CONTROL/'run-id.txt').read_text() != args.run_id or (CONTROL/'.stcvrc-desktop-gate').read_text() != 'STCVRC_DESKTOP_GATE_V1':
          raise RuntimeError('Wrong lab ownership')
@@ -613,11 +638,11 @@
          with self.assertRaises(ValueError): o.observer_profile(original)
  
      def test_classification_discards_private_data(self):
--        line='[2026-09-22 01:02:03.123] LT-ROUTE tcp <REDACTED_17>:445 i/o timeout SECRET https://private.invalid/path'
+-        line='[2026-09-22 01:02:03.123] LT-ROUTE tcp <REDACTED_16>:445 i/o timeout SECRET https://private.invalid/path'
 +        line='[2026-09-22 01:02:03.123] LT-ROUTE tcp 192.0.2.13:445 i/o timeout SECRET https://private.invalid/path'
          result=o.classify_line(line)
          encoded=json.dumps(result)
--        for value in ('<REDACTED_18>','SECRET','private.invalid'): self.assertNotIn(value,encoded)
+-        for value in ('<REDACTED_17>','SECRET','private.invalid'): self.assertNotIn(value,encoded)
 +        for value in ('192.0.2','SECRET','private.invalid'): self.assertNotIn(value,encoded)
          self.assertEqual(result['class'],'connection-timeout')
          self.assertFalse(result['sourceTimeHasOffset'])
@@ -626,12 +651,12 @@
          self.assertEqual(o.gap_reason(now+1,now,{}),'clock-backwards')
  
      def test_completed_body_and_no_body_disclosure(self):
--        result=o.subprocess.CompletedProcess([],0,b'ip=<REDACTED_17>\ntls=TLSv1.3\n\nSTCVRC_STATUS:200',b'')
+-        result=o.subprocess.CompletedProcess([],0,b'ip=<REDACTED_16>\ntls=TLSv1.3\n\nSTCVRC_STATUS:200',b'')
 +        result=o.subprocess.CompletedProcess([],0,b'ip=192.0.2.13\ntls=TLSv1.3\n\nSTCVRC_STATUS:200',b'')
          with patch.object(o.subprocess,'run',return_value=result):
              value=o.body_probe(18981,o.TARGETS[1])
          self.assertTrue(value['success']);self.assertTrue(value['bodyComplete'])
--        self.assertNotIn('<REDACTED_18>',json.dumps(value))
+-        self.assertNotIn('<REDACTED_17>',json.dumps(value))
 +        self.assertNotIn('192.0.2',json.dumps(value))
  
      def test_body_error_is_not_http_success(self):
@@ -646,3 +671,40 @@
          app=self.base/'app';app.mkdir();(app/'logs').mkdir()
          (app/'clash-verge.yaml').write_bytes(o.stmc_yaml.dump({'external-controller':'127.0.0.1:19097',
                                                             'listeners':copy.deepcopy(o.LISTENERS)}))
+--- original-redacted/scripts/uservm-stcvrc-tun-gate.ps1
++++ public/scripts/uservm-stcvrc-tun-gate.ps1
+@@ -4,10 +4,10 @@
+ $ErrorActionPreference='Stop'
+ $ProgressPreference='SilentlyContinue'
+ $root=[IO.Path]::GetFullPath($Transaction).TrimEnd('\')
+-if($env:COMPUTERNAME -cne '<REDACTED_07>' -or $root -cnotmatch '^C:\\Users\\<REDACTED_06>\\stcvrc-fullstack-lab\\transactions\\stcvrc-safe-[0-9]{8}-[0-9]{6}$'){throw 'Wrong lab scope'}
++if($env:COMPUTERNAME -cne 'LABHOST' -or $root -cnotmatch '^C:\\Users\\FixtureUser\\stcvrc-fullstack-lab\\transactions\\stcvrc-safe-[0-9]{8}-[0-9]{6}$'){throw 'Wrong lab scope'}
+ $plan=[IO.File]::ReadAllText((Join-Path $root 'plan.json'))|ConvertFrom-Json
+ function Assert-Transaction {
+-    if($plan.schema -ne 1 -or -not $plan.lab -or $plan.host -cne '<REDACTED_07>' -or $plan.root -cne $root -or $plan.tunEnabled){throw 'Unexpected transaction'}
++    if($plan.schema -ne 1 -or -not $plan.lab -or $plan.host -cne 'LABHOST' -or $plan.root -cne $root -or $plan.tunEnabled){throw 'Unexpected transaction'}
+     if($plan.policy -cne 'core-update'){
+         $core=@($plan.entries|Where-Object id -ceq 'core')
+         $sources=@{
+--- original-redacted/scripts/test_stcvrc_tun_gate.py
++++ public/scripts/test_stcvrc_tun_gate.py
+@@ -289,8 +289,8 @@
+  $old=$ast.Find({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.Contains("throw 'Unexpected transaction'")},$true)
+  $check=[ScriptBlock]::Create($old.Extent.Text)
+ }
+-$root='C:\Users\<REDACTED_06>\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000'
+-$plan=@{schema=1;lab=$true;host='<REDACTED_07>';root=$root;policy='ui-update';tunEnabled=$false;runtimeLayout='ui-migration';sourceStack='next';targetStack='candidate';oldUiVersion='2.5.5';uiVersion='2.5.8';oldVersion='1.19.31-STCVRC-lab-20260924g';newVersion='1.19.32-STCVRC-candidate-20261007';uiInstallers=@{new='821c0f5957f84c8f7d14532044840e8280d708af24a6a143db360b49bd1e7302'};entries=@(@{id='core';before='5eef492d112a6ee9e81bce2298369f9feb5b63fbae9efc7e5a5dd9fc7441b439';after='b072d09f0754b92cbe737757d2c63111d20ecf00e5d90b534ce2f9492feb9986'})}
++$root='C:\Users\FixtureUser\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261015-120000'
++$plan=@{schema=1;lab=$true;host='LABHOST';root=$root;policy='ui-update';tunEnabled=$false;runtimeLayout='ui-migration';sourceStack='next';targetStack='candidate';oldUiVersion='2.5.5';uiVersion='2.5.8';oldVersion='1.19.31-STCVRC-lab-20260924g';newVersion='1.19.32-STCVRC-candidate-20261007';uiInstallers=@{new='821c0f5957f84c8f7d14532044840e8280d708af24a6a143db360b49bd1e7302'};entries=@(@{id='core';before='5eef492d112a6ee9e81bce2298369f9feb5b63fbae9efc7e5a5dd9fc7441b439';after='b072d09f0754b92cbe737757d2c63111d20ecf00e5d90b534ce2f9492feb9986'})}
+ . $check
+ foreach($field in @('uiVersion','newVersion','targetStack','runtimeLayout','tunEnabled','sourceStack')){
+  $saved=$plan[$field];$plan[$field]=if($field -ceq 'tunEnabled'){$true}else{'unreviewed'}
+@@ -405,7 +405,7 @@
+ 
+     def test_transient_guarded_lab_scope(self):
+         source = SCRIPT.read_text()
+-        self.assertIn("$env:COMPUTERNAME -cne '<REDACTED_07>'", source)
++        self.assertIn("$env:COMPUTERNAME -cne 'LABHOST'", source)
+         self.assertIn("$plan.policy -cne 'core-update'", source)
+         self.assertLess(source.index('$result.watch=Assert-Watch'), source.index("Api '/configs' Patch"))
+         self.assertIn('--noproxy', source)

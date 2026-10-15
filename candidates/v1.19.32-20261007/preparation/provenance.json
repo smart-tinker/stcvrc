@@ -15,15 +15,13 @@
       "test_stcvrc_observer_installer"
     ]
   },
-  "originalNineMatched": 8,
+  "originalNineMatched": 5,
   "records": [
     {
       "originalPath": "scripts/test_stcvrc_candidate_gate.py",
-      "originalSha256": "91d98bf5bcf8ac723b125c6565606a765696cce91be51b30251ee8a252aeec94",
+      "originalSha256": "cda5b36f896e33955c60f19b6cb76ab1be00412883107ba981d18798ec9f3cca",
       "publicPath": "scripts/test_stcvrc_candidate_gate.py",
-      "publicSha256": "6b782e7f8d525c933a2cfc20c5fe7bcc5db8a6399a01429ab36012dd4fdcd7b1",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
+      "publicSha256": "5cd7a6d6842b2b0694321181324ce917c33103abbddad3622497a62b3ae60c3c",
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -33,34 +31,34 @@
         },
         {
           "kind": "artifact_input_adapter",
-          "description": "Explicit external artifact root; only missing optional binaries skip, supplied wrong bytes still fail SHA-256 comparison."
+          "description": "Existing external artifact input/one missing-binary SKIP semantics retained; wrong supplied bytes still fail."
         }
       ],
-      "historicalOriginalSha256": "91d98bf5bcf8ac723b125c6565606a765696cce91be51b30251ee8a252aeec94",
-      "historicalPublicSha256": "6b782e7f8d525c933a2cfc20c5fe7bcc5db8a6399a01429ab36012dd4fdcd7b1",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "91d98bf5bcf8ac723b125c6565606a765696cce91be51b30251ee8a252aeec94",
+      "priorPublicSha256": "6b782e7f8d525c933a2cfc20c5fe7bcc5db8a6399a01429ab36012dd4fdcd7b1",
+      "unchangedFromPriorOriginal": false,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "91d98bf5bcf8ac723b125c6565606a765696cce91be51b30251ee8a252aeec94"
     },
     {
       "originalPath": "scripts/test_stcvrc_lab_stack.py",
       "originalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
       "publicPath": "scripts/test_stcvrc_lab_stack.py",
       "publicSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
-      "historicalPublicSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
+      "priorPublicSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932"
     },
     {
       "originalPath": "scripts/test_stcvrc_safe_rollout.py",
       "originalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8",
       "publicPath": "scripts/test_stcvrc_safe_rollout.py",
       "publicSha256": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -75,18 +73,18 @@
           "count": 1
         }
       ],
-      "historicalOriginalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8",
-      "historicalPublicSha256": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8",
+      "priorPublicSha256": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8"
     },
     {
       "originalPath": "scripts/test_stcvrc_ui_candidate_rollout.py",
       "originalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8",
       "publicPath": "scripts/test_stcvrc_ui_candidate_rollout.py",
       "publicSha256": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -101,18 +99,18 @@
           "count": 3
         }
       ],
-      "historicalOriginalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8",
-      "historicalPublicSha256": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8",
+      "priorPublicSha256": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8"
     },
     {
       "originalPath": "scripts/test_stcvrc_observer_installer.py",
       "originalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541",
       "publicPath": "scripts/test_stcvrc_observer_installer.py",
       "publicSha256": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -121,31 +119,31 @@
           "count": 4
         }
       ],
-      "historicalOriginalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541",
-      "historicalPublicSha256": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541",
+      "priorPublicSha256": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541"
     },
     {
       "originalPath": "scripts/stcvrc_lab_stack.py",
       "originalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
       "publicPath": "scripts/stcvrc_lab_stack.py",
       "publicSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
-      "historicalPublicSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
+      "priorPublicSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff"
     },
     {
       "originalPath": "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
-      "originalSha256": "c3c92ea97ad86958685514d04467f35aebb3bf385f3b96cd0e1a538ef6338ec4",
+      "originalSha256": "fb918dfe1e9822370a68a763ea731403669f89666499f20016eaa82ae23e7c06",
       "publicPath": "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
-      "publicSha256": "5d9b6108f5f9a71854f75e20e06024eff09424ef6ce7762b9c370a9422d5cd67",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
+      "publicSha256": "2dc6a450f48a25e271aaa7c76c61bc4c3376e59335c3b8334cd74b56a25f636d",
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -163,7 +161,7 @@
           "kind": "fixture_identity_or_endpoint_substitution",
           "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
           "publicToken": "LABHOST",
-          "count": 6
+          "count": 9
         },
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -172,18 +170,18 @@
           "count": 2
         }
       ],
-      "historicalOriginalSha256": "c3c92ea97ad86958685514d04467f35aebb3bf385f3b96cd0e1a538ef6338ec4",
-      "historicalPublicSha256": "5d9b6108f5f9a71854f75e20e06024eff09424ef6ce7762b9c370a9422d5cd67",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "c3c92ea97ad86958685514d04467f35aebb3bf385f3b96cd0e1a538ef6338ec4",
+      "priorPublicSha256": "5d9b6108f5f9a71854f75e20e06024eff09424ef6ce7762b9c370a9422d5cd67",
+      "unchangedFromPriorOriginal": false,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "c3c92ea97ad86958685514d04467f35aebb3bf385f3b96cd0e1a538ef6338ec4"
     },
     {
       "originalPath": "scripts/uservm-stcvrc-fullstack.remote.ps1",
       "originalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6",
       "publicPath": "scripts/uservm-stcvrc-fullstack.remote.ps1",
       "publicSha256": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -228,18 +226,18 @@
           "count": 1
         }
       ],
-      "historicalOriginalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6",
-      "historicalPublicSha256": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6",
+      "priorPublicSha256": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6"
     },
     {
       "originalPath": "scripts/install-stcvrc-observer-lab.ps1",
       "originalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042",
       "publicPath": "scripts/install-stcvrc-observer-lab.ps1",
       "publicSha256": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -266,18 +264,18 @@
           "count": 2
         }
       ],
-      "historicalOriginalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042",
-      "historicalPublicSha256": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042",
+      "priorPublicSha256": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042"
     },
     {
       "originalPath": "scripts/prepare-stcvrc-safe-rollout.py",
-      "originalSha256": "bdeb30107e91e714ad6be9a50ac8ddf6833b2b4077f5909133f50bc08d3d5e32",
+      "originalSha256": "cdabf3d7fa6e0aa7e57e564ec50f9c006019fbf42678091aa508aeb5ba816144",
       "publicPath": "scripts/prepare-stcvrc-safe-rollout.py",
-      "publicSha256": "d5f04f343d3e5d5fc6fdc295bc6b574ce94c4e04fc9af287a9a7dbaa4bdebe9f",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
+      "publicSha256": "a7a9ad8d0671e8b1e06738660c2c30502999323fcdb8287f6b0e71360a91b387",
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -292,18 +290,18 @@
           "count": 2
         }
       ],
-      "historicalOriginalSha256": "bdeb30107e91e714ad6be9a50ac8ddf6833b2b4077f5909133f50bc08d3d5e32",
-      "historicalPublicSha256": "d5f04f343d3e5d5fc6fdc295bc6b574ce94c4e04fc9af287a9a7dbaa4bdebe9f",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": true,
+      "priorOriginalSha256": "bdeb30107e91e714ad6be9a50ac8ddf6833b2b4077f5909133f50bc08d3d5e32",
+      "priorPublicSha256": "d5f04f343d3e5d5fc6fdc295bc6b574ce94c4e04fc9af287a9a7dbaa4bdebe9f",
+      "unchangedFromPriorOriginal": false,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "bdeb30107e91e714ad6be9a50ac8ddf6833b2b4077f5909133f50bc08d3d5e32"
     },
     {
       "originalPath": "scripts/stcvrc-safe-rollout.ps1",
-      "originalSha256": "ae482f2199cc766c3d65d66ed46c155954e63438ba63d051a66d6252047902b5",
+      "originalSha256": "7fd0506752607d6598566362cba7fa100bf8c9b10768eff37b1210b2004fe39b",
       "publicPath": "scripts/stcvrc-safe-rollout.ps1",
-      "publicSha256": "18f0bf13caff5255f4be4ebeb4c0fc71943b5bd6b8f5f0bcb477f13e4d892287",
-      "inOriginalNine": true,
-      "inPriorPublicSources": true,
+      "publicSha256": "54dff00d2e13c32763d462c23b392bc3c4e538f3998e35edde86fbc62ec145dd",
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -318,71 +316,70 @@
           "count": 1
         }
       ],
-      "historicalOriginalSha256": "9b7a4848a15ada7dc3fc3cc37d331ea16b128eb264d42b17b670c38584a78630",
-      "historicalPublicSha256": "5ed150f0d6a7f1f72482e4c72508372a9a5bb0d6ba07fb1240ac2f99da03b8b9",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
+      "inOriginalNine": true,
+      "priorOriginalSha256": "ae482f2199cc766c3d65d66ed46c155954e63438ba63d051a66d6252047902b5",
+      "priorPublicSha256": "18f0bf13caff5255f4be4ebeb4c0fc71943b5bd6b8f5f0bcb477f13e4d892287",
       "unchangedFromPriorOriginal": false,
-      "intentionalSourceChange": "Recheck the UTC deadline after successful health probes and immediately before publishing committed; see CONFIRM-DEADLINE.md"
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "9b7a4848a15ada7dc3fc3cc37d331ea16b128eb264d42b17b670c38584a78630"
     },
     {
       "originalPath": "scripts/stmc_yaml.py",
       "originalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
       "publicPath": "scripts/stmc_yaml.py",
       "publicSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
-      "historicalPublicSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
+      "priorPublicSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898"
     },
     {
       "originalPath": "scripts/stcvrc_single_egress.py",
       "originalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
       "publicPath": "scripts/stcvrc_single_egress.py",
       "publicSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
-      "historicalPublicSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
+      "priorPublicSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270"
     },
     {
       "originalPath": "scripts/stcvrc_observer.py",
       "originalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
       "publicPath": "scripts/stcvrc_observer.py",
       "publicSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
-      "historicalPublicSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+      "priorPublicSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d"
     },
     {
       "originalPath": "scripts/preserve-stcvrc-evidence.ps1",
       "originalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
       "publicPath": "scripts/preserve-stcvrc-evidence.ps1",
       "publicSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
-      "historicalPublicSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
+      "priorPublicSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228"
     },
     {
       "originalPath": "scripts/uservm-stcvrc-ui-autostart.remote.ps1",
       "originalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7",
       "publicPath": "scripts/uservm-stcvrc-ui-autostart.remote.ps1",
       "publicSha256": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -403,18 +400,18 @@
           "count": 1
         }
       ],
-      "historicalOriginalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7",
-      "historicalPublicSha256": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7",
+      "priorPublicSha256": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7"
     },
     {
       "originalPath": "scripts/uservm-stcvrc-desktop-autostart.remote.ps1",
       "originalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7",
       "publicPath": "scripts/uservm-stcvrc-desktop-autostart.remote.ps1",
       "publicSha256": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -435,18 +432,18 @@
           "count": 2
         }
       ],
-      "historicalOriginalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7",
-      "historicalPublicSha256": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7",
+      "priorPublicSha256": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7"
     },
     {
       "originalPath": "scripts/uservm-stcvrc-safe-rollout.remote.ps1",
       "originalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542",
       "publicPath": "scripts/uservm-stcvrc-safe-rollout.remote.ps1",
       "publicSha256": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -455,18 +452,18 @@
           "count": 1
         }
       ],
-      "historicalOriginalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542",
-      "historicalPublicSha256": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542",
+      "priorPublicSha256": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542"
     },
     {
       "originalPath": "scripts/invoke-uservm-stcvrc-safe-rollout.py",
       "originalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6",
       "publicPath": "scripts/invoke-uservm-stcvrc-safe-rollout.py",
       "publicSha256": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -481,18 +478,18 @@
           "count": 3
         }
       ],
-      "historicalOriginalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6",
-      "historicalPublicSha256": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6",
+      "priorPublicSha256": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6"
     },
     {
       "originalPath": "scripts/invoke-uservm-stcvrc-autoselect.py",
       "originalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73",
       "publicPath": "scripts/invoke-uservm-stcvrc-autoselect.py",
       "publicSha256": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -531,44 +528,44 @@
           "count": 4
         }
       ],
-      "historicalOriginalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73",
-      "historicalPublicSha256": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73",
+      "priorPublicSha256": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73"
     },
     {
       "originalPath": "scripts/stcvrc_lab_transport.py",
       "originalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
       "publicPath": "scripts/stcvrc_lab_transport.py",
       "publicSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
-      "historicalPublicSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
+      "priorPublicSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d"
     },
     {
       "originalPath": "scripts/stcvrc_corporate_gate.py",
       "originalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
       "publicPath": "scripts/stcvrc_corporate_gate.py",
       "publicSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [],
-      "historicalOriginalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
-      "historicalPublicSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
+      "priorPublicSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb"
     },
     {
       "originalPath": "scripts/stcvrc_rotation_gate.py",
       "originalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0",
       "publicPath": "scripts/stcvrc_rotation_gate.py",
       "publicSha256": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -589,18 +586,18 @@
           "count": 1
         }
       ],
-      "historicalOriginalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0",
-      "historicalPublicSha256": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0",
+      "priorPublicSha256": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0"
     },
     {
       "originalPath": "scripts/test_stcvrc_observer.py",
       "originalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1",
       "publicPath": "scripts/test_stcvrc_observer.py",
       "publicSha256": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9",
-      "inOriginalNine": false,
-      "inPriorPublicSources": true,
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -619,40 +616,111 @@
           "description": "Active probe scheduling fixtures now stub unrelated live host_view; actual observer code and 25-second stage deadline remain unchanged. Dedicated host tests retain their real behavior. First unisolated failure and diagnostic are preserved."
         }
       ],
-      "historicalOriginalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1",
-      "historicalPublicSha256": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9",
-      "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
-      "unchangedFromPriorOriginal": true
+      "inOriginalNine": false,
+      "priorOriginalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1",
+      "priorPublicSha256": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1"
     },
     {
       "originalPath": "scripts/test_stcvrc_confirm_deadline.py",
       "originalSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
       "publicPath": "scripts/test_stcvrc_confirm_deadline.py",
       "publicSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
-      "inOriginalNine": false,
-      "inPriorPublicSources": false,
       "changes": [],
-      "newSource": "Deterministic PowerShell AST/mock regression; no deployment entry points"
+      "inOriginalNine": false,
+      "priorOriginalSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
+      "priorPublicSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
+      "unchangedFromPriorOriginal": true,
+      "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+      "historicalOriginalSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce"
+    },
+    {
+      "originalPath": "scripts/uservm-stcvrc-tun-gate.ps1",
+      "originalSha256": "67b45fb7e2da7a437b3113951835e2ce89accaf244baf5ddad92cd4e447d1c2a",
+      "publicPath": "scripts/uservm-stcvrc-tun-gate.ps1",
+      "publicSha256": "5115e61299c938841c25cc023f51fbc73d70487870519f50a928d3cd223be73d",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 2
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_tun_gate.py",
+      "originalSha256": "1557c98e4d38982b7e460c2dd7ffd2ad3e60d671c1948398b291ef741e07f094",
+      "publicPath": "scripts/test_stcvrc_tun_gate.py",
+      "publicSha256": "140183f78b50482c182f38da5e01eeaef7a8d74f158065042880a513b6536dce",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 2
+        }
+      ],
+      "inOriginalNine": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_observer_transaction.py",
+      "originalSha256": "dba0152a7f552cbdb40cab807aef1e30eaaa23edbb18fa191b3a5e9cc4b00306",
+      "publicPath": "scripts/test_stcvrc_observer_transaction.py",
+      "publicSha256": "dba0152a7f552cbdb40cab807aef1e30eaaa23edbb18fa191b3a5e9cc4b00306",
+      "changes": [],
+      "inOriginalNine": false
     }
   ],
-  "diffBoundary": "Current source hashes authenticate actual local originals; historicalOriginalSha256 preserves pre-fix inputs at the prior commit. sanitization.patch redacts private tokens before the diff and shows only public-copy adaptation, not the production fix. The public Git diff shows the production fix. These are not host deployment copies.",
+  "diffBoundary": "Current hashes bind actual local originals and independently runnable sanitized copies. Prior hashes preserve b0b0363e inputs. This preparation does not accept any live recovery or production rollout.",
   "notAccepted": [
-    "candidate TUN/recovery",
-    "atomic observer/UI/core restoration",
+    "candidate TUN live dataplane/recovery",
+    "atomic observer/UI/core live restoration",
     "Work host rollout",
     "VM integration/reboot/cleanup",
     "Home/Work readiness"
   ],
   "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
   "historicalOriginalNineMatched": 9,
-  "originalNineChangedIntentionally": [
+  "priorPublicSources": 25,
+  "priorOriginalsUnchanged": 21,
+  "priorAtCommit": "b0b0363e6f6c87573c7dcccf5fd5b93f358f8056",
+  "currentSourceCount": 28,
+  "newSources": [
+    "scripts/uservm-stcvrc-tun-gate.ps1",
+    "scripts/test_stcvrc_tun_gate.py",
+    "scripts/test_stcvrc_observer_transaction.py"
+  ],
+  "intentionalSourceChanges": [
+    "scripts/test_stcvrc_candidate_gate.py",
+    "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
+    "scripts/prepare-stcvrc-safe-rollout.py",
     "scripts/stcvrc-safe-rollout.ps1"
   ],
-  "priorPublicSources": 24,
-  "priorOriginalsUnchanged": 23,
-  "newRegressionSources": 1,
-  "reviewFix": {
+  "currentPreparation": "../PREPARATION-NEXT.md",
+  "historicalReviewFix": {
     "comment": "https://github.com/smart-tinker/stcvrc/pull/2#issuecomment-6191897311",
     "instructions": "../CONFIRM-DEADLINE.md"
-  }
+  },
+  "originalNineChangedIntentionally": [
+    "scripts/test_stcvrc_candidate_gate.py",
+    "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
+    "scripts/prepare-stcvrc-safe-rollout.py",
+    "scripts/stcvrc-safe-rollout.ps1"
+  ]
 }

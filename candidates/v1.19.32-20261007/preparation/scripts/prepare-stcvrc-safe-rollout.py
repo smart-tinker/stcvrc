@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import urllib.request
+import xml.etree.ElementTree as ET
 
 import stmc_yaml
 from stcvrc_lab_stack import STACKS
@@ -22,6 +23,93 @@ NEW_CORE = '40828a0f84c2c18fa917fa23246c7b87fc2c7d798c6a7c13a3db1dc997d94540'
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def observer_transaction_inputs(bundle, before, task_xml, absent, label, app, sid):
+    """Pin deployment files/task configuration, never observer history or state."""
+    if label not in ('home', 'work') or not re.fullmatch(r'S-1-5-21-\d+-\d+-\d+-\d+', sid or ''):
+        raise ValueError('Observer requires explicit label and service owner')
+    if absent == bool(before or task_xml) or bool(before) != bool(task_xml):
+        raise ValueError('Capture both observer baseline and task, or explicit absence')
+    root = r'C:\ProgramData\STCVRC-observer'
+    base_arguments = ('-I -B "' + root + r'\bin\stcvrc_observer.py" --app-dir "' + app +
+                      '" --data-dir "' + root + r'\data" --label ' + label + ' --active')
+    new_arguments = base_arguments + ' --service-owner-sid ' + sid
+
+    def read_file(path):
+        for part in (path, *path.parents):
+            if part.exists() and (part.is_symlink() or (getattr(part.lstat(), 'st_file_attributes', 0) & 1024)):
+                raise ValueError('Observer reparse input rejected')
+        return path.read_bytes()
+
+    def payload(directory):
+        raw = read_file(directory / 'manifest.json')
+        manifest = json.loads(raw)
+        files = manifest.get('files', {})
+        if manifest.get('schemaVersion') != 1 or not files.get('bin/python.exe') or not files.get('bin/stcvrc_observer.py'):
+            raise ValueError('Incomplete observer package')
+        result = {'manifest.json': raw}
+        folded = set()
+        for name, digest in files.items():
+            if (not re.fullmatch(r'bin/[a-zA-Z0-9_./+-]+', name) or '..' in name or
+                    any(not part or part in ('.', '..') for part in name.split('/')) or
+                    name.lower() in folded or not re.fullmatch(r'[0-9a-f]{64}', digest)):
+                raise ValueError('Invalid observer package path or hash')
+            folded.add(name.lower())
+            result[name] = read_file(directory / name)
+            if sha(result[name]) != digest:
+                raise ValueError('Observer payload hash mismatch')
+        actual = {p.relative_to(directory).as_posix() for p in (directory / 'bin').rglob('*') if p.is_file()}
+        if actual != set(files):
+            raise ValueError('Unmanifested observer payload file')
+        return files, result
+
+    new_files, new = payload(bundle)
+    staged = {'observer.new/' + name: data for name, data in new.items()}
+    plan = dict(root=root, task='STCVRC-Observer', label=label, oldPresent=not absent,
+                oldFiles={}, newFiles=new_files, newManifestHash=sha(new['manifest.json']),
+                newArguments=new_arguments)
+    if not absent:
+        if read_file(before / '.stcvrc-observer') != b'STCVRC_OBSERVER_V1':
+            raise ValueError('Unowned observer baseline')
+        old_files, old = payload(before)
+        xml = read_file(task_xml).decode('utf-8-sig').replace('\r\n', '\n').rstrip('\r\n')
+        if '<!DOCTYPE' in xml.upper() or '<!ENTITY' in xml.upper():
+            raise ValueError('Observer task XML entities rejected')
+        document = ET.fromstring(xml)
+        ns = {'t': 'http://schemas.microsoft.com/windows/2004/02/mit/task'}
+        actions = document.findall('t:Actions/*', ns)
+        principal = document.findall('t:Principals/t:Principal', ns)
+        if len(actions) != 1 or len(principal) != 1:
+            raise ValueError('Observer task action/principal mismatch')
+        text = lambda node, name: node.findtext('t:' + name, namespaces=ns)
+        arguments = text(actions[0], 'Arguments')
+        triggers = document.findall('t:Triggers/*', ns)
+        settings = document.find('t:Settings', ns)
+        expected_settings = {'Enabled': 'true', 'MultipleInstancesPolicy': 'IgnoreNew',
+                             'ExecutionTimeLimit': 'PT50S', 'StartWhenAvailable': 'true',
+                             'DisallowStartIfOnBatteries': 'false', 'StopIfGoingOnBatteries': 'false',
+                             'WakeToRun': 'false'}
+        time_trigger = document.find('t:Triggers/t:TimeTrigger', ns)
+        if (settings is None or any(text(settings, key) != value for key, value in expected_settings.items()) or
+                sorted(node.tag.rsplit('}', 1)[-1] for node in triggers) != ['BootTrigger', 'TimeTrigger'] or
+                time_trigger.findtext('t:Repetition/t:Interval', namespaces=ns) != 'PT1M' or
+                time_trigger.find('t:Repetition/t:Duration', ns) is not None or
+                any(text(node, 'Enabled') not in (None, 'true') for node in triggers)):
+            raise ValueError('Unsupported observer schedule or disabled baseline')
+        if (actions[0].tag != '{' + ns['t'] + '}Exec' or
+                text(actions[0], 'Command') != root + r'\bin\python.exe' or
+                text(actions[0], 'WorkingDirectory') != root + r'\bin' or
+                arguments not in (base_arguments, new_arguments) or
+                text(principal[0], 'UserId') not in ('SYSTEM', 'S-1-5-18') or
+                text(principal[0], 'LogonType') != 'ServiceAccount' or
+                text(principal[0], 'RunLevel') != 'HighestAvailable'):
+            raise ValueError('Observer task identity mismatch')
+        staged.update({'observer.old/' + name: data for name, data in old.items()})
+        staged['observer-task.old.xml'] = xml.encode('utf-8')
+        plan.update(oldFiles=old_files, oldManifestHash=sha(old['manifest.json']),
+                    oldTaskHash=sha(xml.encode('utf-8')), oldArguments=arguments)
+    return plan, staged
 
 
 def registry_candidate(registry, uid):
@@ -95,12 +183,21 @@ def main():
     p.add_argument('--lab', action='store_true')
     p.add_argument('--observer-config', action='store_true',
                    help='With core-update, keep the pinned core and only add observer listeners/log settings')
+    p.add_argument('--observer-bundle', type=Path, help='Include pinned production observer payload/task in UI transaction')
+    p.add_argument('--observer-before', type=Path, help='Fresh production observer root snapshot (history ignored)')
+    p.add_argument('--observer-task-xml', type=Path, help='Fresh UTF-8 Export-ScheduledTask baseline')
+    p.add_argument('--observer-baseline-absent', action='store_true', help='Fresh capture found neither root nor task')
+    p.add_argument('--observer-label', choices=['home', 'work'])
     mode = p.add_mutually_exclusive_group()
     mode.add_argument('--four-choices', action='store_true')
     mode.add_argument('--provider-repair', action='store_true')
     mode.add_argument('--core-update', action='store_true', help='Pinned core-only update on already installed CVR2.5.5')
     mode.add_argument('--ui-update', action='store_true', help='Exact pinned UI/core pair; historical default accepted to next')
     args = p.parse_args()
+    observer_requested = any((args.observer_bundle, args.observer_before, args.observer_task_xml,
+                              args.observer_baseline_absent, args.observer_label))
+    if observer_requested and (not args.ui_update or not args.observer_bundle or not args.observer_label):
+        p.error('Observer transaction requires ui-update, observer-bundle and observer-label')
     if (args.source_stack or args.target_stack) and not args.ui_update:
         p.error('Explicit source/target stacks require ui-update')
     source_name, target_name = args.source_stack or 'accepted', args.target_stack or 'next'
@@ -225,6 +322,10 @@ def main():
                 raise ValueError('Pinned UI installer mismatch')
             installers[label] = data
     target = args.target_app_root.rstrip('\\/')
+    observer, observer_staged = (observer_transaction_inputs(
+        args.observer_bundle, args.observer_before, args.observer_task_xml,
+        args.observer_baseline_absent, args.observer_label, target, args.service_owner_sid)
+        if observer_requested else (None, {}))
     entries = [
         ('core', r'C:\Program Files\Clash Verge\verge-mihomo.exe', old_core),
         ('profile', target + '\\profiles\\' + filename, raw['profile.yaml']),
@@ -235,6 +336,10 @@ def main():
     if args.core_update:
         entries = [entry for entry in entries if entry[0] != 'runtime']
     output.mkdir(parents=True)
+    for name, data in observer_staged.items():
+        destination = output / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
     for name, data in staged.items():
         (output / (name + '.new')).write_bytes(data)
     shutil.copyfile(PROJECT / 'scripts/stcvrc-safe-rollout.ps1', output / 'transaction.ps1')
@@ -258,6 +363,8 @@ def main():
             'evidenceScriptSha256': sha((output / 'preserve-evidence.ps1').read_bytes()),
             'serviceOwnerDirectory': args.service_owner_directory,
             'yamlValidatorSha256': sha(validator)}
+    if observer:
+        plan['observer'] = observer
     if args.core_update:
         (output / 'owner-runtime.before.yaml').write_bytes(raw['clash-verge.yaml'])
         plan.update(runtimeLayout='approved', uiVersion='2.5.5', serviceOwnerSid=args.service_owner_sid,

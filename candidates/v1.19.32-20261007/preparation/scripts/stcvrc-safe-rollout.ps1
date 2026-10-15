@@ -57,6 +57,265 @@ function No-Reparse([string]$Path) {
         $current=Split-Path -Parent $current
     }
 }
+function Hash-ObserverTask([string]$Xml) {
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try {([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Xml.Replace("`r`n","`n").TrimEnd("`r","`n"))))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+}
+function Assert-ObserverSchedule([string]$Xml) {
+    if($Xml -match '<!DOCTYPE|<!ENTITY'){throw 'Observer task XML entities rejected'}
+    $document=[xml]$Xml
+    $ns=[Xml.XmlNamespaceManager]::new($document.NameTable)
+    $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+    $triggers=@($document.SelectNodes('/t:Task/t:Triggers/*',$ns))
+    if(($triggers.LocalName|Sort-Object)-join ',' -cne 'BootTrigger,TimeTrigger'){throw 'Observer trigger drift'}
+    $time=$document.SelectSingleNode('/t:Task/t:Triggers/t:TimeTrigger',$ns)
+    if($time.SelectSingleNode('t:Repetition/t:Interval',$ns).InnerText -cne 'PT1M' -or $time.SelectSingleNode('t:Repetition/t:Duration',$ns)){throw 'Observer repetition drift'}
+    foreach($trigger in $triggers){
+        $enabled=$trigger.SelectSingleNode('t:Enabled',$ns)
+        if($enabled -and $enabled.InnerText -cne 'true'){throw 'Observer trigger disabled'}
+    }
+    $expected=@{Enabled='true';MultipleInstancesPolicy='IgnoreNew';ExecutionTimeLimit='PT50S';StartWhenAvailable='true';DisallowStartIfOnBatteries='false';StopIfGoingOnBatteries='false';WakeToRun='false'}
+    foreach($key in $expected.Keys){
+        if($document.SelectSingleNode(('/t:Task/t:Settings/t:'+$key),$ns).InnerText -cne $expected[$key]){throw 'Observer task setting drift'}
+    }
+}
+function Assert-ObserverAcl {
+    $root=$Plan.observer.root
+    $paths=@($root,(Join-Path $root '.stcvrc-observer'),(Join-Path $root 'manifest.json'),(Join-Path $root 'bin'))+@((Get-ChildItem -LiteralPath (Join-Path $root 'bin') -Recurse -Force).FullName)
+    foreach($path in $paths){
+        No-Reparse $path
+        $acl=Get-Acl -LiteralPath $path
+        if($path -ceq $root -and -not $acl.AreAccessRulesProtected){throw 'Observer payload ACL inherits unreviewed access'}
+        if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')){throw 'Unreviewed observer payload owner'}
+        $seen=@()
+        foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+            $sid=$rule.IdentityReference.Value
+            if($sid -cnotin @('S-1-5-18','S-1-5-32-544') -or $rule.AccessControlType -ne 'Allow' -or $rule.FileSystemRights -ne 'FullControl' -or $rule.PropagationFlags -ne 'None'){throw 'Unreviewed observer payload ACL'}
+            if($path -ceq $root -and $rule.InheritanceFlags -ne 'ContainerInherit, ObjectInherit'){throw 'Observer ACL does not protect children'}
+            $seen+=,$sid
+        }
+        if(@($seen|Sort-Object -Unique).Count -ne 2){throw 'Observer privileged ACL missing'}
+    }
+}
+function Assert-ObserverFiles([string]$Directory,$Files,[string]$ManifestHash) {
+    No-Reparse $Directory
+    if((Hash (Join-Path $Directory 'manifest.json')) -cne $ManifestHash){throw 'Observer manifest drift'}
+    $expected=@($Files.PSObject.Properties.Name)
+    $binary=Join-Path $Directory 'bin'
+    No-Reparse $binary
+    foreach($item in @(Get-ChildItem -LiteralPath $binary -Recurse -Force)){
+        No-Reparse $item.FullName
+        if(-not $item.PSIsContainer){
+            $relative='bin/'+$item.FullName.Substring($binary.Length+1).Replace('\','/')
+            if($relative -cnotin $expected){throw 'Unmanifested observer file'}
+        }
+    }
+    foreach($entry in $Files.PSObject.Properties){
+        $path=Join-Path $Directory $entry.Name
+        No-Reparse $path
+        if((Hash $path) -cne $entry.Value){throw 'Observer payload drift'}
+    }
+}
+function Get-ObserverTask([bool]$Candidate) {
+    $o=$Plan.observer
+    $task=Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue
+    if(-not $task){return $null}
+    $sid=if($task.Principal.UserId -like 'S-1-*'){$task.Principal.UserId}else{([Security.Principal.NTAccount]::new($task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}
+    $arguments=if($Candidate){$o.newArguments}else{$o.oldArguments}
+    if($task.TaskPath -cne '\' -or @($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -cne (Join-Path $o.root 'bin\python.exe') -or $task.Actions[0].Arguments -cne $arguments -or $task.Actions[0].WorkingDirectory -cne (Join-Path $o.root 'bin') -or $sid -cne 'S-1-5-18' -or $task.Principal.LogonType -ne 'ServiceAccount' -or $task.Principal.RunLevel -ne 'Highest'){throw 'Observer task identity drift'}
+    return $task
+}
+function Assert-ObserverBackup {
+    if(-not $Plan.observer){return}
+    $o=$Plan.observer
+    if($o.oldPresent){
+        Assert-ObserverFiles (Join-Path $Root 'observer.old') $o.oldFiles $o.oldManifestHash
+        $xml=Join-Path $Root 'observer-task.old.xml'
+        No-Reparse $xml
+        if((Hash $xml) -cne $o.oldTaskHash){throw 'Observer task backup drift'}
+    }
+}
+function Assert-ObserverPlan {
+    $o=$Plan.observer
+    $arguments='-I -B "C:\ProgramData\STCVRC-observer\bin\stcvrc_observer.py" --app-dir "'+$Plan.appRoot+'" --data-dir "C:\ProgramData\STCVRC-observer\data" --label '+$o.label+' --active'
+    if($Plan.policy -cne 'ui-update' -or $o.root -cne 'C:\ProgramData\STCVRC-observer' -or $o.task -cne 'STCVRC-Observer' -or $o.label -cnotin @('home','work') -or $o.oldPresent -isnot [bool] -or $o.newArguments -cne ($arguments+' --service-owner-sid '+$Plan.serviceOwnerSid)){throw 'Observer transaction boundary mismatch'}
+    foreach($files in @($o.oldFiles,$o.newFiles)){
+        $names=@()
+        foreach($entry in $files.PSObject.Properties){
+            if($entry.Name -cnotmatch '^bin/[a-zA-Z0-9_./+-]+$' -or $entry.Name.Contains('..') -or $entry.Name -match '(^|/)\.?(/|$)' -or $entry.Value -cnotmatch '^[0-9a-f]{64}$' -or $entry.Name.ToLowerInvariant() -cin $names){throw 'Invalid observer payload map'}
+            $names+=,$entry.Name.ToLowerInvariant()
+        }
+    }
+    if(-not $o.newFiles.'bin/python.exe' -or -not $o.newFiles.'bin/stcvrc_observer.py' -or $o.newManifestHash -cnotmatch '^[0-9a-f]{64}$'){throw 'Incomplete observer payload'}
+    if($o.oldPresent){
+        if(-not $o.oldFiles.'bin/python.exe' -or -not $o.oldFiles.'bin/stcvrc_observer.py' -or $o.oldManifestHash -cnotmatch '^[0-9a-f]{64}$' -or $o.oldTaskHash -cnotmatch '^[0-9a-f]{64}$' -or $o.oldArguments -cnotin @($arguments,$o.newArguments)){throw 'Invalid observer baseline'}
+    }elseif(@($o.oldFiles.PSObject.Properties).Count -or $o.oldTaskHash -or $o.oldArguments -or $o.oldManifestHash){throw 'Observer absence has conflicting baseline'}
+    if($Mode -in @('Preflight','Launch','Apply')){
+        Assert-ObserverBackup
+        Assert-ObserverFiles (Join-Path $Root 'observer.new') $o.newFiles $o.newManifestHash
+        Assert-ObserverBaseline
+    }
+}
+function Assert-ObserverBaseline {
+    if(-not $Plan.observer){return}
+    $o=$Plan.observer
+    No-Reparse $o.root
+    $task=Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue
+    if(-not $o.oldPresent){
+        if((Test-Path -LiteralPath $o.root) -or $task){throw 'Observer baseline absence changed'}
+        return
+    }
+    Assert-ObserverBackup
+    Assert-ObserverAcl
+    if([IO.File]::ReadAllText((Join-Path $o.root '.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Unowned observer root'}
+    Assert-ObserverFiles $o.root $o.oldFiles $o.oldManifestHash
+    if(-not (Get-ObserverTask $false) -or (Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $o.oldTaskHash){throw 'Observer baseline task drift'}
+    Assert-ObserverSchedule (Export-ScheduledTask -TaskName $o.task)
+}
+function Stop-Observer {
+    if(-not $Plan.observer){return}
+    $o=$Plan.observer
+    No-Reparse $o.root
+    if(Test-Path -LiteralPath $o.root){
+        if([IO.File]::ReadAllText((Join-Path $o.root '.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Unowned observer root'}
+    }
+    $task=Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue
+    if($task){
+        if($task.Actions[0].Arguments -ceq $o.newArguments){$null=Get-ObserverTask $true}else{$null=Get-ObserverTask $false}
+        $null=Disable-ScheduledTask -TaskName $o.task
+        Stop-ScheduledTask -TaskName $o.task
+        Write-Json (Join-Path $Root 'observer-quiesced.json') @{taskHash=(Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task))}
+    }
+    $until=(Get-Date).AddSeconds(10)
+    do {
+        $workers=@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -and $_.ExecutablePath.Replace('\\?\','') -ieq (Join-Path $o.root 'bin\python.exe')})
+        if(-not $workers.Count){return}
+        Start-Sleep -Milliseconds 200
+    }while((Get-Date) -lt $until)
+    throw 'Observer worker did not quiesce'
+}
+function Copy-ObserverPayload([bool]$Candidate) {
+    $o=$Plan.observer
+    $directory=Join-Path $Root $(if($Candidate){'observer.new'}else{'observer.old'})
+    $files=if($Candidate){$o.newFiles}else{$o.oldFiles}
+    $manifestHash=if($Candidate){$o.newManifestHash}else{$o.oldManifestHash}
+    Assert-ObserverFiles $directory $files $manifestHash
+    $allowed=@($o.oldFiles.PSObject.Properties.Name)+@($o.newFiles.PSObject.Properties.Name)
+    $binary=Join-Path $o.root 'bin'
+    if(Test-Path -LiteralPath $binary){
+        foreach($item in @(Get-ChildItem -LiteralPath $binary -Recurse -Force)){
+            No-Reparse $item.FullName
+            if($item.PSIsContainer){continue}
+            $relative='bin/'+$item.FullName.Substring($binary.Length+1).Replace('\','/')
+            if($relative -cnotin $allowed){throw 'Foreign observer file during recovery'}
+            if($relative -cnotin @($files.PSObject.Properties.Name)){Remove-Item -LiteralPath $item.FullName -Force}
+        }
+    }
+    foreach($entry in $files.PSObject.Properties){
+        $target=Join-Path $o.root $entry.Name
+        No-Reparse $target
+        $null=New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force
+        [IO.File]::Copy((Join-Path $directory $entry.Name),$target,$true)
+    }
+    [IO.File]::Copy((Join-Path $directory 'manifest.json'),(Join-Path $o.root 'manifest.json'),$true)
+    Assert-ObserverFiles $o.root $files $manifestHash
+}
+function Apply-Observer {
+    if(-not $Plan.observer){return}
+    $o=$Plan.observer
+    Assert-ObserverBackup
+    if(-not $o.oldPresent){Assert-ObserverBaseline}
+    else {
+        No-Reparse $o.root
+        if([IO.File]::ReadAllText((Join-Path $o.root '.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Observer ownership changed during UI upgrade'}
+        Assert-ObserverAcl
+        Assert-ObserverFiles $o.root $o.oldFiles $o.oldManifestHash
+        $task=Get-ObserverTask $false
+        $quiesced=Read-Json (Join-Path $Root 'observer-quiesced.json')
+        if(-not $task -or $task.Settings.Enabled -ne $false -or (Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $quiesced.taskHash){throw 'Observer task changed during UI upgrade'}
+    }
+    if(-not (Test-Path -LiteralPath $o.root)){
+        $null=New-Item -ItemType Directory -Path $o.root
+        $acl=[Security.AccessControl.DirectorySecurity]::new()
+        $acl.SetAccessRuleProtection($true,$false)
+        foreach($sid in @('S-1-5-18','S-1-5-32-544')){
+            $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
+        }
+        Set-Acl -LiteralPath $o.root -AclObject $acl
+        [IO.File]::WriteAllText((Join-Path $o.root '.stcvrc-observer'),'STCVRC_OBSERVER_V1')
+    }
+    Copy-ObserverPayload $true
+    Assert-ObserverAcl
+    if(-not $o.oldPresent){
+        if(Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue){throw 'Observer task appeared during payload copy'}
+    }elseif((Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $quiesced.taskHash){throw 'Observer task changed during payload copy'}
+    $action=New-ScheduledTaskAction -Execute (Join-Path $o.root 'bin\python.exe') -Argument $o.newArguments -WorkingDirectory (Join-Path $o.root 'bin')
+    $triggers=@((New-ScheduledTaskTrigger -AtStartup),(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)))
+    $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 50) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $null=Register-ScheduledTask -TaskName $o.task -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force
+    $null=Get-ObserverTask $true
+    Assert-ObserverSchedule (Export-ScheduledTask -TaskName $o.task)
+    Start-ScheduledTask -TaskName $o.task
+}
+function Restore-Observer {
+    if(-not $Plan.observer){return}
+    $o=$Plan.observer
+    Assert-ObserverBackup
+    Stop-Observer
+    if($o.oldPresent){
+        Copy-ObserverPayload $false
+        Assert-ObserverAcl
+        $null=Register-ScheduledTask -TaskName $o.task -Xml ([IO.File]::ReadAllText((Join-Path $Root 'observer-task.old.xml'))) -Force
+        $null=Get-ObserverTask $false
+        if((Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $o.oldTaskHash){throw 'Restored observer task configuration drift'}
+        Start-ScheduledTask -TaskName $o.task
+    }else{
+        if(Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue){Unregister-ScheduledTask -TaskName $o.task -Confirm:$false}
+        if(Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue){throw 'Observer task remains after rollback'}
+        if(Test-Path -LiteralPath $o.root){
+            # Preserve the owned root/marker and all newly collected data as evidence.
+            foreach($entry in $o.newFiles.PSObject.Properties){
+                $path=Join-Path $o.root $entry.Name
+                No-Reparse $path
+                if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force}
+            }
+            $manifest=Join-Path $o.root 'manifest.json'
+            if(Test-Path -LiteralPath $manifest){No-Reparse $manifest;Remove-Item -LiteralPath $manifest -Force}
+        }
+    }
+}
+function Wait-ObserverHealth([int]$Seconds=55) {
+    $o=$Plan.observer
+    $since=(Get-Item -LiteralPath (Join-Path $Root 'mutation.started')).LastWriteTimeUtc
+    $deadline=(Get-Date).AddSeconds($Seconds)
+    do {
+        try {
+            $task=Get-ScheduledTask -TaskName $o.task
+            $info=Get-ScheduledTaskInfo -TaskName $o.task
+            if($task.State -eq 'Running' -or $info.LastRunTime.ToUniversalTime() -lt $since -or $info.LastRunTime.ToUniversalTime() -lt [DateTime]::UtcNow.AddSeconds(-120) -or $info.LastTaskResult -ne 0){throw 'Observer has no fresh completed successful task'}
+            $timeline=Join-Path $o.root 'data\timeline'
+            No-Reparse $timeline
+            $file=Get-ChildItem -LiteralPath $timeline -Filter '*.jsonl' | Sort-Object Name | Select-Object -Last 1
+            if(-not $file -or $file.Name -cnotmatch '^\d{4}-\d{2}-\d{2}\.jsonl$'){throw 'Observer timeline unavailable'}
+            No-Reparse $file.FullName
+            $line=Get-Content -LiteralPath $file.FullName -Tail 1 -Encoding UTF8
+            if(-not $line -or $line.Length -gt 1048576){throw 'Observer row unavailable or oversized'}
+            $row=$line|ConvertFrom-Json
+            $observed=[DateTime]::Parse($row.observedUtc).ToUniversalTime()
+            $cores=@($row.host.processes|Where-Object role -ceq 'verge-mihomo.exe')
+            $runtime=Join-Path $Plan.serviceOwnerDirectory 'runtime\config.yaml'
+            No-Reparse $runtime
+            if($row.schemaVersion -ne 1 -or $row.checkpoint -cnotin @('new','ok') -or $observed -lt $since -or $observed -lt [DateTime]::UtcNow.AddSeconds(-120) -or $observed -gt [DateTime]::UtcNow -or $row.label -cne $o.label -or $row.sampleId -cnotmatch '^[0-9a-f]{64}$' -or $row.observerSha256 -cne $o.newFiles.'bin/stcvrc_observer.py' -or $row.runtimeLayout -cne 'service-owner' -or $row.runtimeHash -cne (Hash $runtime) -or $row.coreVersion -cne $Plan.newVersion -or $row.binaries.core.sha256 -cne ($Plan.entries|Where-Object id -ceq 'core').after){throw 'Observer row identity/configuration mismatch'}
+            foreach($component in @('host','controller','version','binaries')){if($row.components.$component -cne 'ok'){throw 'Observer required component failed'}}
+            if($row.host.service.status -cne 'running' -or $cores.Count -ne 1 -or $cores[0].session -ne 0 -or $cores[0].parent -ne $row.host.service.pid){throw 'Observer row service ownership mismatch'}
+            return @{pass=$true;sampleId=$row.sampleId;observedUtc=$row.observedUtc;lastTaskResult=$info.LastTaskResult;coreHash=$row.binaries.core.sha256;runtimeHash=$row.runtimeHash}
+        } catch {
+            if((Get-Date) -ge $deadline){throw 'Observer did not produce a fresh matching completed successful sample'}
+            Start-Sleep -Seconds 1
+        }
+    }while($true)
+}
 function Guard {
     if($Plan.schema -ne 1 -or $Plan.host -cne $env:COMPUTERNAME -or $Root -ine $Plan.root){throw 'Transaction host/root mismatch'}
     $profileRoot=Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $Plan.appRoot))
@@ -128,6 +387,7 @@ function Guard {
         No-Reparse $e.target
         if($Mode -in @('Preflight','Launch','Apply') -and $e.replace -and (Hash (Join-Path $Root ($e.id+'.new'))) -cne $e.after){throw 'Staged input hash mismatch'}
     }
+    if($Plan.observer){Assert-ObserverPlan}
 }
 function Acquire-Lock {
     $until=(Get-Date).AddSeconds(15)
@@ -359,6 +619,14 @@ function Candidate-Check([switch]$RefreshProviders) {
         if(($groups.'FOREIGN-EGRESS'.all -join ',') -cne 'VPS-POOL,DIRECT' -or ($groups.'VPS-POOL'.all -join ',') -cne 'VPS-GREEN,4VPS'){throw 'Foreign policy topology drift'}
     }
     Check-Selectors
+    if($Plan.observer){
+        Assert-ObserverAcl
+        Assert-ObserverFiles $Plan.observer.root $Plan.observer.newFiles $Plan.observer.newManifestHash
+        $observerTask=Get-ObserverTask $true
+        if(-not $observerTask -or -not $observerTask.Settings.Enabled){throw 'Candidate observer task unavailable'}
+        Assert-ObserverSchedule (Export-ScheduledTask -TaskName $Plan.observer.task)
+        $observerHealth=Wait-ObserverHealth
+    }
     $http=Check-Http
     $foreign=(Api '/proxies/FOREIGN-EGRESS').now
     if($Plan.policy -in @('provider-repair','core-update','ui-update') -and $foreign -in @('4VPS','GC')){$leaf=$foreign}
@@ -377,7 +645,7 @@ function Candidate-Check([switch]$RefreshProviders) {
             $providers+=,@{name=$name;ruleCount=$provider.ruleCount;updatedAt=$provider.updatedAt}
         }
     }
-    return @{pass=$true;http=$http;pool=$leaf;providers=$providers;consumerConfirmed=$false;yamlReserialized=$reserialized;coreVersion=(Api '/version').version;executingCoreHash=(Hash $ExecutingCore)}
+    return @{pass=$true;http=$http;pool=$leaf;providers=$providers;consumerConfirmed=$false;yamlReserialized=$reserialized;coreVersion=(Api '/version').version;executingCoreHash=(Hash $ExecutingCore);observer=$observerHealth}
 }
 function Remove-GuardTask {
     $task=Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -398,6 +666,14 @@ function Restore-Old {
     State 'rolling-back'
     $backup=Read-Json (Join-Path $Root 'backup.json')
     foreach($e in $Plan.entries){if((Hash (Join-Path $Root ($e.id+'.old'))) -cne $e.before){throw 'Rollback backup hash mismatch'}}
+    $observerError=$null
+    if($Plan.observer){
+        try {Assert-ObserverBackup;Stop-Observer}
+        catch {
+            $observerError=$_.Exception.GetType().Name
+            try {Write-Json (Join-Path $Root 'observer-recovery-error.json') @{stage='before-core';type=$observerError;at=[DateTime]::UtcNow.ToString('o')}}catch{}
+        }
+    }
     if($Plan.policy -ceq 'ui-update'){
         try {Preserve-History 'rollback'}catch{Write-Json (Join-Path $Root 'history-rollback-error.json') @{type=$_.Exception.GetType().Name;at=[DateTime]::UtcNow.ToString('o')}}
     }
@@ -423,8 +699,20 @@ function Restore-Old {
     }
     if($Plan.policy -in @('provider-repair','core-update','ui-update')){Check-Selectors}
     $http=Check-Http
+    if($Plan.observer){
+        try {Restore-Observer;$observerError=$null}
+        catch {
+            $observerError=$_.Exception.GetType().Name
+            try {Write-Json (Join-Path $Root 'observer-recovery-error.json') @{stage='after-core';type=$observerError;coreRestored=$true;at=[DateTime]::UtcNow.ToString('o')}}catch{}
+        }
+        if($observerError){
+            Write-Json (Join-Path $Root 'rollback-result.json') @{pass=$false;coreRestored=$true;observerRestored=$false;at=[DateTime]::UtcNow.ToString('o')}
+            State 'rollback-incomplete'
+            throw 'Observer recovery incomplete; core/UI restored, guard retained'
+        }
+    }
     State 'rolled-back'
-    Write-Json (Join-Path $Root 'rollback-result.json') @{pass=$true;at=[DateTime]::UtcNow.ToString('o');http=$http;coreHash=(Hash $Core);executingCoreHash=(Hash $ExecutingCore);filesRestored=$true;uiStopped=($Plan.policy -cne 'ui-update' -and -not $Plan.observerConfig);uiVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo($Ui).ProductVersion}
+    Write-Json (Join-Path $Root 'rollback-result.json') @{pass=$true;at=[DateTime]::UtcNow.ToString('o');http=$http;coreHash=(Hash $Core);executingCoreHash=(Hash $ExecutingCore);filesRestored=$true;coreRestored=$true;observerRestored=$(if($Plan.observer){$true}else{$null});uiStopped=($Plan.policy -cne 'ui-update' -and -not $Plan.observerConfig);uiVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo($Ui).ProductVersion}
     Remove-GuardTask
 }
 function Stop-ApplyWorker {
@@ -528,6 +816,7 @@ try {
         while(-not (Test-Path -LiteralPath (Join-Path $Root 'watch-ready.json')) -and (Get-Date) -lt $until){Start-Sleep -Milliseconds 200}
         $ready=Read-Json (Join-Path $Root 'watch-ready.json')
         if($ready.session -ne 0 -or -not (Get-Process -Id $ready.pid -ErrorAction SilentlyContinue)){throw 'Independent SYSTEM watchdog not ready'}
+        if($Plan.observer){Assert-ObserverBaseline;Stop-Observer}
         Stop-Runtime
         if($LabPause -eq 'AfterStop'){State 'lab-paused-after-stop';Start-Sleep -Seconds 600}
         foreach($e in $Plan.entries){if((Hash $e.target) -cne $e.before){throw 'Baseline changed during quiesce'}}
@@ -554,6 +843,7 @@ try {
             foreach($g in @('FOREIGN-EGRESS','VPS-POOL')){$null=Api ('/proxies/'+$g) Delete}
         }
         Restore-Selectors
+        if($Plan.observer){Apply-Observer}
         $check=Candidate-Check -RefreshProviders
         Write-Json (Join-Path $Root 'candidate-result.json') $check
         State 'awaiting-confirmation'
