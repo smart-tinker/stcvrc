@@ -1,3 +1,5 @@
+> Текущий статус: в этом source найдены два rollback-дефекта. Исправления и новое evidence: [OBSERVER-RECOVERY.md](OBSERVER-RECOVERY.md). Ниже сохранён исторический отчёт92 PASS; он не покрывал оба полных failure paths.
+
 # Подготовка candidate TUN и общего отката observer + UI/core
 
 Дата: 2026-10-15T15:32:52.153704+00:00. **OFFLINE 92 PASS; VM gate NOT RUN; Home/Work-ready NO.**

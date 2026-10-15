@@ -210,5 +210,21 @@
     "vmGate": "NOT_RUN",
     "homeReady": false,
     "workReady": false
+  },
+  "observerRecoveryReview": {
+    "reviewedCommit": "68fd80dc23c7e15712d80f94b826712ef4064807",
+    "overview": "OBSERVER-RECOVERY.md",
+    "checkedUtc": "2026-10-15T17:07:27.003274+00:00",
+    "testsRun": 105,
+    "passed": 105,
+    "skipped": 0,
+    "failurePathRegressions": 13,
+    "sourceMaps": 29,
+    "report": "preparation/evidence/observer-recovery/preparation-tests.json",
+    "scope": "Windows-host offline AST/temporary-file fixtures; no native scheduler/service/network recovery",
+    "runtimeAccepted": false,
+    "vmGate": "NOT_RUN",
+    "homeReady": false,
+    "workReady": false
   }
 }

@@ -172,9 +172,66 @@ function Assert-ObserverBaseline {
     if(-not (Get-ObserverTask $false) -or (Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $o.oldTaskHash){throw 'Observer baseline task drift'}
     Assert-ObserverSchedule (Export-ScheduledTask -TaskName $o.task)
 }
+function Get-ObserverRecoveryXml([string]$Xml) {
+    if($Xml -match '<!DOCTYPE|<!ENTITY'){throw 'Observer task XML entities rejected'}
+    $document=[Xml.XmlDocument]::new()
+    $document.PreserveWhitespace=$true
+    $document.XmlResolver=$null
+    $document.LoadXml($Xml)
+    $ns=[Xml.XmlNamespaceManager]::new($document.NameTable)
+    $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+    $enabled=@($document.SelectNodes('/t:Task/t:Settings/t:Enabled',$ns))
+    if($enabled.Count -ne 1 -or $enabled[0].InnerText -cnotin @('true','false')){throw 'Observer task Enabled setting unavailable'}
+    # Quiescing may be interrupted before any follow-up receipt is written.
+    # Normalize only this operational bit, never triggers or other settings.
+    $enabled[0].InnerText='true'
+    return $document.OuterXml
+}
+function Assert-ObserverClaim {
+    $o=$Plan.observer
+    if($o.oldPresent){return $true}
+    $receiptPath=Join-Path $Root 'observer-created.json'
+    if(-not (Test-Path -LiteralPath $receiptPath)){return $false}
+    No-Reparse $receiptPath;No-Reparse $o.root
+    $receipt=Read-Json $receiptPath
+    $marker=Join-Path $o.root '.stcvrc-transaction'
+    No-Reparse $marker
+    $planHash=Hash $PlanPath
+    if($receipt.root -cne $o.root -or $receipt.transaction -cne $Root -or $receipt.planHash -cne $planHash -or [IO.File]::ReadAllText($marker) -cne $Root){throw 'Observer transaction ownership changed'}
+    foreach($entry in $o.newFiles.PSObject.Properties){
+        $path=Join-Path $o.root $entry.Name
+        No-Reparse $path
+        if((Test-Path -LiteralPath $path) -and (Hash $path) -cne $entry.Value){throw 'Observer claimed payload changed'}
+    }
+    $manifest=Join-Path $o.root 'manifest.json'
+    No-Reparse $manifest
+    if((Test-Path -LiteralPath $manifest) -and (Hash $manifest) -cne $o.newManifestHash){throw 'Observer claimed manifest changed'}
+    $task=Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue
+    if($task){
+        $description='STCVRC transaction: '+$Root
+        if($task.Description -cne $description){throw 'Foreign observer task in claimed root'}
+        $null=Get-ObserverTask $true
+        $intentPath=Join-Path $Root 'observer-task.intent.json'
+        No-Reparse $intentPath
+        $intent=Read-Json $intentPath
+        if($intent.transaction -cne $Root -or $intent.root -cne $o.root -or $intent.planHash -cne $planHash -or $intent.description -cne $description){throw 'Observer task intent mismatch'}
+        $xml=Get-ObserverRecoveryXml (Export-ScheduledTask -TaskName $o.task)
+        Assert-ObserverSchedule $xml
+        $createdPath=Join-Path $Root 'observer-task.created.json'
+        No-Reparse $createdPath
+        if(Test-Path -LiteralPath $createdPath){
+            $taskReceipt=Read-Json $createdPath
+            if($taskReceipt.transaction -cne $Root -or $taskReceipt.root -cne $o.root -or $taskReceipt.planHash -cne $planHash -or (Hash-ObserverTask $xml) -cne $taskReceipt.taskHash){throw 'Observer claimed task configuration changed'}
+        }
+        # A matching intent and transaction-specific task identity cover a kill
+        # after registration but before the created receipt can be persisted.
+    }
+    return $true
+}
 function Stop-Observer {
     if(-not $Plan.observer){return}
     $o=$Plan.observer
+    if(-not (Assert-ObserverClaim)){return}
     No-Reparse $o.root
     if(Test-Path -LiteralPath $o.root){
         if([IO.File]::ReadAllText((Join-Path $o.root '.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Unowned observer root'}
@@ -184,7 +241,7 @@ function Stop-Observer {
         if($task.Actions[0].Arguments -ceq $o.newArguments){$null=Get-ObserverTask $true}else{$null=Get-ObserverTask $false}
         $null=Disable-ScheduledTask -TaskName $o.task
         Stop-ScheduledTask -TaskName $o.task
-        Write-Json (Join-Path $Root 'observer-quiesced.json') @{taskHash=(Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task))}
+        Write-Json (Join-Path $Root 'observer-quiesced.json') @{transaction=$Root;taskHash=(Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task))}
     }
     $until=(Get-Date).AddSeconds(10)
     do {
@@ -236,6 +293,12 @@ function Apply-Observer {
     }
     if(-not (Test-Path -LiteralPath $o.root)){
         $null=New-Item -ItemType Directory -Path $o.root
+        # Creation is exclusive (no -Force); a pre-existing root is never claimed.
+        if(-not $o.oldPresent){
+            $stream=[IO.File]::Open((Join-Path $o.root '.stcvrc-transaction'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try {$bytes=[Text.Encoding]::UTF8.GetBytes($Root);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+            Write-Json (Join-Path $Root 'observer-created.json') @{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath)}
+        }
         $acl=[Security.AccessControl.DirectorySecurity]::new()
         $acl.SetAccessRuleProtection($true,$false)
         foreach($sid in @('S-1-5-18','S-1-5-32-544')){
@@ -253,7 +316,17 @@ function Apply-Observer {
     $triggers=@((New-ScheduledTaskTrigger -AtStartup),(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)))
     $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 50) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    $null=Register-ScheduledTask -TaskName $o.task -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force
+    if($o.oldPresent){
+        $null=Register-ScheduledTask -TaskName $o.task -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force
+    }else{
+        # Do not replace a task that appeared after the last absence check.
+        $description='STCVRC transaction: '+$Root
+        $intentPath=Join-Path $Root 'observer-task.intent.json'
+        No-Reparse $intentPath
+        Write-Json $intentPath @{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath);description=$description}
+        $null=Register-ScheduledTask -TaskName $o.task -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Description $description
+        Write-Json (Join-Path $Root 'observer-task.created.json') @{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath);taskHash=(Hash-ObserverTask (Get-ObserverRecoveryXml (Export-ScheduledTask -TaskName $o.task)))}
+    }
     $null=Get-ObserverTask $true
     Assert-ObserverSchedule (Export-ScheduledTask -TaskName $o.task)
     Start-ScheduledTask -TaskName $o.task
@@ -262,6 +335,10 @@ function Restore-Observer {
     if(-not $Plan.observer){return}
     $o=$Plan.observer
     Assert-ObserverBackup
+    if(-not (Assert-ObserverClaim)){
+        if((Test-Path -LiteralPath $o.root) -or (Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue)){throw 'Observer absence changed outside this transaction; preserved'}
+        return
+    }
     Stop-Observer
     if($o.oldPresent){
         Copy-ObserverPayload $false
@@ -271,6 +348,7 @@ function Restore-Observer {
         if((Hash-ObserverTask (Export-ScheduledTask -TaskName $o.task)) -cne $o.oldTaskHash){throw 'Restored observer task configuration drift'}
         Start-ScheduledTask -TaskName $o.task
     }else{
+        $null=Assert-ObserverClaim
         if(Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue){Unregister-ScheduledTask -TaskName $o.task -Confirm:$false}
         if(Get-ScheduledTask -TaskName $o.task -ErrorAction SilentlyContinue){throw 'Observer task remains after rollback'}
         if(Test-Path -LiteralPath $o.root){
@@ -664,11 +742,15 @@ function Remove-ApplyTask {
 }
 function Restore-Old {
     State 'rolling-back'
+    $observerError=$null
+    $recoveryError=$null
+    $coreRestored=$false
+    $http=$null
+    try {
     $backup=Read-Json (Join-Path $Root 'backup.json')
     foreach($e in $Plan.entries){if((Hash (Join-Path $Root ($e.id+'.old'))) -cne $e.before){throw 'Rollback backup hash mismatch'}}
-    $observerError=$null
     if($Plan.observer){
-        try {Assert-ObserverBackup;Stop-Observer}
+        try {Assert-ObserverBackup;if(Assert-ObserverClaim){Stop-Observer}}
         catch {
             $observerError=$_.Exception.GetType().Name
             try {Write-Json (Join-Path $Root 'observer-recovery-error.json') @{stage='before-core';type=$observerError;at=[DateTime]::UtcNow.ToString('o')}}catch{}
@@ -698,18 +780,24 @@ function Restore-Old {
         foreach($e in $Plan.entries|Where-Object id -in @('runtime','registry','settings')){Assert-YamlEqual (Join-Path $Root ($e.id+'.old')) $e.target}
     }
     if($Plan.policy -in @('provider-repair','core-update','ui-update')){Check-Selectors}
+    $coreRestored=$true
     $http=Check-Http
+    } catch {$recoveryError=$_}
+    finally {
+    # Observer recovery must not depend on core health or external HTTP success.
     if($Plan.observer){
         try {Restore-Observer;$observerError=$null}
         catch {
             $observerError=$_.Exception.GetType().Name
-            try {Write-Json (Join-Path $Root 'observer-recovery-error.json') @{stage='after-core';type=$observerError;coreRestored=$true;at=[DateTime]::UtcNow.ToString('o')}}catch{}
+            try {Write-Json (Join-Path $Root 'observer-recovery-error.json') @{stage='after-core';type=$observerError;coreRestored=$coreRestored;at=[DateTime]::UtcNow.ToString('o')}}catch{}
         }
-        if($observerError){
-            Write-Json (Join-Path $Root 'rollback-result.json') @{pass=$false;coreRestored=$true;observerRestored=$false;at=[DateTime]::UtcNow.ToString('o')}
-            State 'rollback-incomplete'
-            throw 'Observer recovery incomplete; core/UI restored, guard retained'
-        }
+    }
+    }
+    if($recoveryError -or $observerError){
+        Write-Json (Join-Path $Root 'rollback-result.json') @{pass=$false;coreRestored=$coreRestored;observerRestored=$(if($Plan.observer){-not $observerError}else{$null});recoveryError=$(if($recoveryError){$recoveryError.Exception.GetType().Name}else{$null});observerError=$observerError;at=[DateTime]::UtcNow.ToString('o')}
+        State 'rollback-incomplete'
+        if($recoveryError){throw $recoveryError}
+        throw 'Observer recovery incomplete; guard retained'
     }
     State 'rolled-back'
     Write-Json (Join-Path $Root 'rollback-result.json') @{pass=$true;at=[DateTime]::UtcNow.ToString('o');http=$http;coreHash=(Hash $Core);executingCoreHash=(Hash $ExecutingCore);filesRestored=$true;coreRestored=$true;observerRestored=$(if($Plan.observer){$true}else{$null});uiStopped=($Plan.policy -cne 'ui-update' -and -not $Plan.observerConfig);uiVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo($Ui).ProductVersion}

@@ -1,0 +1,33 @@
+test_registered_owned_task_is_recovered_when_created_receipt_is_missing (test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_registered_owned_task_is_recovered_when_created_receipt_is_missing) ... OBSERVER_RECOVERY_OBSERVATION {"applyReason": "fixture-interrupted-after-registration-before-receipt", "applyRejected": true, "coreRestored": true, "disableCount": 0, "events": ["core-stopped", "baseline-ui-installed", "baseline-core-registered", "service-started", "owner-ui-started", "core-wait", "core-ready", "owner-runtime-checked", "selectors-restored", "selectors-checked", "http-checked"], "failure": "none", "forcedOverwriteCount": 0, "foreign": false, "foreignRaceTaskUnchanged": false, "guardActive": true, "historyPreserved": true, "mode": "interrupted-register", "observerRestored": false, "observerUnchanged": false, "payloadRemoved": false, "phase": "rollback-incomplete", "repeatReason": null, "repeatRejected": false, "rollbackReason": "Observer recovery incomplete; guard retained", "rollbackRejected": true, "scope": "offline AST fixtures; no live tasks/services/network/VM", "stopCount": 0, "stopObserverCalls": 0, "successRecorded": false, "taskEnabled": true, "taskPresent": true, "unregisterCount": 0}
+FAIL
+test_disabled_owned_task_is_recovered_before_quiesced_receipt_is_written (test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_disabled_owned_task_is_recovered_before_quiesced_receipt_is_written) ... OBSERVER_RECOVERY_OBSERVATION {"applyReason": null, "applyRejected": false, "coreRestored": true, "disableCount": 1, "events": ["observer-started", "core-stopped", "baseline-ui-installed", "baseline-core-registered", "service-started", "owner-ui-started", "core-wait", "core-ready", "owner-runtime-checked", "selectors-restored", "selectors-checked", "http-checked"], "failure": "none", "forcedOverwriteCount": 0, "foreign": false, "foreignRaceTaskUnchanged": false, "guardActive": true, "historyPreserved": true, "mode": "interrupted-disable", "observerRestored": false, "observerUnchanged": false, "payloadRemoved": false, "phase": "rollback-incomplete", "repeatReason": null, "repeatRejected": false, "rollbackReason": "Observer recovery incomplete; guard retained", "rollbackRejected": true, "scope": "offline AST fixtures; no live tasks/services/network/VM", "stopCount": 0, "stopObserverCalls": 1, "successRecorded": false, "taskEnabled": false, "taskPresent": true, "unregisterCount": 0}
+FAIL
+
+======================================================================
+FAIL: test_registered_owned_task_is_recovered_when_created_receipt_is_missing (test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_registered_owned_task_is_recovered_when_created_receipt_is_missing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<review-root>\projects/stcvrc/scripts\test_stcvrc_observer_recovery_failures.py", line 345, in test_registered_owned_task_is_recovered_when_created_receipt_is_missing
+    self.assert_owned_interrupted_task_recovered(report)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<review-root>\projects/stcvrc/scripts\test_stcvrc_observer_recovery_failures.py", line 335, in assert_owned_interrupted_task_recovered
+    self.assertTrue(report["payloadRemoved"], report)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : {'observerUnchanged': False, 'stopObserverCalls': 0, 'taskEnabled': True, 'foreignRaceTaskUnchanged': False, 'repeatReason': None, 'forcedOverwriteCount': 0, 'historyPreserved': True, 'guardActive': True, 'unregisterCount': 0, 'rollbackReason': 'Observer recovery incomplete; guard retained', 'stopCount': 0, 'failure': 'none', 'foreign': False, 'successRecorded': False, 'observerRestored': False, 'payloadRemoved': False, 'repeatRejected': False, 'applyReason': 'fixture-interrupted-after-registration-before-receipt', 'coreRestored': True, 'phase': 'rollback-incomplete', 'disableCount': 0, 'rollbackRejected': True, 'events': ['core-stopped', 'baseline-ui-installed', 'baseline-core-registered', 'service-started', 'owner-ui-started', 'core-wait', 'core-ready', 'owner-runtime-checked', 'selectors-restored', 'selectors-checked', 'http-checked'], 'taskPresent': True, 'applyRejected': True, 'scope': 'offline AST fixtures; no live tasks/services/network/VM', 'mode': 'interrupted-register'}
+
+======================================================================
+FAIL: test_disabled_owned_task_is_recovered_before_quiesced_receipt_is_written (test_stcvrc_observer_recovery_failures.ObserverRecoveryFailureTest.test_disabled_owned_task_is_recovered_before_quiesced_receipt_is_written)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<review-root>\projects/stcvrc/scripts\test_stcvrc_observer_recovery_failures.py", line 350, in test_disabled_owned_task_is_recovered_before_quiesced_receipt_is_written
+    self.assert_owned_interrupted_task_recovered(report)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<review-root>\projects/stcvrc/scripts\test_stcvrc_observer_recovery_failures.py", line 335, in assert_owned_interrupted_task_recovered
+    self.assertTrue(report["payloadRemoved"], report)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : {'observerUnchanged': False, 'stopObserverCalls': 1, 'taskEnabled': False, 'foreignRaceTaskUnchanged': False, 'repeatReason': None, 'forcedOverwriteCount': 0, 'historyPreserved': True, 'guardActive': True, 'unregisterCount': 0, 'rollbackReason': 'Observer recovery incomplete; guard retained', 'stopCount': 0, 'failure': 'none', 'foreign': False, 'successRecorded': False, 'observerRestored': False, 'payloadRemoved': False, 'repeatRejected': False, 'applyReason': None, 'coreRestored': True, 'phase': 'rollback-incomplete', 'disableCount': 1, 'rollbackRejected': True, 'events': ['observer-started', 'core-stopped', 'baseline-ui-installed', 'baseline-core-registered', 'service-started', 'owner-ui-started', 'core-wait', 'core-ready', 'owner-runtime-checked', 'selectors-restored', 'selectors-checked', 'http-checked'], 'taskPresent': True, 'applyRejected': False, 'scope': 'offline AST fixtures; no live tasks/services/network/VM', 'mode': 'interrupted-disable'}
+
+----------------------------------------------------------------------
+Ran 2 tests in 3.230s
+
+FAILED (failures=2)

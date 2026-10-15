@@ -123,7 +123,7 @@ class ObserverTransactionTest(unittest.TestCase):
         code = r'''
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile('__SOURCE__',[ref]$tokens,[ref]$errors)
-foreach($name in @('No-Reparse','Restore-Observer')){
+foreach($name in @('Hash','Hash-ObserverTask','Read-Json','Write-Json','No-Reparse','Get-ObserverTask','Get-ObserverRecoveryXml','Assert-ObserverSchedule','Assert-ObserverClaim','Restore-Observer')){
  $f=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true)
  . ([ScriptBlock]::Create($f.Extent.Text))
 }
@@ -132,16 +132,23 @@ $Root='__TEMP__';$observer=Join-Path $Root 'target';New-Item -ItemType Directory
 [IO.File]::WriteAllText((Join-Path $observer 'data\history.jsonl'),'retained evidence')
 [IO.File]::WriteAllText((Join-Path $observer 'manifest.json'),'candidate')
 [IO.File]::WriteAllText((Join-Path $observer 'bin\python.exe'),'candidate')
-$Plan=@{observer=@{root=$observer;task='STCVRC-Observer';oldPresent=$false;newFiles=([pscustomobject]@{'bin/python.exe'='fixture'})}}
+$Plan=@{observer=@{root=$observer;task='STCVRC-Observer';oldPresent=$false;newFiles=([pscustomobject]@{'bin/python.exe'=(Hash (Join-Path $observer 'bin\python.exe'))});newManifestHash=(Hash (Join-Path $observer 'manifest.json'));newArguments='fixture-args'}}
+$PlanPath=Join-Path $Root 'plan.json';Write-Json $PlanPath $Plan
+$taskXml=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__XML__'))
+[IO.File]::WriteAllText((Join-Path $observer '.stcvrc-transaction'),$Root)
+Write-Json (Join-Path $Root 'observer-created.json') @{root=$observer;transaction=$Root;planHash=(Hash $PlanPath)}
+Write-Json (Join-Path $Root 'observer-task.intent.json') @{root=$observer;transaction=$Root;planHash=(Hash $PlanPath);description=('STCVRC transaction: '+$Root)}
+Write-Json (Join-Path $Root 'observer-task.created.json') @{root=$observer;transaction=$Root;planHash=(Hash $PlanPath);taskHash=(Hash-ObserverTask (Get-ObserverRecoveryXml $taskXml))}
 $script:task=$true
 function Assert-ObserverBackup {}
 function Stop-Observer {}
-function Get-ScheduledTask($TaskName,$ErrorAction){if($script:task){@{Name='STCVRC-Observer'}}}
+function Get-ScheduledTask($TaskName,$ErrorAction){if($script:task){@{Name='STCVRC-Observer';Description=('STCVRC transaction: '+$Root);TaskPath='\';Actions=@(@{Execute=(Join-Path $observer 'bin\python.exe');Arguments='fixture-args';WorkingDirectory=(Join-Path $observer 'bin')});Principal=@{UserId='S-1-5-18';LogonType='ServiceAccount';RunLevel='Highest'}}}}
+function Export-ScheduledTask($TaskName){$taskXml}
 function Unregister-ScheduledTask($TaskName,[switch]$Confirm){$script:task=$false}
 Restore-Observer
 if($script:task -or (Test-Path -LiteralPath (Join-Path $observer 'bin\python.exe')) -or (Test-Path -LiteralPath (Join-Path $observer 'manifest.json'))){throw 'Candidate operational footprint remains'}
 if([IO.File]::ReadAllText((Join-Path $observer 'data\history.jsonl')) -cne 'retained evidence'){throw 'History lost'}
-'''
+'''.replace('__XML__', base64.b64encode(task_xml('fixture-args').encode()).decode())
         result = self.run_ps(code)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
 
@@ -184,7 +191,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile('__SOURCE__',[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Transaction parse failure'}
-foreach($name in @('Hash','Hash-ObserverTask','Read-Json','Write-Json','No-Reparse','Assert-ObserverFiles','Get-ObserverTask','Assert-ObserverBackup','Restore-Observer','Stop-Observer','Copy-ObserverPayload')){
+foreach($name in @('Hash','Hash-ObserverTask','Read-Json','Write-Json','No-Reparse','Assert-ObserverFiles','Get-ObserverTask','Assert-ObserverBackup','Assert-ObserverClaim','Restore-Observer','Stop-Observer','Copy-ObserverPayload')){
  $f=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true)
  if(-not $f){throw ('Missing observer transaction function: '+$name)}
  . ([ScriptBlock]::Create($f.Extent.Text))
@@ -246,6 +253,7 @@ $script:events=@()
 function State($Phase){$script:events+=$Phase}
 function Read-Json($Path){@{cachePresent=$false}}
 function Assert-ObserverBackup {$script:events+='backup-verified'}
+function Assert-ObserverClaim {$true}
 function Stop-Observer {$script:events+='observer-stopped'}
 function Preserve-History($Label){}
 function Stop-Runtime {$script:events+='core-stopped'}
