@@ -5,7 +5,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"time"
 )
+
+type ControlCryptor interface {
+	Wrap(header []byte, packetID uint32, unixTime uint32, plaintext []byte) ([]byte, error)
+	Unwrap(packet []byte) (header []byte, packetID uint32, unixTime uint32, plaintext []byte, err error)
+}
 
 const (
 	KeyIDMask   = 0x07
@@ -89,18 +95,13 @@ type ControlPacket struct {
 
 	MessageID uint32
 	Payload   []byte
+	// receivedAt is local-only metadata recording when a valid soft reset was
+	// accepted. It is never serialized.
+	receivedAt time.Time
 }
 
 func opcodeKeyID(opcode Opcode, keyID uint8) byte {
 	return byte(opcode)<<OpcodeShift | (keyID & KeyIDMask)
-}
-
-func nextRenegotiationKeyID(current uint8) uint8 {
-	next := (current + 1) & KeyIDMask
-	if next == 0 {
-		return 1
-	}
-	return next
 }
 
 func parseOpcodeKeyID(b byte) (Opcode, uint8) {
@@ -111,7 +112,7 @@ func (p ControlPacket) EncodePlain() ([]byte, error) {
 	if !p.Opcode.IsControl() {
 		return nil, fmt.Errorf("opcode %s is not a control opcode", p.Opcode)
 	}
-	if len(p.AckIDs) > 255 {
+	if len(p.AckIDs) > reliableAckSize {
 		return nil, fmt.Errorf("too many ack ids: %d", len(p.AckIDs))
 	}
 
@@ -146,6 +147,9 @@ func DecodeControlPlain(opcode Opcode, plain []byte) (ackIDs []uint32, ackRemote
 		return nil, SessionID{}, 0, nil, errors.New("control payload too short")
 	}
 	ackLen := int(plain[0])
+	if ackLen > reliableAckSize {
+		return nil, SessionID{}, 0, nil, fmt.Errorf("control ack array exceeds %d entries", reliableAckSize)
+	}
 	offset := 1
 	if len(plain) < offset+ackLen*4 {
 		return nil, SessionID{}, 0, nil, errors.New("control ack array truncated")
@@ -175,7 +179,7 @@ func DecodeControlPlain(opcode Opcode, plain []byte) (ackIDs []uint32, ackRemote
 	return ackIDs, ackRemote, messageID, payload, nil
 }
 
-func (p ControlPacket) Encode(crypt ControlProtection, packetID uint32, unixTime uint32) ([]byte, error) {
+func (p ControlPacket) Encode(crypt ControlCryptor, packetID uint32, unixTime uint32) ([]byte, error) {
 	plain, err := p.EncodePlain()
 	if err != nil {
 		return nil, err
@@ -193,7 +197,7 @@ func (p ControlPacket) Encode(crypt ControlProtection, packetID uint32, unixTime
 	return crypt.Wrap(header, packetID, unixTime, plain)
 }
 
-func DecodeControlPacket(crypt ControlProtection, packet []byte) (*ControlPacket, uint32, uint32, error) {
+func DecodeControlPacket(crypt ControlCryptor, packet []byte) (*ControlPacket, uint32, uint32, error) {
 	if crypt == nil {
 		if len(packet) < TLSCryptHeaderSize+1 {
 			return nil, 0, 0, errors.New("control packet too short")

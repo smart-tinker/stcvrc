@@ -8,149 +8,110 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/metacubex/mihomo/log"
+	"github.com/metacubex/mihomo/common/contextutils"
 	"github.com/metacubex/tls"
 	"golang.org/x/sync/semaphore"
 )
 
 const (
-	DefaultHandshakeTimeout = 30 * time.Second
-	ControlRetransmitDelay  = time.Second
-	DefaultControlPollDelay = time.Second
+	ControlRetransmitDelay = time.Second
 
-	maxConsecutiveDataDecryptErrors = 32
+	// renegotiateTimeout bounds initial TLS/KM2 progress. AUTH_PENDING and a
+	// continued PUSH_REPLY replace it with their protocol/transition deadline.
+	renegotiateTimeout = 30 * time.Second
+
+	// transitionWindow is how long a retiring (lame-duck) data epoch is
+	// accepted after a rekey, mirroring OpenVPN's default transition-window.
+	transitionWindow = 3600 * time.Second
 )
-
-var (
-	ErrControlRestart   = errors.New("openvpn control channel requested restart")
-	ErrControlSoftReset = errors.New("openvpn control channel requested soft reset")
-)
-
-type controlStream interface {
-	Read([]byte) (int, error)
-	Write([]byte) (int, error)
-	SetReadDeadline(time.Time) error
-	SetWriteDeadline(time.Time) error
-}
-
-type controlLoopHooks struct {
-	rekey func(context.Context, string) (*PushReply, controlStream, error)
-}
 
 type Client struct {
 	config *ClientConfig
 	mux    *PacketMux
 
-	control  *ControlChannel
-	tlsConn  *tls.Conn
-	data     *DataChannel
-	push     *PushReply
-	activity *remoteActivity
+	control *ControlChannel
+	// controlConn is the net.Conn adapter wrapping the control channel.
+	controlConn *ControlConn
+	// tlsConn is the active TLS session; swapped on each rekey by the
+	// watchControl goroutine and read by Close. Atomic to avoid racing.
+	tlsConn atomic.Pointer[tls.Conn]
+	// controlEstablishedAt anchors AUTH_PENDING like OpenVPN
+	// key_state.established. It is captured after the server KM2 record is
+	// parsed and its key material is derived, before deferred-auth messages.
+	// Only the handshake/control goroutine reads or replaces it.
+	controlEstablishedAt time.Time
+	// rekeyHandshakeTimeout bounds TLS/KM2 progress before the server
+	// advertises a longer AUTH_PENDING or continuation deadline.
+	rekeyHandshakeTimeout time.Duration
+	data                  *DataChannel
+	outboundKey           *DataChannel
+	// outboundStart is when the current outbound-key selection began. It
+	// anchors the no-evidence promotion deadline (auth_deferred_expire)
+	// used by writeDataPacket when peer evidence never arrives.
+	outboundStart time.Time
+	// deferredUntil is the active data epoch's AUTH_PENDING deadline.
+	// pendingDeferred* temporarily stores a deadline received after KM2 but
+	// before installDataChannel creates that epoch. All are protected by
+	// dataLock so packet writes and control-message processing agree on the
+	// same epoch-bound deadline.
+	deferredUntil        time.Time
+	pendingDeferredUntil time.Time
+	pendingDeferredKeyID uint8
+	pendingDeferredSet   bool
+	// pushPending accumulates intermediate push-continuation segments across
+	// TLS reads until the final segment arrives.
+	pushPending             *PushReply
+	pushContinuationPending bool
+	// retiring is the previous data-channel epoch, kept during a rekey so
+	// packets still labeled with the old key ID can be decrypted.
+	retiring *DataChannel
+	// retiringExpiry is when the retiring epoch is no longer accepted.
+	// Pending timestamps are captured when soft reset starts so neither the
+	// transition window nor outbound promotion window restarts after TLS/KM2.
+	retiringExpiry        time.Time
+	pendingRetiringExpiry time.Time
+	pendingOutboundStart  time.Time
+	push                  *PushReply
+	authUser              string
+	authPass              string
+	// leftoverTLS is unread TLS control bytes after a key-method-2 record.
+	leftoverTLS []byte
+	// dataChanged is rotated after a new epoch is installed, waking writes
+	// paused because the previous key's retiring deadline elapsed mid-rekey.
+	dataChanged chan struct{}
+	// lastRekeyErr is the original renegotiation failure, preserved because
+	// closing the mux otherwise only surfaces "use of closed network connection".
+	// Written by watchControl, read by the packet reader: atomic.
+	lastRekeyErr atomic.Pointer[error]
+	// dataByKey keeps active and retiring data channels indexed by key ID.
+	dataByKey map[uint8]*DataChannel
+
+	// negotiatedCipher is the data channel cipher selected during the most
+	// recent key exchange.
+	negotiatedCipher string
+
+	// dataLock protects c.data / c.outboundKey during TLS renegotiation
+	// (rekey), where the DataChannel is atomically replaced.
+	dataLock sync.RWMutex
 
 	runCtx context.Context
 	cancel context.CancelFunc
 
-	writeSemMu sync.Mutex
-	writeSem   *semaphore.Weighted
-
-	transitionMu    sync.Mutex
-	transitionTimer *time.Timer
+	writeSem *semaphore.Weighted
 
 	lastSendNano    atomic.Int64
 	lastReceiveNano atomic.Int64
-	lastSendKeyID   atomic.Int32
-	lastRecvKeyID   atomic.Int32
-}
-
-type remoteActivity struct {
-	lastAnyUnixNano     atomic.Int64
-	lastControlUnixNano atomic.Int64
-	lastDataUnixNano    atomic.Int64
-	dataPackets         atomic.Uint64
-	dataDecryptErrors   atomic.Uint64
-}
-
-type remoteActivitySnapshot struct {
-	LastAny           time.Time
-	LastControl       time.Time
-	LastData          time.Time
-	DataPackets       uint64
-	DataDecryptErrors uint64
-}
-
-func newRemoteActivity() *remoteActivity {
-	activity := &remoteActivity{}
-	activity.Mark()
-	return activity
-}
-
-func (a *remoteActivity) Mark() {
-	if a == nil {
-		return
-	}
-	a.lastAnyUnixNano.Store(time.Now().UnixNano())
-}
-
-func (a *remoteActivity) MarkControl() {
-	if a == nil {
-		return
-	}
-	now := time.Now().UnixNano()
-	a.lastControlUnixNano.Store(now)
-	a.lastAnyUnixNano.Store(now)
-}
-
-func (a *remoteActivity) MarkData() {
-	if a == nil {
-		return
-	}
-	now := time.Now().UnixNano()
-	a.lastDataUnixNano.Store(now)
-	a.lastAnyUnixNano.Store(now)
-	a.dataPackets.Add(1)
-}
-
-func (a *remoteActivity) MarkDataDecryptError() {
-	if a == nil {
-		return
-	}
-	a.dataDecryptErrors.Add(1)
-}
-
-func (a *remoteActivity) Last() time.Time {
-	if a == nil {
-		return time.Now()
-	}
-	nanos := a.lastAnyUnixNano.Load()
-	if nanos == 0 {
-		return time.Now()
-	}
-	return time.Unix(0, nanos)
-}
-
-func (a *remoteActivity) Snapshot() remoteActivitySnapshot {
-	if a == nil {
-		return remoteActivitySnapshot{}
-	}
-	return remoteActivitySnapshot{
-		LastAny:           unixNanoTime(a.lastAnyUnixNano.Load()),
-		LastControl:       unixNanoTime(a.lastControlUnixNano.Load()),
-		LastData:          unixNanoTime(a.lastDataUnixNano.Load()),
-		DataPackets:       a.dataPackets.Load(),
-		DataDecryptErrors: a.dataDecryptErrors.Load(),
-	}
-}
-
-func unixNanoTime(nanos int64) time.Time {
-	if nanos == 0 {
-		return time.Time{}
-	}
-	return time.Unix(0, nanos)
+	// Read-loop diagnostics, not a wire capture or an application-success count.
+	lastDataPacketNano atomic.Int64
+	inboundDataPackets atomic.Uint64
+	dataDecryptErrors  atomic.Uint64
 }
 
 func NewClient(config *ClientConfig, io PacketIO) (*Client, error) {
@@ -160,30 +121,25 @@ func NewClient(config *ClientConfig, io PacketIO) (*Client, error) {
 	if io == nil {
 		return nil, errors.New("nil openvpn packet io")
 	}
-	var crypt ControlProtection
+	var crypt ControlCryptor
 	if len(config.TLSCryptV2Key) > 0 || len(config.TLSCryptV2WrappedKey) > 0 {
 		var err error
 		crypt, err = NewTLSCryptV2(config.TLSCryptV2Key, config.TLSCryptV2WrappedKey)
 		if err != nil {
 			return nil, err
 		}
-		log.Debugln("[OpenVPN] control protection=tls-crypt-v2 remote=%s", config.RemoteAddress())
 	} else if len(config.TLSCryptKey) > 0 {
 		var err error
 		crypt, err = NewTLSCrypt(config.TLSCryptKey, true)
 		if err != nil {
 			return nil, err
 		}
-		log.Debugln("[OpenVPN] control protection=tls-crypt remote=%s", config.RemoteAddress())
 	} else if len(config.TLSAuthKey) > 0 {
 		var err error
-		crypt, err = NewTLSAuthWithDigest(config.TLSAuthKey, config.Auth, config.KeyDirection, true)
+		crypt, err = NewTLSAuth(config.TLSAuthKey, config.KeyDirection, config.Auth)
 		if err != nil {
 			return nil, err
 		}
-		log.Debugln("[OpenVPN] control protection=tls-auth auth=%s key-direction=%s remote=%s", config.Auth, config.KeyDirection, config.RemoteAddress())
-	} else {
-		log.Debugln("[OpenVPN] control protection=none remote=%s", config.RemoteAddress())
 	}
 	local, err := NewSessionID()
 	if err != nil {
@@ -191,49 +147,43 @@ func NewClient(config *ClientConfig, io PacketIO) (*Client, error) {
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	mux := NewPacketMux(io)
-	go mux.Run(runCtx)
+	go mux.Run()
+	control := NewControlChannel(mux, crypt, local)
 	client := &Client{
-		config:   config,
-		mux:      mux,
-		control:  NewControlChannel(mux, crypt, local),
-		activity: newRemoteActivity(),
-		runCtx:   runCtx,
-		cancel:   cancel,
-		writeSem: semaphore.NewWeighted(1),
+		config:                config,
+		mux:                   mux,
+		control:               control,
+		controlConn:           NewControlConn(control),
+		runCtx:                runCtx,
+		cancel:                cancel,
+		writeSem:              semaphore.NewWeighted(1),
+		authUser:              strings.TrimSpace(config.Username),
+		authPass:              config.Password,
+		dataByKey:             make(map[uint8]*DataChannel),
+		dataChanged:           make(chan struct{}),
+		rekeyHandshakeTimeout: renegotiateTimeout,
 	}
 	client.markSend()
 	client.markReceive()
+	control.onSend = client.markSend
+	control.onReceive = client.markReceive
+	go client.flushControlACKs()
 	return client, nil
 }
 
-// watchControl preserves the upstream watcher contract for direct callers.
-// Production starts RunControlLoop after the TLS session is established.
-func (c *Client) watchControl() {
+func (c *Client) flushControlACKs() {
 	for {
-		packet, err := c.control.Read(c.runCtx)
-		if err != nil {
-			if c.runCtx.Err() != nil {
-				return
+		select {
+		case <-c.control.ackWake:
+			for c.control.PendingACKs() > 0 {
+				if err := c.control.SendAck(c.runCtx); err != nil {
+					if c.runCtx.Err() == nil {
+						c.failControl(fmt.Errorf("send openvpn control ACK: %w", err))
+					}
+					return
+				}
 			}
-			continue
-		}
-		if err := c.control.SendAck(c.runCtx); err != nil {
-			c.cancel()
-			_ = c.mux.Close()
-			return
-		}
-		if packet.Opcode == PControlSoftResetV1 {
-			c.control.mu.Lock()
-			if packet.KeyID == c.control.keyID {
-				c.control.recvMessage = 0
-				c.control.recvPending = make(map[uint32]*ControlPacket)
-				c.control.ackPending = nil
-				c.control.mu.Unlock()
-				continue
-			}
-			c.control.mu.Unlock()
-			c.cancel()
-			_ = c.mux.Close()
+		case <-c.runCtx.Done():
 			return
 		}
 	}
@@ -243,78 +193,110 @@ func (c *Client) Handshake(ctx context.Context) (*PushReply, error) {
 	if c == nil {
 		return nil, errors.New("nil openvpn client")
 	}
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, DefaultHandshakeTimeout)
-		defer cancel()
-	}
-	log.Debugln("[OpenVPN] sending hard reset to %s", c.config.RemoteAddress())
 	if err := c.control.SendReset(ctx); err != nil {
 		return nil, fmt.Errorf("send hard reset: %w", err)
 	}
-	log.Debugln("[OpenVPN] waiting for hard reset response from %s", c.config.RemoteAddress())
 	if err := c.waitServerReset(ctx); err != nil {
+		return nil, fmt.Errorf("wait server reset: %w", err)
+	}
+	handshakeCtx, cancelHandshake := context.WithCancelCause(ctx)
+	defer cancelHandshake(nil)
+	var interrupt func()
+	defer func() {
+		if interrupt != nil {
+			interrupt()
+		}
+	}()
+	var retransmitStop func()
+	defer func() {
+		if retransmitStop != nil {
+			retransmitStop()
+		}
+	}()
+	if c.config.Proto == ProtoUDP {
+		retransmitStop = c.retransmitControl(handshakeCtx, cancelHandshake)
+	}
+
+	var err error
+	interrupt, err = c.startTLSEpoch(handshakeCtx)
+	if err != nil {
+		return nil, fmt.Errorf("control TLS: %w", operationContextError(handshakeCtx, err))
+	}
+
+	push, err := c.doKeyExchange(handshakeCtx)
+	if err != nil {
+		return nil, fmt.Errorf("key exchange: %w", operationContextError(handshakeCtx, err))
+	}
+	if retransmitStop != nil {
+		retransmitStop()
+		retransmitStop = nil
+	}
+	interrupt()
+	interrupt = nil
+	if err := c.controlOperationError(handshakeCtx); err != nil {
 		return nil, err
 	}
-	log.Debugln("[OpenVPN] hard reset response received from %s", c.config.RemoteAddress())
-
-	return c.negotiateDataSession(ctx, false)
+	_ = c.controlConn.SetDeadline(time.Time{})
+	go c.watchControl()
+	return push, nil
 }
 
-func (c *Client) Renegotiate(ctx context.Context, reason string) (*PushReply, error) {
-	if c == nil {
-		return nil, errors.New("nil openvpn client")
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, DefaultHandshakeTimeout)
-		defer cancel()
-	}
-	log.Debugln("[OpenVPN] starting soft reset for %s: %s", c.config.RemoteAddress(), reason)
-	if err := c.control.SendSoftReset(ctx); err != nil {
-		return nil, fmt.Errorf("send soft reset: %w", err)
-	}
-	return c.negotiateDataSession(ctx, true)
-}
-
-var errRenegotiateNoTLS = errors.New("cannot renegotiate: tls connection not established")
-
-func (c *Client) renegotiate() error {
-	if c == nil || c.tlsConn == nil {
-		return errRenegotiateNoTLS
-	}
-	ctx := c.runCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	_, err := c.Renegotiate(ctx, "upstream compatibility call")
-	return err
-}
-
-func (c *Client) negotiateDataSession(ctx context.Context, rekey bool) (*PushReply, error) {
+func (c *Client) startTLSEpoch(ctx context.Context) (interrupt func(), err error) {
 	tlsConfig, err := c.tlsConfig()
 	if err != nil {
 		return nil, err
 	}
-	controlConn := NewControlConn(c.control)
-	if rekey {
-		controlConn = NewSoftResetControlConn(c.control)
+	if c.tlsConn.Load() != nil {
+		// Drop the old epoch without writing close_notify. Close() would send
+		// it on whatever key ID is current and pollute the new control epoch.
+		c.tlsConn.Store(nil)
 	}
-	c.tlsConn = tls.Client(controlConn, tlsConfig)
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = c.tlsConn.SetDeadline(deadline)
-	}
-	log.Debugln("[OpenVPN] starting TLS handshake with %s", c.config.RemoteAddress())
-	if err := c.tlsConn.HandshakeContext(ctx); err != nil {
+	c.controlConn.Reset()
+	// The previous epoch's establishment time must never anchor deferred
+	// authentication for this TLS/KM2 epoch.
+	c.controlEstablishedAt = time.Time{}
+	c.leftoverTLS = nil
+	conn := tls.Client(c.controlConn, tlsConfig)
+	c.tlsConn.Store(conn)
+	interrupt = interruptControlConnOnDone(ctx, c.controlConn)
+	if err := conn.HandshakeContext(ctx); err != nil {
+		interrupt()
 		return nil, fmt.Errorf("openvpn tls handshake: %w", err)
 	}
-	log.Debugln("[OpenVPN] TLS handshake complete with %s", c.config.RemoteAddress())
+	// Drain any control packets that arrived on the new epoch while the
+	// handshake was reading, so they are not acknowledged and dropped by a
+	// raw ControlChannel read. A TLS-encrypted P_CONTROL_V1 token update
+	// must stay reachable through the active tls.Conn.
+	c.consumeQueuedControl()
+	return interrupt, nil
+}
+
+// consumeQueuedControl parses queued control packets and routes them back
+// into the active TLS stream so the key-method / PUSH exchange can see them.
+func (c *Client) consumeQueuedControl() {
+	for _, pkt := range c.control.ReadAll() {
+		if pkt.Opcode != PControlV1 || len(pkt.Payload) == 0 {
+			continue
+		}
+		c.controlConn.UnsafeFeed(pkt.Payload)
+	}
+}
+
+// doKeyExchange performs the OpenVPN key method 2 exchange over the TLS
+// control channel and creates a fresh data channel. It is used both for the
+// initial handshake and for subsequent TLS renegotiations (rekeys).
+// On success, c.data is atomically replaced with the new DataChannel.
+func (c *Client) doKeyExchange(ctx context.Context) (*PushReply, error) {
+	primaryCipher := c.config.Cipher
+	if len(c.config.DataCiphers) > 0 {
+		primaryCipher = normalizeCipher(c.config.DataCiphers[0])
+	}
 
 	clientRecord, err := NewClientKeyMethod2Record(
-		InstallScriptOptionsString(c.config.Proto, c.config.Cipher, c.config.Auth, c.config.CompLZO, len(c.config.TLSAuthKey) > 0, c.config.KeyDirection),
-		InstallScriptPeerInfo(c.config.Cipher, c.config.DataCiphers, c.config.CompLZO, c.config.PeerInfo),
-		strings.TrimSpace(c.config.Username),
-		c.config.Password,
+		InstallScriptOptionsString(c.config.Proto, primaryCipher, c.config.Auth, c.config.CompLZO),
+		InstallScriptPeerInfo(primaryCipher, c.config.DataCiphers, c.config.CompLZO, c.config.PeerInfo),
+		c.authUser,
+		c.authPass,
 	)
 	if err != nil {
 		return nil, err
@@ -323,258 +305,536 @@ func (c *Client) negotiateDataSession(ctx context.Context, rekey bool) (*PushRep
 	if err != nil {
 		return nil, err
 	}
-	if _, err := c.tlsConn.Write(clientBytes); err != nil {
+	if _, err := c.tlsConn.Load().Write(clientBytes); err != nil {
 		return nil, fmt.Errorf("write key method 2 client record: %w", err)
 	}
-	log.Debugln("[OpenVPN] waiting for key method 2 server record from %s", c.config.RemoteAddress())
 	serverRecord, err := c.readServerKeyMethod(ctx)
 	if err != nil {
 		return nil, err
 	}
-	log.Debugln("[OpenVPN] key method 2 server record received from %s", c.config.RemoteAddress())
 
+	// Derive keys using the maximum cipher key length (32 bytes). The actual
+	// cipher is determined after the push reply, and keys are sliced to the
+	// correct length at that point.
 	sources := clientRecord.Sources
 	sources.Server = serverRecord.Sources.Server
+	keys, err := DeriveClientKeyMaterial(sources, c.control.LocalSessionID(), c.control.RemoteSessionID(), 32)
+	if err != nil {
+		return nil, fmt.Errorf("derive data channel keys: %w", err)
+	}
+	// OpenVPN starts AUTH_PENDING from key_state.established, after the peer's
+	// KM2 record has been accepted and the new key material is ready.
+	c.controlEstablishedAt = time.Now()
 
-	if _, err := c.tlsConn.Write([]byte(PushRequest + "\x00")); err != nil {
+	if c.push != nil {
+		// Authenticated rekeys keep the previous ifconfig / peer-id.
+		// OpenVPN 2.6 often does not send another PUSH_REPLY here, but may
+		// push a fresh auth-token (send_push_reply_auth_token) that must be
+		// consumed to keep the next key-method-2 auth from expiring. If the
+		// server rejected the token (AUTH_FAILED), abort before installing a
+		// new data channel rather than proceeding with a stale credential.
+		if err := c.consumeRekeyPush(); err != nil {
+			return nil, fmt.Errorf("consume rekey push: %w", err)
+		}
+		push := c.push
+		negotiatedCipher, err := c.config.NegotiateCipher(push.DataCiphers, push.Cipher)
+		if err != nil {
+			return nil, fmt.Errorf("negotiate data cipher: %w", err)
+		}
+		c.negotiatedCipher = negotiatedCipher
+		cipherKeyLen := CipherKeyLength(negotiatedCipher)
+		keys.SendCipherKey = keys.SendCipherKey[:cipherKeyLen]
+		keys.RecvCipherKey = keys.RecvCipherKey[:cipherKeyLen]
+		keyID := c.control.KeyID()
+		newData, err := NewDataChannel(keys, negotiatedCipher, c.config.Auth, push.PeerID, keyID)
+		if err != nil {
+			return nil, err
+		}
+		c.installDataChannel(newData)
+		c.markSend()
+		c.markReceive()
+		return push, nil
+	}
+
+	if _, err := c.tlsConn.Load().Write([]byte(PushRequest + "\x00")); err != nil {
 		return nil, fmt.Errorf("write push request: %w", err)
 	}
-	log.Debugln("[OpenVPN] waiting for push reply from %s", c.config.RemoteAddress())
 	push, err := c.readPushReply(ctx)
 	if err != nil {
 		return nil, err
 	}
-	log.Debugln("[OpenVPN] push reply received from %s", c.config.RemoteAddress())
-	c.applyLocalTimingOverrides(push)
+	push = mergePushReply(c.push, push)
+	if len(push.Prefixes) == 0 {
+		return nil, fmt.Errorf("openvpn push reply missing ifconfig address")
+	}
+	c.push = push
 
-	dataCipher, dataAuth, err := c.negotiateDataChannelOptions(serverRecord, push)
+	// Negotiate the data channel cipher based on the push reply.
+	negotiatedCipher, err := c.config.NegotiateCipher(push.DataCiphers, push.Cipher)
+	if err != nil {
+		return nil, fmt.Errorf("negotiate data cipher: %w", err)
+	}
+	c.negotiatedCipher = negotiatedCipher
+
+	// Slice the derived keys to the negotiated cipher's key length.
+	cipherKeyLen := CipherKeyLength(negotiatedCipher)
+	keys.SendCipherKey = keys.SendCipherKey[:cipherKeyLen]
+	keys.RecvCipherKey = keys.RecvCipherKey[:cipherKeyLen]
+
+	keyID := c.control.KeyID()
+	newData, err := NewDataChannel(keys, negotiatedCipher, c.config.Auth, push.PeerID, keyID)
 	if err != nil {
 		return nil, err
 	}
-	keys, err := DeriveClientKeyMaterial(sources, c.control.LocalSessionID(), c.control.RemoteSessionID(), CipherKeyLength(dataCipher))
-	if err != nil {
-		return nil, fmt.Errorf("derive data channel keys: %w", err)
-	}
-	if rekey {
-		log.Debugln("[OpenVPN] rekey control state for %s before data activation: pending-messages=%d send-key-delay=%s", c.config.RemoteAddress(), c.control.PendingMessages(), c.dataKeyActivationDelay())
-	}
-	if err := c.installDataChannel(keys, push, rekey, dataCipher, dataAuth); err != nil {
-		return nil, err
-	}
+	c.installDataChannel(newData)
+	c.captureAuthToken(push)
 	c.markSend()
 	c.markReceive()
-	_ = c.tlsConn.SetDeadline(time.Time{})
 	return push, nil
 }
 
-func (c *Client) negotiateDataChannelOptions(serverRecord *KeyMethod2Record, push *PushReply) (string, string, error) {
-	if c == nil || c.config == nil {
-		return "", "", errors.New("nil openvpn client config")
+// consumeRekeyPush updates the cached push state after an authenticated
+// rekey: it inherits the previous peer-id and applies any fresh auth-token
+// pushed by send_push_reply_auth_token. Must be called only when c.push is
+// non-nil (i.e. on rekey, not the initial handshake).
+func (c *Client) consumeRekeyPush() error {
+	var conn pushReadConn
+	if tlsConn := c.tlsConn.Load(); tlsConn != nil {
+		conn = tlsConn
 	}
-	pushedCipher := ""
-	var pushedCiphers []string
-	if push != nil {
-		pushedCipher = push.Cipher
-		pushedCiphers = push.DataCiphers
-	}
-	if pushedCipher == "" && len(pushedCiphers) == 0 && serverRecord != nil {
-		pushedCipher = optionValue(serverRecord.Options, "cipher")
-	}
-	cipherName, err := c.config.NegotiateCipher(pushedCiphers, pushedCipher)
-	if err != nil {
-		return "", "", fmt.Errorf("negotiate data cipher: %w", err)
-	}
-	authName := c.config.Auth
-	if serverRecord != nil {
-		if value := optionValue(serverRecord.Options, "auth"); value != "" {
-			authName = normalizeAuth(value)
-		}
-	}
-	if push != nil {
-		if push.Auth != "" {
-			authName = normalizeAuth(push.Auth)
-		}
-	}
-	if err := validateDataCipher(cipherName); err != nil {
-		return "", "", err
-	}
-	if err := validateDataAuth(authName); err != nil {
-		return "", "", err
-	}
-	if cipherName != c.config.Cipher || authName != c.config.Auth {
-		log.Infoln("[OpenVPN] negotiated data channel for %s: cipher=%s auth=%s (profile cipher=%s auth=%s)", c.config.RemoteAddress(), cipherName, authName, c.config.Cipher, c.config.Auth)
-	}
-	return cipherName, authName, nil
+	return c.consumeRekeyPushFrom(conn, readTokenPushReply)
 }
 
-func (c *Client) installDataChannel(keys *KeyMaterial, push *PushReply, rekey bool, cipherName, authName string) error {
-	if c == nil {
-		return errors.New("nil openvpn client")
+// tokenPushReader is injected by deterministic lifecycle tests; production
+// always uses readTokenPushReply with the active TLS connection.
+type tokenPushReader func(pushReadConn, []byte, ...time.Time) (*PushReply, []byte, error)
+
+func (c *Client) consumeRekeyPushFrom(conn pushReadConn, readFinal tokenPushReader) error {
+	// The token/deferred-push exchange owns every transport deadline installed
+	// while it runs. Clear them before returning so standalone parked-TLS calls
+	// cannot leak an operation deadline into the established-channel loop.
+	defer func() { _ = c.controlConn.SetDeadline(time.Time{}) }()
+
+	base := *c.push
+	rekey := &PushReply{PeerID: base.PeerID}
+	push := mergePushReply(c.push, rekey)
+	complete := false
+	attemptedFinalRead := false
+
+	// Terminal control messages have priority over coalesced push data. Check
+	// the original buffer before splitControlMessages consumes it.
+	if err := controlMessageError(c.leftoverTLS); err != nil {
+		return err
 	}
-	if push == nil {
-		return errors.New("nil openvpn push reply")
-	}
-	if rekey && c.data != nil {
-		if err := c.data.RekeyWithSendDelay(keys, cipherName, authName, push.PeerID, c.config.CompLZO, c.dataKeyActivationDelay()); err != nil {
-			return err
+
+	// First consume complete messages already read past KM2.
+	reply, rest, ok := takePushReply(c.leftoverTLS)
+	c.leftoverTLS = rest
+	if reply != nil {
+		c.pushPending = mergePushReply(c.pushPending, reply)
+		c.applyAuthPendingTimeout(reply)
+		if reply.PushContinuation == 2 {
+			c.pushContinuationPending = true
 		}
-		c.schedulePreviousKeyRetirement()
-	} else {
-		data, err := NewDataChannel(keys, cipherName, authName, push.PeerID, c.config.CompLZO)
+	}
+	if ok {
+		complete = true
+		c.pushContinuationPending = false
+	}
+	if err := controlMessageError(c.leftoverTLS); err != nil {
+		return err
+	}
+
+	// If no final PUSH_REPLY has arrived yet, probe the active TLS stream.
+	// This includes standalone AUTH_PENDING and intermediate continuation
+	// segments; neither is allowed to complete the rekey by itself.
+	if !complete && conn != nil {
+		attemptedFinalRead = true
+		continuationLimit := c.rekeyWaitDeadline(time.Now())
+		deadline := time.Time{}
+		if c.pushContinuationPending {
+			deadline = continuationLimit
+		}
+		more, newRest, err := readFinal(conn, c.leftoverTLS, deadline, c.controlEstablishedAt, continuationLimit)
 		if err != nil {
 			return err
 		}
-		c.data = data
+		c.leftoverTLS = newRest
+		if more != nil {
+			c.pushPending = mergePushReply(c.pushPending, more)
+			c.applyAuthPendingTimeout(more)
+			complete = more.HasPushReply && more.PushContinuation != 2
+			if more.HasPushReply {
+				// Persist continuation state regardless of whether it was already
+				// buffered or was first discovered inside the final reader.
+				c.pushContinuationPending = more.PushContinuation == 2
+			}
+		}
+	}
+
+	if attemptedFinalRead && c.pushContinuationPending {
+		return errors.New("openvpn continued push reply incomplete")
+	}
+	if !complete && c.pushPending != nil && !c.pushPending.HasPushReply {
+		// AUTH_PENDING is standalone metadata, not the first half of a push.
+		// A deferred-auth rekey without auth-gen-token legally has no final
+		// PUSH_REPLY. Its deadline has already been staged for this key epoch;
+		// discard only the accumulator metadata and retain the cached push.
+		c.pushPending = nil
+	}
+	if complete && c.pushPending != nil {
+		push = mergePushReply(push, c.pushPending)
+		c.pushPending = nil
 	}
 	c.push = push
-	c.activity.MarkControl()
+	c.captureAuthToken(push)
 	return nil
 }
 
-func (c *Client) schedulePreviousKeyRetirement() {
-	if c == nil || c.data == nil {
+func (c *Client) consumeParkedRekeyPush() error {
+	c.consumeQueuedControl()
+	if c.push != nil {
+		return c.consumeRekeyPush()
+	}
+	// Keep the ownership explicit even when no cached push exists.
+	_ = c.controlConn.SetDeadline(time.Time{})
+	return nil
+}
+
+// applyAuthPendingTimeout records a server-advertised AUTH_PENDING,timeout N
+// for the matching control/data epoch.
+func (c *Client) applyAuthPendingTimeout(reply *PushReply) {
+	if reply == nil || !pushHasAuthPending(reply) {
 		return
 	}
-	data := c.data
-	generation, ok := data.activeGeneration()
+	anchorAuthPendingDeadline(reply, c.controlEstablishedAt)
+	deadline := reply.authPendingUntil
+	keyID := c.control.KeyID()
+	c.dataLock.Lock()
+	if c.data != nil && c.data.keyID == keyID {
+		// AUTH_PENDING is an update, not an extension-only hint: OpenVPN
+		// replaces the timeout for this authentication session even when the
+		// newly proposed deadline is shorter.
+		c.deferredUntil = deadline
+	} else {
+		// KM2/control has advanced to keyID but installDataChannel has not
+		// installed that data epoch. Stage the latest deadline with the key ID;
+		// install will transfer it only to the matching epoch.
+		c.pendingDeferredKeyID = keyID
+		c.pendingDeferredUntil = deadline
+		c.pendingDeferredSet = true
+	}
+	c.dataLock.Unlock()
+
+	_ = c.controlConn.SetDeadline(deadline)
+}
+
+// authPendingDeadline returns only the server-advertised protocol deadline for
+// the current key epoch. Caller context cancellation is enforced independently
+// and the rekey baseline is already installed on ControlChannel.
+func (c *Client) authPendingDeadline() time.Time {
+	keyID := c.control.KeyID()
+	c.dataLock.RLock()
+	deferred := c.deferredUntil
+	dataMatches := c.data != nil && c.data.keyID == keyID
+	pending := c.pendingDeferredUntil
+	pendingMatches := c.pendingDeferredSet && c.pendingDeferredKeyID == keyID
+	c.dataLock.RUnlock()
+	// AUTH_PENDING replaces the protocol timeout for its exact key epoch.
+	// Caller context cancellation remains an independent hard limit. Pending
+	// state wins before installDataChannel, active state afterwards.
+	if pendingMatches {
+		return pending
+	}
+	if dataMatches && !deferred.IsZero() {
+		return deferred
+	}
+	return time.Time{}
+}
+
+// authDeferredExpire is the no-evidence promotion window for the outbound
+// data key, mirroring OpenVPN's auth_deferred_expire_window
+// (ssl.c): min(handshake_window, reneg_seconds/2). With defaults that is
+// min(60, 1800) = 60s. tls_select_encryption_key switches outbound to the
+// new key once it is authenticated, which happens inside this window, so
+// this is the correct deadline for promoting without peer evidence.
+const authDeferredExpire = 60 * time.Second
+const authPendingMaxTimeout = 30 * time.Minute
+
+func (c *Client) transitionWindow() time.Duration {
+	window := transitionWindow
+	if c.config != nil && (c.config.TransitionWindowSet || c.config.TransitionWindow > 0) {
+		window = c.config.TransitionWindow
+	}
+	return window
+}
+
+func (c *Client) retiringWindowDeadline(reset *ControlPacket) time.Time {
+	acceptedAt := time.Now()
+	if reset != nil && !reset.receivedAt.IsZero() {
+		acceptedAt = reset.receivedAt
+	}
+	return acceptedAt.Add(c.transitionWindow())
+}
+
+func (c *Client) stageRetiringWindow(deadline time.Time) {
+	if deadline.IsZero() {
+		return
+	}
+	c.dataLock.Lock()
+	c.pendingRetiringExpiry = deadline
+	c.pendingOutboundStart = deadline.Add(-c.transitionWindow())
+	c.dataLock.Unlock()
+}
+
+func (c *Client) signalDataChangedLocked() {
+	if c.dataChanged != nil {
+		close(c.dataChanged)
+	}
+	c.dataChanged = make(chan struct{})
+}
+
+// installDataChannel records a freshly derived data epoch. Decryption can
+// immediately use the new key (the peer may label packets with it), but the
+// outbound key is deliberately kept on the previous epoch until there is
+// evidence the peer has activated the new one, mirroring OpenVPN's deferred
+// auth key selection.
+//
+// OpenVPN (ssl.c: tls_select_encryption_key / key_state_soft_reset) only
+// selects a key for outbound encryption once it is KS_AUTH_TRUE. During
+// deferred authentication the new key stays KS_AUTH_DEFERRED — the server
+// sends its key-method-2 record before generating its data key — so the
+// lame-duck key keeps encrypting outbound traffic. Switching outbound to the
+// new key immediately would send packets the server drops ("not authorized
+// (deferred)").
+func (c *Client) installDataChannel(newData *DataChannel) {
+	c.dataLock.Lock()
+	old := c.data
+	c.retiring = old
+	c.data = newData
+	// Outbound keeps the previous epoch whenever one exists (OpenVPN
+	// key_state_soft_reset moves the old primary into the lame-duck slot and
+	// tls_select_encryption_key keeps selecting it until the new key is
+	// authenticated). Only the very first handshake (old == nil) starts on
+	// the new key immediately. An epoch's send counter is irrelevant: a
+	// quiet / receive-only tunnel never sends on the old key, but the old
+	// key is still the correct outbound candidate during deferred auth.
+	if old != nil {
+		c.outboundKey = old
+	} else {
+		c.outboundKey = newData
+	}
+	// The no-evidence promotion deadline belongs to the key state and starts
+	// when its soft reset was accepted, not when slow TLS/KM2 work finishes.
+	c.outboundStart = time.Now()
+	if old != nil && !c.pendingOutboundStart.IsZero() {
+		c.outboundStart = c.pendingOutboundStart
+	}
+	c.pendingOutboundStart = time.Time{}
+	c.deferredUntil = time.Time{}
+	if c.pendingDeferredSet && c.pendingDeferredKeyID == newData.keyID {
+		c.deferredUntil = c.pendingDeferredUntil
+	}
+	c.pendingDeferredUntil = time.Time{}
+	c.pendingDeferredKeyID = 0
+	c.pendingDeferredSet = false
+	if c.dataByKey == nil {
+		c.dataByKey = make(map[uint8]*DataChannel)
+	}
+	if old != nil && old.keyID != newData.keyID {
+		c.dataByKey[old.keyID] = old
+	}
+	c.dataByKey[newData.keyID] = newData
+	// The previous epoch is a lame-duck key: keep it only until the absolute
+	// transition deadline captured when the peer's soft reset was accepted.
+	if old != nil {
+		if !c.pendingRetiringExpiry.IsZero() {
+			c.retiringExpiry = c.pendingRetiringExpiry
+		} else {
+			c.retiringExpiry = time.Now().Add(c.transitionWindow())
+		}
+	} else {
+		c.retiringExpiry = time.Time{}
+	}
+	c.pendingRetiringExpiry = time.Time{}
+	// Keep at most the current and previous epoch.
+	for id := range c.dataByKey {
+		if id != newData.keyID && (old == nil || id != old.keyID) {
+			delete(c.dataByKey, id)
+		}
+	}
+	c.signalDataChangedLocked()
+	c.dataLock.Unlock()
+}
+
+func (c *Client) captureAuthToken(push *PushReply) {
+	if push == nil {
+		return
+	}
+	user, pass, ok := push.AuthToken()
 	if !ok {
 		return
 	}
-	window := c.transitionWindow()
-	c.transitionMu.Lock()
-	if c.transitionTimer != nil {
-		c.transitionTimer.Stop()
+	if user != "" {
+		c.authUser = user
 	}
-	c.transitionTimer = time.AfterFunc(window, func() {
-		data.RetirePreviousKeysForGeneration(generation)
-	})
-	c.transitionMu.Unlock()
-}
-
-func (c *Client) transitionWindow() time.Duration {
-	if c != nil && c.config != nil && c.config.TransitionWindow > 0 {
-		return c.config.TransitionWindow
-	}
-	return DefaultTransitionWindow
-}
-
-func (c *Client) dataKeyActivationDelay() time.Duration {
-	delay := DefaultHandshakeTimeout
-	if c != nil && c.config != nil && c.config.RenegotiateAfter > 0 {
-		if half := c.config.RenegotiateAfter / 2; half < delay {
-			delay = half
-		}
-	}
-	if halfTransition := c.transitionWindow() / 2; halfTransition < delay {
-		delay = halfTransition
-	}
-	return delay
-}
-
-func (c *Client) applyLocalTimingOverrides(push *PushReply) {
-	if c == nil || c.config == nil || push == nil {
-		return
-	}
-	if c.config.RenegotiateAfter > 0 {
-		push.RenegotiateAfter = c.config.RenegotiateAfter
-	}
-}
-
-func (c *Client) stopTransitionTimer() {
-	if c == nil {
-		return
-	}
-	c.transitionMu.Lock()
-	if c.transitionTimer != nil {
-		c.transitionTimer.Stop()
-		c.transitionTimer = nil
-	}
-	c.transitionMu.Unlock()
-}
-
-func (c *Client) RunControlLoop(ctx context.Context) error {
-	if c == nil {
-		return errors.New("nil openvpn client")
-	}
-	if c.tlsConn == nil || c.push == nil {
-		return errors.New("openvpn control channel is not ready")
-	}
-	return runControlLoopWithHooks(ctx, c.tlsConn, c.push, c.config.RemoteAddress(), c.activity, controlLoopHooks{
-		rekey: func(ctx context.Context, reason string) (*PushReply, controlStream, error) {
-			push, err := c.Renegotiate(ctx, reason)
-			if err != nil {
-				return nil, nil, err
-			}
-			return push, c.tlsConn, nil
-		},
-	})
+	c.authPass = pass
 }
 
 func (c *Client) WriteIPPacket(ctx context.Context, packet []byte) error {
-	return c.writeDataPacket(ctx, packet)
+	return c.writeDataPacket(ctx, packet, true)
 }
 
 func (c *Client) WritePing(ctx context.Context) error {
-	return c.writeDataPacket(ctx, openVPNPingPacket)
+	return c.writeDataPacket(ctx, openVPNPingPacket, true)
 }
 
-func (c *Client) writeDataPacket(ctx context.Context, packet []byte) error {
-	if c.data == nil {
-		return errors.New("openvpn data channel is not ready")
-	}
-	writeSem := c.dataWriteSemaphore()
-	if err := writeSem.Acquire(ctx, 1); err != nil {
+func (c *Client) writeDataPacket(ctx context.Context, packet []byte, compress bool) error {
+	if err := c.writeSem.Acquire(ctx, 1); err != nil {
 		return err
 	}
-	defer writeSem.Release(1)
-	encrypted, err := c.data.Encrypt(packet)
-	if err != nil {
-		return err
+	defer c.writeSem.Release(1)
+	if compress && c.config.CompLZO == CompLzoYes {
+		compressed, err := lzo1xCompressSafe(packet)
+		if err != nil {
+			return err
+		}
+		packet = compressed
 	}
-	c.logDataKeyTransition("outbound", encrypted)
-	err = c.mux.WritePacket(ctx, encrypted)
-	if err != nil {
-		return err
+
+	// The no-evidence selection window is independent of AUTH_PENDING. The
+	// server-advertised timeout controls deferred authentication/push handling;
+	// it cannot keep a retiring data key selected past auth_deferred_expire.
+	selectionExpired := func() bool {
+		return time.Now().After(c.outboundStart.Add(authDeferredExpire))
 	}
-	c.markSend()
+	retiringExpired := func() bool {
+		return c.retiring != nil && c.outboundKey == c.retiring &&
+			!c.retiringExpiry.IsZero() && time.Now().After(c.retiringExpiry)
+	}
+
+	for {
+		// Select under the state lock, upgrading only when promotion is due.
+		c.dataLock.RLock()
+		data := c.data
+		if data == nil {
+			c.dataLock.RUnlock()
+			return errors.New("openvpn data channel is not ready")
+		}
+		if !c.pendingRetiringExpiry.IsZero() && time.Now().After(c.pendingRetiringExpiry) {
+			changed := c.dataChanged
+			c.dataLock.RUnlock()
+			// Fail closed without tearing down the tunnel: pause ordinary data
+			// writes until installDataChannel publishes the new usable epoch.
+			select {
+			case <-changed:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-c.runCtx.Done():
+				return net.ErrClosed
+			}
+		}
+		outbound := c.outboundKey
+		if outbound == nil {
+			outbound = data
+		}
+		needPromote := outbound != data &&
+			(data.PeerActive() || selectionExpired() || retiringExpired())
+		c.dataLock.RUnlock()
+		if needPromote {
+			c.dataLock.Lock()
+			if c.outboundKey != c.data && c.outboundKey != nil &&
+				(c.data.PeerActive() || selectionExpired() || retiringExpired()) {
+				c.outboundKey = c.data
+				c.outboundStart = time.Now()
+			}
+			c.dataLock.Unlock()
+			continue
+		}
+
+		// A second rekey may have completed after selection. Revalidate the
+		// pointer, then keep the read lock through encryption so
+		// installDataChannel cannot retire this epoch while crypto is in flight.
+		c.dataLock.RLock()
+		if !c.pendingRetiringExpiry.IsZero() && time.Now().After(c.pendingRetiringExpiry) {
+			changed := c.dataChanged
+			c.dataLock.RUnlock()
+			select {
+			case <-changed:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-c.runCtx.Done():
+				return net.ErrClosed
+			}
+		}
+		valid := c.dataByKey[outbound.keyID] == outbound &&
+			(outbound == c.data || outbound == c.retiring || outbound == c.outboundKey)
+		if !valid {
+			c.dataLock.RUnlock()
+			continue
+		}
+		if outbound != c.data &&
+			(c.data.PeerActive() || selectionExpired() || retiringExpired()) {
+			c.dataLock.RUnlock()
+			continue
+		}
+		encrypted, err := outbound.Encrypt(packet)
+		c.dataLock.RUnlock()
+		if err != nil {
+			return err
+		}
+		// Once encryption completed under the epoch lock, the packet is an
+		// in-flight datagram. Release state before transport I/O: network delay
+		// can naturally carry a valid packet across a later rekey, and a blocked
+		// socket must not prevent installDataChannel from committing that rekey.
+		if err := c.mux.WriteDataPacket(ctx, encrypted); err != nil {
+			if errors.Is(err, errPacketDropped) {
+				return nil
+			}
+			return err
+		}
+		c.markSend()
+		return nil
+	}
+}
+
+func (c *Client) LastRekeyError() error {
+	if err := c.lastRekeyErr.Load(); err != nil {
+		return *err
+	}
 	return nil
 }
 
-func (c *Client) dataWriteSemaphore() *semaphore.Weighted {
-	if c.writeSem != nil {
-		return c.writeSem
-	}
-	c.writeSemMu.Lock()
-	defer c.writeSemMu.Unlock()
-	if c.writeSem == nil {
-		c.writeSem = semaphore.NewWeighted(1)
-	}
-	return c.writeSem
-}
-
 func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
-	if c.data == nil {
-		return nil, errors.New("openvpn data channel is not ready")
-	}
-	consecutiveDecryptErrors := 0
 	for {
 		packet, err := c.mux.ReadDataPacket(ctx)
 		if err != nil {
+			// Only surface the rekey failure when the transport is actually
+			// being torn down; do not pollute unrelated read errors.
+			if errors.Is(err, net.ErrClosed) {
+				if rekeyErr := c.LastRekeyError(); rekeyErr != nil {
+					return nil, fmt.Errorf("%w: %v", err, rekeyErr)
+				}
+			}
 			return nil, err
 		}
-		plain, err := c.data.Decrypt(packet)
+		c.lastDataPacketNano.Store(int64(time.Since(start)))
+		c.inboundDataPackets.Add(1)
+		plain, err := c.decryptDataPacket(packet)
 		if err != nil {
-			c.activity.MarkDataDecryptError()
-			consecutiveDecryptErrors++
-			if consecutiveDecryptErrors >= maxConsecutiveDataDecryptErrors {
-				return nil, fmt.Errorf("%w: data channel rejected %d consecutive packets: %v", ErrControlRestart, consecutiveDecryptErrors, err)
-			}
+			c.dataDecryptErrors.Add(1)
 			continue
 		}
-		consecutiveDecryptErrors = 0
-		c.logDataKeyTransition("inbound", packet)
 		c.markReceive()
-		c.activity.MarkData()
+		// Compression framing applies to keepalives as well as IP packets.
+		if c.config.CompLZO == CompLzoYes && len(plain) > 0 {
+			plain, err = lzo1xDecompressSafe(plain)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if IsPingPacket(plain) {
 			continue
 		}
@@ -582,21 +842,290 @@ func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
 	}
 }
 
-func (c *Client) logDataKeyTransition(direction string, packet []byte) {
+func (c *Client) decryptDataPacket(packet []byte) ([]byte, error) {
 	if len(packet) == 0 {
-		return
+		return nil, errors.New("empty openvpn data packet")
 	}
 	_, keyID := parseOpcodeKeyID(packet[0])
-	last := &c.lastSendKeyID
-	if direction == "inbound" {
-		last = &c.lastRecvKeyID
+	c.dataLock.RLock()
+	if !c.pendingRetiringExpiry.IsZero() && time.Now().After(c.pendingRetiringExpiry) {
+		c.dataLock.RUnlock()
+		return nil, errors.New("openvpn data packet after retiring deadline while rekey is in progress")
 	}
-	if previous := last.Swap(int32(keyID)); previous != int32(keyID) {
-		remote := "unknown"
-		if c.config != nil {
-			remote = c.config.RemoteAddress()
+	// The retiring (lame-duck) epoch is rejected once the transition window
+	// has elapsed, even though it still has a dataByKey entry (the map hit
+	// must not bypass the expiration check).
+	if c.retiring != nil && c.retiring.keyID == keyID &&
+		!c.retiringExpiry.IsZero() && time.Now().After(c.retiringExpiry) {
+		c.dataLock.RUnlock()
+		return nil, errors.New("openvpn data packet from expired retiring epoch")
+	}
+	// Route strictly by key ID. A packet labeled with an unknown epoch must
+	// be rejected, not silently decrypted with the current key (the CBC HMAC
+	// excludes the outer opcode/key-ID header, so a wrong key would still
+	// "authenticate"). Keep the read lock through authentication/decryption
+	// so a concurrent rekey cannot remove the selected epoch mid-packet.
+	data := c.dataByKey[keyID]
+	if data == nil {
+		c.dataLock.RUnlock()
+		return nil, errors.New("openvpn data packet with unknown key id")
+	}
+	isNewest := data == c.data
+	plain, err := data.Decrypt(packet)
+	c.dataLock.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	if isNewest {
+		// The peer labeled an outbound packet with the current key ID, so it
+		// has activated this epoch (OpenVPN only labels outbound with a key
+		// whose auth completed). Mark the epoch itself: even if a rekey
+		// swapped c.data between the RLock and here, the evidence stays on
+		// this epoch and cannot be attributed to a newer key.
+		data.MarkPeerActive()
+	}
+	return plain, nil
+}
+
+// watchControl monitors the control channel for TLS renegotiation requests
+// (soft resets / rekeys). When the server initiates a rekey, the client
+// performs a full TLS renegotiation followed by a new key method 2 exchange,
+// then atomically swaps in a fresh DataChannel. If renegotiation fails or
+// the control channel stops, the client is terminated.
+func (c *Client) watchControl() {
+	for {
+		packet, err := c.control.waitForSoftReset(c.runCtx)
+		if err != nil {
+			if c.runCtx.Err() != nil {
+				return
+			}
+			if errors.Is(err, errParkedTLS) {
+				// A same-epoch TLS payload (token update / late AUTH_FAILED)
+				// was parked. Consume it now so a deferred authentication
+				// failure is surfaced immediately instead of waiting for the
+				// next soft reset (which may never come). This is a standalone
+				// control operation, so clear every deadline it installs before
+				// returning to the established-channel wait loop.
+				if consumeErr := c.consumeParkedRekeyPush(); consumeErr != nil {
+					if c.runCtx.Err() == nil {
+						c.failControl(fmt.Errorf("consume parked rekey push: %w", consumeErr))
+					}
+					return
+				}
+				continue
+			}
+			c.failControl(fmt.Errorf("wait for soft reset: %w", err))
+			return
 		}
-		log.Debugln("[OpenVPN] %s data key changed for %s: %d -> %d", direction, remote, previous, keyID)
+		// OpenVPN starts the retiring (lame-duck) key lifetime when it accepts
+		// the soft reset. Capture that absolute deadline before probing the old
+		// TLS epoch; the optional token probe may consume tokenPushReadTimeout.
+		retiringExpiry := c.retiringWindowDeadline(packet)
+		c.stageRetiringWindow(retiringExpiry)
+		// Token-only PUSH_REPLY parked since the last rekey must land in
+		// authPass before this key-method-2 exchange, otherwise the server
+		// rejects the expired token. A parked AUTH_FAILED (deferred auth) is
+		// a hard failure: surface it before starting the next epoch instead
+		// of replacing it with the next renegotiation result.
+		c.consumeQueuedControl()
+		if c.push != nil {
+			if err := c.consumeRekeyPush(); err != nil {
+				if c.runCtx.Err() == nil {
+					c.failControl(fmt.Errorf("consume queued rekey push: %w", err))
+				}
+				return
+			}
+		}
+		if err := c.renegotiate(packet, retiringExpiry); err != nil {
+			if c.runCtx.Err() == nil {
+				// A soft reset has already advanced the reliable control epoch and
+				// started a new TLS byte stream, so rolling back is not safe. Keep
+				// carrying data on the retiring key while advertised auth/push
+				// deadlines remain valid; after those deadlines, fail closed rather
+				// than leave a half-transitioned control channel alive indefinitely.
+				c.failControl(fmt.Errorf("renegotiate: %w", err))
+			}
+			return
+		}
+	}
+}
+
+func (c *Client) failControl(err error) {
+	c.lastRekeyErr.CompareAndSwap(nil, &err)
+	c.cancel()
+	_ = c.mux.Close()
+}
+
+// renegotiate performs a single TLS epoch restart:
+// 1. Send our own soft reset to acknowledge the server's rekey request
+// 2. Start a fresh TLS session over the existing reliable ControlConn
+// 3. Exchange fresh key method 2 records and derive new data channel keys
+// 4. Atomically replace c.data with the new DataChannel
+func (c *Client) renegotiate(serverReset *ControlPacket, retiringExpiry time.Time) error {
+	renegCtx, cancelReneg := context.WithCancelCause(c.runCtx)
+	defer cancelReneg(nil)
+	var interrupt func()
+	defer func() {
+		if interrupt != nil {
+			interrupt()
+		}
+	}()
+	defer func() { _ = c.controlConn.SetDeadline(time.Time{}) }()
+	_ = c.controlConn.SetDeadline(time.Now().Add(c.rekeyTimeout()))
+
+	// The watcher captures this absolute deadline as soon as it accepts the
+	// peer's soft reset, before probing the previous TLS stream. Stage that
+	// exact value for installDataChannel; never restart the transition window
+	// after token probing, TLS, or KM2 processing.
+	if !retiringExpiry.IsZero() {
+		c.dataLock.Lock()
+		c.pendingRetiringExpiry = retiringExpiry
+		c.pendingOutboundStart = retiringExpiry.Add(-c.transitionWindow())
+		c.dataLock.Unlock()
+	}
+
+	keyID := NextKeyID(c.control.KeyID())
+	if serverReset != nil {
+		keyID = serverReset.KeyID & KeyIDMask
+	}
+	// Adopt first so QueueAck lands on the new epoch; AdoptKeyID clears acks.
+	c.control.AdoptKeyID(keyID)
+	if serverReset != nil {
+		// The watcher already consumed the server soft reset (new-epoch
+		// message 0). Advance recvMessage or ControlConn.Read will park
+		// ServerHello in recvPending forever.
+		c.control.MarkReceived(serverReset.MessageID)
+		c.control.QueueAck(serverReset.MessageID)
+	}
+
+	if err := c.control.SendSoftReset(renegCtx); err != nil {
+		return fmt.Errorf("send soft reset: %w", err)
+	}
+
+	// On UDP, the client soft reset, TLS ClientHello and the TLS control
+	// records are reliable control messages. Retransmit them while the
+	// rekey is in flight; losing any single datagram would otherwise stall
+	// the rekey until the current protocol deadline.
+	var retransmitStop func()
+	defer func() {
+		if retransmitStop != nil {
+			retransmitStop()
+		}
+	}()
+	if c.config.Proto == ProtoUDP {
+		retransmitStop = c.retransmitControl(renegCtx, cancelReneg)
+	}
+
+	var err error
+	interrupt, err = c.startTLSEpoch(renegCtx)
+	if err != nil {
+		return operationContextError(renegCtx, fmt.Errorf("tls epoch handshake: %w", err))
+	}
+
+	if _, err := c.doKeyExchange(renegCtx); err != nil {
+		return operationContextError(renegCtx, fmt.Errorf("rekey exchange: %w", err))
+	}
+	if retransmitStop != nil {
+		retransmitStop()
+		retransmitStop = nil
+	}
+	interrupt()
+	interrupt = nil
+	return c.controlOperationError(renegCtx)
+}
+
+func (c *Client) controlOperationError(ctx context.Context) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	if err := c.mux.currentError(); err != nil {
+		return fmt.Errorf("openvpn transport terminated: %w", err)
+	}
+	return nil
+}
+
+// retransmitControl retransmits unacked control messages every
+// ControlRetransmitDelay while ctx is live. It is the UDP reliability path
+// for initial and renegotiated TLS epochs.
+func (c *Client) retransmitControl(ctx context.Context, fail ...context.CancelCauseFunc) (stop func()) {
+	loopCtx, cancel := context.WithCancelCause(ctx)
+	var stopOnce sync.Once
+	go func() {
+		defer cancel(nil)
+		ticker := time.NewTicker(ControlRetransmitDelay)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := c.control.RetransmitPending(loopCtx); err != nil {
+					if loopCtx.Err() != nil {
+						if errors.Is(context.Cause(loopCtx), errControlRetransmitStopped) {
+							if transportErr := c.mux.currentError(); transportErr != nil &&
+								len(fail) > 0 && fail[0] != nil {
+								fail[0](fmt.Errorf("retransmit openvpn control packet: %w", transportErr))
+							}
+						}
+						return
+					}
+					if len(fail) > 0 && fail[0] != nil {
+						fail[0](fmt.Errorf("retransmit openvpn control packet: %w", err))
+					}
+					return
+				}
+			case <-loopCtx.Done():
+				return
+			}
+		}
+	}()
+	return func() {
+		stopOnce.Do(func() {
+			cancel(errControlRetransmitStopped)
+		})
+	}
+}
+
+func (c *Client) rekeyTimeout() time.Duration {
+	if c.rekeyHandshakeTimeout > 0 {
+		return c.rekeyHandshakeTimeout
+	}
+	return renegotiateTimeout
+}
+
+func (c *Client) rekeyWaitDeadline(now time.Time) time.Time {
+	deadline := now.Add(c.rekeyTimeout())
+	c.dataLock.RLock()
+	retiringExpiry := c.pendingRetiringExpiry
+	c.dataLock.RUnlock()
+	if retiringExpiry.After(deadline) {
+		deadline = retiringExpiry
+	}
+	return deadline
+}
+
+func operationContextError(ctx context.Context, fallback error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		if errors.Is(fallback, cause) {
+			return fallback
+		}
+		return fmt.Errorf("%v: %w", fallback, cause)
+	}
+	return fallback
+}
+
+// interruptControlConnOnDone makes cancellation observable to the TLS reads
+// and writes of one epoch. stop waits for a callback that already started, so
+// it is also the success boundary after which cancellation cannot close a
+// later epoch through the reused ControlConn.
+func interruptControlConnOnDone(ctx context.Context, conn io.Closer) func() {
+	done := make(chan struct{})
+	stop := contextutils.AfterFunc(ctx, func() {
+		defer close(done)
+		_ = conn.Close()
+	})
+	return func() {
+		if !stop() {
+			<-done
+		}
 	}
 }
 
@@ -622,12 +1151,8 @@ func (c *Client) markReceive() {
 var start = time.Now().Add(-time.Hour)
 
 func (c *Client) Close() error {
-	c.stopTransitionTimer()
 	if c.cancel != nil {
 		c.cancel()
-	}
-	if c.tlsConn != nil {
-		_ = c.tlsConn.Close()
 	}
 	if c.mux != nil {
 		return c.mux.Close()
@@ -657,333 +1182,622 @@ func (c *Client) waitServerReset(ctx context.Context) error {
 		}
 		switch packet.Opcode {
 		case PControlHardResetServerV2:
-			return c.control.SendAck(ctx)
+			return nil
 		case PControlHardResetServerV1:
 			return fmt.Errorf("openvpn server replied with unsupported key method 1 reset")
 		}
 	}
 }
 
+const maxTLSControlBuffer = 1 << 20
+
+func appendTLSControl(buf, data []byte) ([]byte, error) {
+	if len(data) > maxTLSControlBuffer-len(buf) {
+		return nil, fmt.Errorf("openvpn TLS control buffer exceeds %d bytes", maxTLSControlBuffer)
+	}
+	return append(buf, data...), nil
+}
+
 func (c *Client) readServerKeyMethod(ctx context.Context) (*KeyMethod2Record, error) {
-	var buf []byte
+	return c.readServerKeyMethodFrom(ctx, c.tlsConn.Load())
+}
+
+func (c *Client) readServerKeyMethodFrom(ctx context.Context, conn pushReadConn) (*KeyMethod2Record, error) {
+	buf := append([]byte(nil), c.leftoverTLS...)
+	c.leftoverTLS = nil
+	if len(buf) > maxTLSControlBuffer {
+		return nil, fmt.Errorf("openvpn TLS control buffer exceeds %d bytes", maxTLSControlBuffer)
+	}
 	tmp := make([]byte, 4096)
+	var readErr error
+	framingError := func(err error) error {
+		_, end, optionsErr := readOpenVPNString(buf, 5+keySourceRandomSize*2)
+		trailing := 0
+		if optionsErr == nil {
+			trailing = len(buf) - end
+		}
+		return fmt.Errorf("read key method 2 server record (bytes=%d options-complete=%t trailing-bytes=%d): %w", len(buf), optionsErr == nil, trailing, err)
+	}
 	for {
-		if deadline, ok := ctx.Deadline(); ok {
-			_ = c.tlsConn.SetReadDeadline(deadline)
-		}
-		n, err := c.tlsConn.Read(tmp)
-		if err != nil {
-			return nil, fmt.Errorf("read key method 2 server record: %w", err)
-		}
-		buf = append(buf, tmp[:n]...)
-		record, err := ParseServerKeyMethod2Record(buf)
-		if err == nil {
+		// Only treat the record as complete when all four strings are
+		// present. A standard record fragmented across TLS reads must not
+		// be accepted early (its tail would be mistaken for PUSH_REPLY).
+		if complete, _ := RecordComplete(buf); complete {
+			record, consumed, err := ParseServerKeyMethod2RecordConsumed(buf)
+			if err != nil {
+				return nil, err
+			}
+			c.leftoverTLS = append([]byte(nil), buf[consumed:]...)
 			return record, nil
 		}
-		if !strings.Contains(err.Error(), "truncated") && !errors.Is(err, ioStringEOF) {
-			return nil, err
+		// A shortened 2.6 record may end after options when the following
+		// PUSH_REPLY/AUTH_FAILED is already visible. Only truncation means read
+		// more; invalid prefix/method and other definitive errors fail now.
+		record, consumed, parseErr := ParseServerKeyMethod2RecordConsumed(buf)
+		if parseErr == nil {
+			c.leftoverTLS = append([]byte(nil), buf[consumed:]...)
+			return record, nil
 		}
+		if !errors.Is(parseErr, errKeyMethodPacketTooShort) && !errors.Is(parseErr, ioStringEOF) {
+			return nil, parseErr
+		}
+		if readErr != nil {
+			return nil, framingError(readErr)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, framingError(err)
+		}
+		n, err := conn.Read(tmp)
+		if n > 0 {
+			buf, readErr = appendTLSControl(buf, tmp[:n])
+			if readErr != nil {
+				return nil, readErr
+			}
+		}
+		readErr = err
 	}
 }
 
 func (c *Client) readPushReply(ctx context.Context) (*PushReply, error) {
-	var buf []byte
-	var pushOptions []string
-	tmp := make([]byte, 4096)
-	retransmits := 0
-	for {
-		if deadline, ok := ctx.Deadline(); ok {
-			readDeadline := time.Now().Add(ControlRetransmitDelay)
-			if deadline.Before(readDeadline) {
-				readDeadline = deadline
-			}
-			_ = c.tlsConn.SetReadDeadline(readDeadline)
-		}
-		n, err := c.tlsConn.Read(tmp)
-		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() && ctx.Err() == nil {
-				if _, writeErr := c.tlsConn.Write([]byte(PushRequest + "\x00")); writeErr != nil {
-					return nil, fmt.Errorf("retransmit push request after %d retransmits: %w", retransmits, writeErr)
-				}
-				retransmits++
-				continue
-			}
-			if errors.Is(err, io.EOF) && len(buf) > 0 {
-				break
-			}
-			return nil, fmt.Errorf("read push reply after %d retransmits: %w", retransmits, err)
-		}
-		buf = append(buf, tmp[:n]...)
-		if bytes.Contains(buf, []byte("\x00")) || strings.Contains(string(buf), "PUSH_REPLY") {
-			msg := string(buf)
-			if idx := strings.IndexByte(msg, 0); idx >= 0 {
-				msg = msg[:idx]
-			}
-			if strings.HasPrefix(msg, "PUSH_REPLY") {
-				options, continuation := splitPushReplyOptions(msg)
-				pushOptions = append(pushOptions, options...)
-				buf = nil
-				if continuation == 2 {
-					continue
-				}
-				return ParsePushReply(joinPushReplyOptions(pushOptions))
-			}
-			if strings.HasPrefix(msg, "AUTH_FAILED") {
-				return nil, fmt.Errorf("openvpn authentication failed: %s", msg)
-			}
-			if strings.HasPrefix(msg, "AUTH_PENDING") {
-				log.Debugln("[OpenVPN] auth pending from %s: %s", c.config.RemoteAddress(), msg)
-				buf = nil
-				continue
-			}
-			if strings.TrimSpace(msg) != "" {
-				return nil, fmt.Errorf("unexpected openvpn control message while waiting for push reply: %s", msg)
-			}
-		}
-	}
-	return nil, ctx.Err()
+	return c.readPushReplyFrom(ctx, c.tlsConn.Load())
 }
 
-func runControlLoop(ctx context.Context, stream controlStream, push *PushReply, remote string, activity *remoteActivity) error {
-	return runControlLoopWithHooks(ctx, stream, push, remote, activity, controlLoopHooks{})
-}
-
-func runControlLoopWithHooks(ctx context.Context, stream controlStream, push *PushReply, remote string, activity *remoteActivity, hooks controlLoopHooks) error {
-	if push == nil {
-		return errors.New("nil openvpn push reply")
+func (c *Client) readPushReplyFrom(ctx context.Context, conn pushExchangeConn) (*PushReply, error) {
+	buf := append([]byte(nil), c.leftoverTLS...)
+	c.leftoverTLS = nil
+	if len(buf) > maxTLSControlBuffer {
+		return nil, fmt.Errorf("openvpn TLS control buffer exceeds %d bytes", maxTLSControlBuffer)
 	}
-	pingInterval := push.PingInterval
-	if pingInterval <= 0 && push.PingRestart > 0 {
-		pingInterval = push.PingRestart / 2
-	}
-	pingRestart := push.PingRestart
-	renegotiateAt := time.Time{}
-	if push.RenegotiateAfter > 0 {
-		renegotiateAt = time.Now().Add(push.RenegotiateAfter)
-	}
-
-	buf := make([]byte, 0, 4096)
 	tmp := make([]byte, 4096)
-	lastReceived := activity.Last()
-	lastPingSent := time.Now()
-
+	var readErr error
+	var continuationDeadline time.Time
+	var protocolDeadline time.Time
+	nextRequest := time.Now().Add(ControlRetransmitDelay)
+	defer func() { _ = conn.SetReadDeadline(protocolDeadline) }()
 	for {
+		if err := controlMessageError(buf); err != nil {
+			return nil, err
+		}
+		reply, rest, ok := takePushReply(buf)
+		if ok {
+			c.leftoverTLS = rest
+			if c.pushPending != nil {
+				reply = mergePushReply(c.pushPending, reply)
+				c.pushPending = nil
+			}
+			c.applyAuthPendingTimeout(reply)
+			return reply, nil
+		}
+		if reply != nil {
+			// Intermediate continuation segment(s) or AUTH_PENDING seen but
+			// the final PUSH_REPLY segment has not arrived: accumulate and
+			// keep reading. During rekey this deadline reaches the retiring
+			// key's transition expiry instead of the initial 30-second bound.
+			buf = append([]byte(nil), rest...)
+			c.pushPending = mergePushReply(c.pushPending, reply)
+			c.applyAuthPendingTimeout(reply)
+			if reply.PushContinuation == 2 && continuationDeadline.IsZero() {
+				continuationDeadline = c.rekeyWaitDeadline(time.Now())
+			}
+		}
+		deadline := c.authPendingDeadline()
+		if !continuationDeadline.IsZero() && (deadline.IsZero() || continuationDeadline.Before(deadline)) {
+			deadline = continuationDeadline
+		}
+		if !deadline.IsZero() {
+			_ = conn.SetDeadline(deadline)
+		}
+		protocolDeadline = deadline
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
+		}
+		if readErr != nil {
+			var timeout net.Error
+			now := time.Now()
+			if !continuationDeadline.IsZero() || !errors.As(readErr, &timeout) || !timeout.Timeout() ||
+				now.Before(nextRequest) || (!deadline.IsZero() && !now.Before(deadline)) {
+				return nil, fmt.Errorf("read push reply: %w", readErr)
+			}
+			// An ACK only confirms delivery, not completed server authentication.
+			// Repeat the application request until the first PUSH_REPLY segment.
+			if _, err := conn.Write([]byte(PushRequest + "\x00")); err != nil {
+				return nil, fmt.Errorf("retry push request: %w", err)
+			}
+			nextRequest = time.Now().Add(ControlRetransmitDelay)
+		}
+		if continuationDeadline.IsZero() && (deadline.IsZero() || nextRequest.Before(deadline)) {
+			_ = conn.SetReadDeadline(nextRequest)
+		}
+		n, err := conn.Read(tmp)
+		if n > 0 {
+			buf, readErr = appendTLSControl(buf, tmp[:n])
+			if readErr != nil {
+				return nil, readErr
+			}
+		}
+		readErr = err
+	}
+}
+
+// tokenPushReadTimeout bounds how long a rekey waits for a token-only
+// PUSH_REPLY after the server key-method-2 record. OpenVPN pushes the fresh
+// auth-token in the same TLS session right after the record, but never
+// blocks on it; a timeout keeps rekeys from stalling.
+const tokenPushReadTimeout = 300 * time.Millisecond
+
+// errAuthFailed is returned when a rekey's token exchange reports
+// AUTH_FAILED instead of a renewed token.
+var errAuthFailed = errors.New("openvpn authentication failed")
+
+// pushReadConn is the subset of tls.Conn that readTokenPushReply needs, so
+// tests can inject a deterministic byte-stream reader without a full TLS
+// handshake.
+type pushReadConn interface {
+	Read(p []byte) (int, error)
+	SetDeadline(t time.Time) error
+	SetReadDeadline(t time.Time) error
+}
+
+type pushExchangeConn interface {
+	pushReadConn
+	Write(p []byte) (int, error)
+}
+
+// readTokenPushReply tries to consume a token-only PUSH_REPLY (an
+// auth-token renewal pushed by send_push_reply_auth_token) from the TLS
+// stream, without stalling a rekey. leftover holds bytes already read past
+// the server key-method-2 record.
+//
+// TLS is a byte stream: the reply may be split across reads, so the buffer
+// is parsed after every read including the final one. On timeout the
+// buffered bytes are preserved and a nil reply (no error) is returned, so a
+// partially-received reply is not lost. AUTH_FAILED is a hard error.
+func readTokenPushReply(conn pushReadConn, leftover []byte, extended ...time.Time) (*PushReply, []byte, error) {
+	buf := append([]byte(nil), leftover...)
+	if len(buf) > maxTLSControlBuffer {
+		return nil, nil, fmt.Errorf("openvpn TLS control buffer exceeds %d bytes", maxTLSControlBuffer)
+	}
+	tmp := make([]byte, 4096)
+	var acc *PushReply
+	var waitUntil time.Time
+	var continuationUntil time.Time
+	if len(extended) > 0 {
+		continuationUntil = extended[0]
+		waitUntil = continuationUntil
+	}
+	establishedAt := time.Time{}
+	if len(extended) > 1 {
+		establishedAt = extended[1]
+	}
+	continuationLimit := time.Time{}
+	if len(extended) > 2 {
+		continuationLimit = extended[2]
+	}
+	var authPendingUntil time.Time
+	promoteWaitPolicy := func(reply *PushReply) {
+		if reply == nil {
+			return
 		}
 		now := time.Now()
-		lastReceived = activity.Last()
-		if !renegotiateAt.IsZero() && !now.Before(renegotiateAt) {
-			nextPush, nextStream, err := runControlLoopRekey(ctx, hooks, "reneg-sec elapsed")
-			if err != nil {
-				return err
+		if pushHasAuthPending(reply) {
+			anchorAuthPendingDeadline(reply, establishedAt)
+			deadline := reply.authPendingUntil
+			authPendingUntil = deadline
+			if !continuationUntil.IsZero() {
+				waitUntil = continuationUntil
+				if authPendingUntil.Before(waitUntil) {
+					waitUntil = authPendingUntil
+				}
 			}
-			if nextStream != nil {
-				stream = nextStream
-			}
-			push = nextPush
-			pingInterval = push.PingInterval
-			if pingInterval <= 0 && push.PingRestart > 0 {
-				pingInterval = push.PingRestart / 2
-			}
-			pingRestart = push.PingRestart
-			renegotiateAt = time.Time{}
-			if push.RenegotiateAfter > 0 {
-				renegotiateAt = time.Now().Add(push.RenegotiateAfter)
-			}
-			lastReceived = activity.Last()
-			lastPingSent = time.Now()
-			continue
+			_ = conn.SetDeadline(deadline)
 		}
-		if pingRestart > 0 && !lastReceived.Add(pingRestart).After(now) {
-			return fmt.Errorf("%w: ping-restart elapsed without remote activity from %s (%s)", ErrControlRestart, remote, formatRemoteActivitySnapshot(now, pingRestart, activity.Snapshot()))
-		}
-		if pingInterval > 0 && !lastPingSent.Add(pingInterval).After(now) {
-			if err := writeControlMessage(ctx, stream, "PING"); err != nil {
-				return fmt.Errorf("write openvpn ping: %w", err)
+		if reply.PushContinuation == 2 && continuationUntil.IsZero() {
+			continuationUntil = continuationLimit
+			if continuationUntil.IsZero() {
+				continuationUntil = now.Add(renegotiateTimeout)
 			}
-			lastPingSent = time.Now()
+			waitUntil = continuationUntil
+			if !authPendingUntil.IsZero() && authPendingUntil.Before(waitUntil) {
+				waitUntil = authPendingUntil
+			}
+			_ = conn.SetDeadline(waitUntil)
 		}
-
-		deadline := nextControlDeadline(time.Now(), lastReceived, lastPingSent, pingInterval, pingRestart, renegotiateAt)
-		if err := stream.SetReadDeadline(deadline); err != nil {
-			return err
+	}
+	// Parse the already-buffered bytes first; a reply may be fully present.
+	// Intermediate push-continuation segments are accumulated in acc until
+	// the final segment arrives.
+	if err := controlMessageError(buf); err != nil {
+		return nil, buf, err
+	}
+	if reply, rest, ok := takePushReply(buf); ok {
+		return mergePushReply(acc, reply), rest, nil
+	} else if reply != nil {
+		acc = mergePushReply(acc, reply)
+		promoteWaitPolicy(reply)
+		buf = append([]byte(nil), rest...)
+	}
+	if err := controlMessageError(buf); err != nil {
+		return nil, buf, err
+	}
+	// Restore only the temporary read deadline on every return path. A
+	// successful parse must not leave a short probe deadline for the next
+	// waitForSoftReset read. SetDeadline above deliberately leaves the
+	// AUTH_PENDING/continuation write side extended so late reliable ACKs can
+	// still be emitted; the owner clears both sides when the operation ends.
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	for attempt := 0; ; attempt++ {
+		readDeadline := time.Now().Add(tokenPushReadTimeout)
+		if !waitUntil.IsZero() && waitUntil.Before(readDeadline) {
+			readDeadline = waitUntil
 		}
-		n, err := stream.Read(tmp)
+		_ = conn.SetReadDeadline(readDeadline)
+		n, err := conn.Read(tmp)
+		// Process bytes before handling err: the io.Reader contract permits
+		// n > 0 with err != nil. The bytes are valid before the terminal error.
+		if n > 0 {
+			var appendErr error
+			buf, appendErr = appendTLSControl(buf, tmp[:n])
+			if appendErr != nil {
+				return nil, buf, appendErr
+			}
+		}
+		if controlErr := controlMessageError(buf); controlErr != nil {
+			return nil, buf, controlErr
+		}
+		reply, rest, ok := takePushReply(buf)
+		if reply != nil {
+			acc = mergePushReply(acc, reply)
+			promoteWaitPolicy(reply)
+			buf = append([]byte(nil), rest...)
+		}
+		if ok {
+			return acc, rest, nil
+		}
 		if err != nil {
-			if errors.Is(err, ErrControlSoftReset) {
-				nextPush, nextStream, err := runControlLoopRekey(ctx, hooks, "received P_CONTROL_SOFT_RESET_V1")
-				if err != nil {
-					return err
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				if !continuationUntil.IsZero() && time.Now().Before(waitUntil) {
+					continue
 				}
-				if nextStream != nil {
-					stream = nextStream
-				}
-				push = nextPush
-				pingInterval = push.PingInterval
-				if pingInterval <= 0 && push.PingRestart > 0 {
-					pingInterval = push.PingRestart / 2
-				}
-				pingRestart = push.PingRestart
-				renegotiateAt = time.Time{}
-				if push.RenegotiateAfter > 0 {
-					renegotiateAt = time.Now().Add(push.RenegotiateAfter)
-				}
-				lastReceived = activity.Last()
-				lastPingSent = time.Now()
-				buf = nil
-				continue
+				return acc, buf, nil
 			}
-			if errors.Is(err, ErrControlRestart) {
-				return err
-			}
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
-			}
-			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
-				return fmt.Errorf("%w: control channel closed", ErrControlRestart)
-			}
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			return fmt.Errorf("read openvpn control message: %w", err)
+			return nil, buf, err
 		}
-		if n == 0 {
+		// Normal token refresh, including standalone AUTH_PENDING metadata, is
+		// a short probe. Only an unfinished continuation waits until waitUntil.
+		if continuationUntil.IsZero() && attempt+1 >= 2 {
+			return acc, buf, nil
+		}
+		if !continuationUntil.IsZero() && !time.Now().Before(waitUntil) {
+			return acc, buf, nil
+		}
+	}
+}
+
+// authFailedMsg reports whether the TLS plaintext buffer contains a complete
+// AUTH_FAILED control message (not a partial prefix).
+func authFailedMsg(buf []byte) bool {
+	msgs, _ := splitControlMessages(buf)
+	for _, m := range msgs {
+		if bytes.HasPrefix(m, []byte("AUTH_FAILED")) {
+			return true
+		}
+	}
+	return false
+}
+
+func authFailedError(buf []byte) error {
+	msgs, _ := splitControlMessages(buf)
+	for _, m := range msgs {
+		if bytes.HasPrefix(m, []byte("AUTH_FAILED")) {
+			return fmt.Errorf("%w: %s", errAuthFailed, strings.TrimSpace(string(m)))
+		}
+	}
+	return errAuthFailed
+}
+
+var errControlTerminated = errors.New("openvpn server terminated the control session")
+
+func controlMessageError(buf []byte) error {
+	if authFailedMsg(buf) {
+		return authFailedError(buf)
+	}
+	msgs, _ := splitControlMessages(buf)
+	for _, m := range msgs {
+		for _, prefix := range []string{"RESTART", "HALT", "EXIT"} {
+			if bytes.HasPrefix(m, []byte(prefix)) {
+				return fmt.Errorf("%w: %s", errControlTerminated, strings.TrimSpace(string(m)))
+			}
+		}
+		if bytes.HasPrefix(m, []byte("PUSH_REPLY")) {
+			if _, err := parsePushReplyInner(string(m)); err != nil {
+				return fmt.Errorf("invalid openvpn push reply: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func pushHasAuthPending(reply *PushReply) bool {
+	return reply != nil && (reply.hasAuthPending || reply.AuthPendingTimeout != 0)
+}
+
+func anchorAuthPendingDeadline(reply *PushReply, establishedAt time.Time) {
+	if !pushHasAuthPending(reply) || !reply.authPendingUntil.IsZero() {
+		return
+	}
+	if establishedAt.IsZero() {
+		establishedAt = time.Now()
+	}
+	reply.authPendingUntil = establishedAt.Add(reply.AuthPendingTimeout)
+}
+
+func takePushReply(buf []byte) (*PushReply, []byte, bool) {
+	// A single caller handles the happy path (PUSH_REPLY), the failure path
+	// (AUTH_FAILED) and the deferred-auth signal (AUTH_PENDING,timeout N).
+	// Walk complete NUL-delimited control messages in order so a stream like
+	//   AUTH_PENDING,timeout 60\0INFO_PRE,...\0PUSH_REPLY,auth-token ...\0
+	// yields the token even though PUSH_REPLY is not first.
+	msgs, rest := splitControlMessages(buf)
+	if len(msgs) == 0 {
+		return nil, rest, false
+	}
+	var authFailed []byte
+	var reply *PushReply
+	parsed := false
+	// continuationPending is true when the most recent PUSH_REPLY was an
+	// intermediate segment (push-continuation 2) and the final segment has
+	// not arrived yet.
+	continuationPending := false
+	for _, m := range msgs {
+		if bytes.HasPrefix(m, []byte("AUTH_FAILED")) {
+			authFailed = m
 			continue
 		}
-		activity.MarkControl()
-		lastReceived = activity.Last()
-		buf = append(buf, tmp[:n]...)
-		for {
-			idx := bytes.IndexByte(buf, 0)
-			if idx < 0 {
-				if len(buf) > 64*1024 {
-					return errors.New("openvpn control message buffer exceeded 64KiB")
-				}
-				break
+		if bytes.HasPrefix(m, []byte("AUTH_PENDING")) {
+			// OpenVPN send_auth_pending_messages / receive_auth_pending:
+			// AUTH_PENDING,timeout N extends the deferred-auth window. Parse
+			// the advertised timeout so the outbound-key backstop respects
+			// it. AUTH_PENDING alone is NOT a complete push reply — the
+			// reply is only complete once a final PUSH_REPLY arrives.
+			if r, err := parseAuthPendingTimeout(string(m)); err == nil {
+				reply = mergePushReply(reply, r)
 			}
-			msg := strings.TrimSpace(string(buf[:idx]))
-			buf = buf[idx+1:]
-			rekeyReason, err := handleControlMessage(msg, remote)
-			if err != nil {
-				return err
-			}
-			if rekeyReason != "" {
-				nextPush, nextStream, err := runControlLoopRekey(ctx, hooks, rekeyReason)
-				if err != nil {
-					return err
-				}
-				if nextStream != nil {
-					stream = nextStream
-				}
-				push = nextPush
-				pingInterval = push.PingInterval
-				if pingInterval <= 0 && push.PingRestart > 0 {
-					pingInterval = push.PingRestart / 2
-				}
-				pingRestart = push.PingRestart
-				renegotiateAt = time.Time{}
-				if push.RenegotiateAfter > 0 {
-					renegotiateAt = time.Now().Add(push.RenegotiateAfter)
-				}
-				lastReceived = activity.Last()
-				lastPingSent = time.Now()
-				buf = nil
-				break
+			continue
+		}
+		if bytes.HasPrefix(m, []byte("PUSH_REPLY")) {
+			r, err := parsePushReplyInner(string(m))
+			if err == nil {
+				reply = mergePushReply(reply, r)
+				parsed = true
+				// An intermediate continuation segment (push-continuation 2)
+				// means more segments follow; only the final segment (1 or
+				// absent) completes the reply.
+				continuationPending = r.PushContinuation == 2
+				continue
 			}
 		}
+		// Other complete control messages (INFO_PRE, INFO, RESTART, HALT,
+		// EXIT, CR_RESPONSE, ...) are deliberately consumed.
 	}
+	if authFailed != nil {
+		// Surface the failure to callers (readTokenPushReply /
+		// consumeRekeyPush / readPushReply) via the rest-of-buffer, since
+		// takePushReply's ok=false is also used for "not complete yet".
+		return nil, rest, false
+	}
+	if !parsed || continuationPending {
+		// Nothing usable, or only intermediate continuation segments so far:
+		// not a complete reply. The parsed reply (with the intermediate
+		// segments merged and the AUTH_PENDING timeout) is returned so the
+		// caller can accumulate it across reads.
+		return reply, rest, false
+	}
+	return reply, rest, true
 }
 
-func formatRemoteActivitySnapshot(now time.Time, pingRestart time.Duration, snapshot remoteActivitySnapshot) string {
-	return fmt.Sprintf("ping-restart=%s last-any=%s last-control=%s last-data=%s inbound-data-packets=%d data-decrypt-errors=%d",
-		pingRestart,
-		formatActivityAge(now, snapshot.LastAny),
-		formatActivityAge(now, snapshot.LastControl),
-		formatActivityAge(now, snapshot.LastData),
-		snapshot.DataPackets,
-		snapshot.DataDecryptErrors,
-	)
-}
-
-func formatActivityAge(now time.Time, last time.Time) string {
-	if last.IsZero() {
-		return "never"
+// parseAuthPendingTimeout parses an AUTH_PENDING[,timeout N] control message
+// and returns a PushReply carrying the advertised deferred-auth timeout.
+func parseAuthPendingTimeout(msg string) (*PushReply, error) {
+	reply := &PushReply{
+		PeerID:             PeerIDUnset,
+		AuthPendingTimeout: authDeferredExpire, // bare AUTH_PENDING fallback
+		hasAuthPending:     true,
 	}
-	if last.After(now) {
-		return "0s ago"
+	if !strings.HasPrefix(msg, "AUTH_PENDING") {
+		return nil, errors.New("not an auth pending message")
 	}
-	return now.Sub(last).Round(time.Millisecond).String() + " ago"
-}
-
-func runControlLoopRekey(ctx context.Context, hooks controlLoopHooks, reason string) (*PushReply, controlStream, error) {
-	if hooks.rekey == nil {
-		return nil, nil, fmt.Errorf("%w: %s", ErrControlRestart, reason)
-	}
-	nextPush, nextStream, err := hooks.rekey(ctx, reason)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: rekey failed after %s: %v", ErrControlRestart, reason, err)
-	}
-	if nextPush == nil {
-		return nil, nil, fmt.Errorf("%w: rekey returned nil push reply after %s", ErrControlRestart, reason)
-	}
-	return nextPush, nextStream, nil
-}
-
-func nextControlDeadline(now, lastReceived, lastPingSent time.Time, pingInterval, pingRestart time.Duration, renegotiateAt time.Time) time.Time {
-	deadline := now.Add(DefaultControlPollDelay)
-	if pingInterval > 0 {
-		if nextPing := lastPingSent.Add(pingInterval); nextPing.Before(deadline) {
-			deadline = nextPing
+	rest := strings.TrimPrefix(msg, "AUTH_PENDING")
+	rest = strings.TrimPrefix(rest, ",")
+	// OpenVPN caps explicit timeouts at max(reneg-sec/2, hand-window).
+	// Mihomo currently implements the reference defaults: max(1800, 60).
+	for _, part := range strings.Split(rest, ",") {
+		fields := strings.Fields(part)
+		if len(fields) != 2 || fields[0] != "timeout" {
+			continue
+		}
+		seconds, err := strconv.ParseUint(fields[1], 10, 64)
+		maxSeconds := uint64(authPendingMaxTimeout / time.Second)
+		if err == nil {
+			if seconds > maxSeconds {
+				seconds = maxSeconds
+			}
+			reply.AuthPendingTimeout = time.Duration(seconds) * time.Second
+		} else if errors.Is(err, strconv.ErrRange) {
+			reply.AuthPendingTimeout = authPendingMaxTimeout
 		}
 	}
-	if pingRestart > 0 {
-		if restart := lastReceived.Add(pingRestart); restart.Before(deadline) {
-			deadline = restart
+	return reply, nil
+}
+
+// splitControlMessages splits a TLS plaintext byte stream into complete
+// NUL-terminated control messages and returns the trailing bytes that do not
+// yet form a complete message. OpenVPN frames every control message with a
+// trailing NUL (send_control_channel_string_dowork), and the client parses
+// them one by one (forward.c check_incoming_control_channel /
+// extract_command_buffer). The trailing incomplete message is returned as
+// rest so it can be re-merged when the next TLS read arrives.
+func splitControlMessages(buf []byte) ([][]byte, []byte) {
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	var msgs [][]byte
+	for {
+		idx := bytes.IndexByte(buf, 0)
+		if idx < 0 {
+			break
+		}
+		msgs = append(msgs, buf[:idx])
+		buf = buf[idx+1:]
+	}
+	return msgs, buf
+}
+
+func mergePushReply(prev, next *PushReply) *PushReply {
+	if next == nil {
+		return prev
+	}
+	if prev == nil {
+		return next
+	}
+	// Repeatable fields are appended in wire order (prev first, then next),
+	// deduplicated, so continuation segments preserve their arrival order.
+	next.Prefixes = appendUniquePrefixes(prev.Prefixes, next.Prefixes)
+	next.Routes = appendUniquePrefixes(prev.Routes, next.Routes)
+	next.DNS = appendUniqueAddrs(prev.DNS, next.DNS)
+	nextHasPushReply := next.HasPushReply
+	next.DataCiphers = appendUniqueStrings(prev.DataCiphers, next.DataCiphers)
+	if next.PeerID == PeerIDUnset {
+		next.PeerID = prev.PeerID
+	}
+	if next.Cipher == "" {
+		next.Cipher = prev.Cipher
+	}
+	if !next.hasPingInterval {
+		next.PingInterval, next.hasPingInterval = prev.PingInterval, prev.hasPingInterval
+	}
+	if !next.hasPingRestart {
+		next.PingRestart, next.hasPingRestart = prev.PingRestart, prev.hasPingRestart
+	}
+	if !next.Redirect {
+		next.Redirect = prev.Redirect
+	}
+	if !next.BlockIPv6 {
+		next.BlockIPv6 = prev.BlockIPv6
+	}
+	if next.AuthTokenPass == "" {
+		next.AuthTokenPass = prev.AuthTokenPass
+	}
+	if next.AuthTokenUser == "" {
+		next.AuthTokenUser = prev.AuthTokenUser
+	}
+	// A deferred-auth timeout must survive merging into a later non-pending
+	// PUSH_REPLY. Carry its observation-anchored deadline with the duration;
+	// a genuinely later AUTH_PENDING keeps its own newly observed deadline.
+	if !pushHasAuthPending(next) {
+		next.AuthPendingTimeout = prev.AuthPendingTimeout
+		next.authPendingUntil = prev.authPendingUntil
+		next.hasAuthPending = prev.hasAuthPending
+	}
+	if !nextHasPushReply {
+		next.PushContinuation = prev.PushContinuation
+	}
+	next.HasPushReply = next.HasPushReply || prev.HasPushReply
+	return next
+}
+
+// appendUniquePrefixes returns prev followed by the elements of next that are
+// not already present, preserving wire order (prev arrived first).
+func appendUniquePrefixes(prev, next []netip.Prefix) []netip.Prefix {
+	if len(prev) == 0 {
+		return next
+	}
+	out := append([]netip.Prefix(nil), prev...)
+	for _, p := range next {
+		if !containsPrefix(out, p) {
+			out = append(out, p)
 		}
 	}
-	if !renegotiateAt.IsZero() && renegotiateAt.Before(deadline) {
-		deadline = renegotiateAt
-	}
-	return deadline
+	return out
 }
 
-func writeControlMessage(ctx context.Context, stream controlStream, message string) error {
-	if err := ctx.Err(); err != nil {
-		return err
+func containsPrefix(list []netip.Prefix, p netip.Prefix) bool {
+	for _, q := range list {
+		if q == p {
+			return true
+		}
 	}
-	if err := stream.SetWriteDeadline(time.Now().Add(ControlRetransmitDelay)); err != nil {
-		return err
-	}
-	_, err := stream.Write([]byte(message + "\x00"))
-	_ = stream.SetWriteDeadline(time.Time{})
-	return err
+	return false
 }
 
-func handleControlMessage(message, remote string) (string, error) {
-	if message == "" || message == "PING" || strings.HasPrefix(message, "INFO") || strings.HasPrefix(message, "WARNING") || strings.HasPrefix(message, "PUSH_REPLY") {
-		return "", nil
+func appendUniqueAddrs(prev, next []netip.Addr) []netip.Addr {
+	if len(prev) == 0 {
+		return next
 	}
-	if strings.HasPrefix(message, "AUTH_FAILED") {
-		return "", fmt.Errorf("openvpn authentication failed after handshake from %s: %s", remote, message)
+	out := append([]netip.Addr(nil), prev...)
+	for _, a := range next {
+		if !containsAddr(out, a) {
+			out = append(out, a)
+		}
 	}
-	if strings.HasPrefix(message, "RESTART,soft") {
-		return message, nil
+	return out
+}
+
+func containsAddr(list []netip.Addr, a netip.Addr) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
 	}
-	if strings.HasPrefix(message, "RESTART") || strings.HasPrefix(message, "HALT") {
-		return "", fmt.Errorf("%w: %s", ErrControlRestart, message)
+	return false
+}
+
+func appendUniqueStrings(prev, next []string) []string {
+	if len(prev) == 0 {
+		return next
 	}
-	return "", nil
+	out := append([]string(nil), prev...)
+	for _, s := range next {
+		if !containsString(out, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, t := range list {
+		if t == s {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) tlsConfig() (*tls.Config, error) {
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(c.config.CA) {
 		return nil, errors.New("parse openvpn ca certificate")
-	}
-	minVersion, err := tlsVersion(c.config.TLSMinVersion)
-	if err != nil {
-		return nil, err
 	}
 	verify := func(cs tls.ConnectionState) error {
 		if len(cs.PeerCertificates) == 0 {
@@ -1003,8 +1817,9 @@ func (c *Client) tlsConfig() (*tls.Config, error) {
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
 		VerifyConnection:   verify,
-		MinVersion:         minVersion,
-		MaxVersion:         tls.VersionTLS13,
+		// Allow the server to initiate TLS renegotiation (rekey). OpenVPN
+		// servers rekey the control channel at regular intervals (default 1h).
+		Renegotiation: tls.RenegotiateFreelyAsClient,
 	}
 	certPEM := bytes.TrimSpace(c.config.Cert)
 	keyPEM := bytes.TrimSpace(c.config.Key)
@@ -1016,21 +1831,6 @@ func (c *Client) tlsConfig() (*tls.Config, error) {
 		cfg.Certificates = []tls.Certificate{cert}
 	}
 	return cfg, nil
-}
-
-func tlsVersion(version string) (uint16, error) {
-	switch version {
-	case TLSVersion10:
-		return tls.VersionTLS10, nil
-	case TLSVersion11:
-		return tls.VersionTLS11, nil
-	case TLSVersion12:
-		return tls.VersionTLS12, nil
-	case TLSVersion13:
-		return tls.VersionTLS13, nil
-	default:
-		return 0, fmt.Errorf("unsupported openvpn tls-version-min %q", version)
-	}
 }
 
 var _ net.Conn = (*ControlConn)(nil)

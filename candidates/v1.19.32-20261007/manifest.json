@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "status": "review-only; NOT accepted for installation",
+  "source": {
+    "repository": "https://github.com/smart-tinker/stcvrc",
+    "localCandidateCommit": "792d4c3efc588d576324e2c3f30e3d9b7da94851",
+    "upstreamTag": "v1.19.32",
+    "upstreamCommit": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+    "sourceTree": "d9541086c5b2f80b91f0541c2449d4a2f167a5c1",
+    "publicationBase": "61bd19c5e91333d9478236d5602b436ec1825b9a",
+    "publicationForm": "clean source snapshot; public main parent, not original local commit history",
+    "sourceParity": "Candidate executable source and tests preserved; public README/build-windows.ps1/.github/docs/config.yaml retained, candidates/ added",
+    "patches": [
+      {
+        "old": "0e0bc9bfe7c0b33f70341d19a6fb2f5c2992045d",
+        "new": "ae6df9fbf8a4654d12687339388c271ef7781828",
+        "patchId": "14ca365580eb5022fec685042323512646410b97",
+        "equivalent": true
+      },
+      {
+        "old": "c6d4013552c6e765d7b5820aa369c227535b879d",
+        "new": "51bb7116c01c117b7503a32ea2f4e80620e75d7d",
+        "patchId": "214a6cf2c5160e9bbdc246f05f1365ab493caa60",
+        "equivalent": true
+      },
+      {
+        "old": "eeb996219c2f188bc382822f2062d697b3ed3ec6",
+        "new": "08c1438f878f604ff766622beac01189faf4a62d",
+        "patchId": "76a2488eb6a5a88eaa28270d106ab2935dcabf2a",
+        "equivalent": true
+      },
+      {
+        "old": "3a01d44fc302de47812a26bce7bded2ed03700ec",
+        "new": "9ddf1e17aa7b59b3fcea44282e471c02a4de1e76",
+        "patchId": "48ee317c1012b3e73c4c5fcd88a31acf9a382b73",
+        "equivalent": true
+      },
+      {
+        "old": "c2c58bcfc38281974b5692a42db333dbd29f9df7",
+        "new": "3368257beed26eccc6c503770926e98825451e78",
+        "patchId": "91be62f61be81caed84f35a6f6843c6b2650dce4",
+        "equivalent": true
+      },
+      {
+        "old": "6c15b31c07954ab22777178b6eef9ef0fca34643",
+        "new": "2bb58210272d5ee4eab5d5a4ac6f112a86b58c75",
+        "patchId": "57f3a1b8b1e0bb9da60344f1f5bb363edea4fa73",
+        "equivalent": true
+      },
+      {
+        "old": "1a3d5db92840efe587d30da1bdc996e6da2c921f",
+        "new": "f9f55c2267d22475dadcbe4629c701a2bb059f5a",
+        "patchId": "2c8739781ef9b2d648675148789a070e3675420f",
+        "equivalent": true
+      },
+      {
+        "old": "5634185a050184834046c6cb0bcd54a6984c647f",
+        "new": "792d4c3efc588d576324e2c3f30e3d9b7da94851",
+        "patchId": "29d34f612f11b5c0a4d02d4ae56d7832c887f7cb",
+        "equivalent": true
+      }
+    ],
+    "excludedCandidateDocumentation": [
+      "docs/config.yaml: existing public example retained unchanged after publication review rejected its candidate replacement"
+    ]
+  },
+  "core": {
+    "bytes": 61108736,
+    "sha256": "b072d09f0754b92cbe737757d2c63111d20ecf00e5d90b534ce2f9492feb9986",
+    "sourceBinding": "2026-10-07 build record plus matching actual hash; buildvcs=false omits source commit"
+  },
+  "observer": {
+    "generation": "r16c",
+    "bytes": 13037749,
+    "sha256": "f8139b74a8dd360a075c5afe1ea608a08154d0ba645d2ebf0d694c42e4e10d2b",
+    "manifestSha256": "c2e748506235e695249973a375029ed48e4701ad3a475398461d36a9aa9ade46"
+  },
+  "ui": {
+    "version": "2.5.8",
+    "bytes": 60230483,
+    "sha256": "821c0f5957f84c8f7d14532044840e8280d708af24a6a143db360b49bd1e7302",
+    "officialUrl": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/Clash.Verge_2.5.8_x64-setup.exe"
+  },
+  "preparationChecks": {
+    "checkedUtc": "2026-10-15T10:12:13.259862+00:00",
+    "testsRun": 55,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "scope": "local unit/fixture/PowerShell AST checks only"
+  },
+  "preparationSourceHashesRechecked": true,
+  "rollback": {
+    "completed": "Local UI/core version pairs 2.5.5 to 2.5.8 and 2.5.2 to 2.5.8",
+    "pending": [
+      "Candidate TUN/recovery",
+      "Atomic observer plus UI/core rollback",
+      "Separate Work-host deployment support"
+    ],
+    "runtimeValidated": false
+  },
+  "acceptance": {
+    "newVmGate": "NOT RUN; shared VM occupied",
+    "beforeVmWindow": "Fresh same-context baseline/backup; do not restore an older baseline over newer changes",
+    "homeReady": false,
+    "workReady": false,
+    "productionChanges": false
+  },
+  "scope": "Public source review only; no private profiles, access details, host-bound scripts, raw reports or binaries",
+  "focusedSourceChecks": {
+    "scope": "offline Go1.26.5 with_gvisor targeted tests; no VM/runtime contact",
+    "packages": {
+      "transport/openvpn": "PASS 21.834s",
+      "adapter/outbound": "PASS 5.900s",
+      "adapter/outboundgroup": "PASS 7.290s"
+    },
+    "diffCheck": "PASS",
+    "newVmGate": "NOT RUN"
+  }
+}
