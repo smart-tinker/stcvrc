@@ -23,6 +23,18 @@ Verge Rev.
   continuity during soft rekey, and the API behavior required by Clash Verge
   Rev.
 
+## Candidate review (not a release)
+
+This branch stages the source of local candidate `792d4c3e` (Mihomo
+`v1.19.32`) for review. See [candidate manifest](candidates/v1.19.32-20261007/manifest.json).
+Follow-up: [verification results and reproducible candidate build](candidates/v1.19.32-20261007/REVIEW-FOLLOWUP.md).
+The published release below remains unchanged. The candidate is **not accepted
+for installation**: the new full-stack laboratory gate has not run.
+
+`build-windows.ps1` still pins the accepted release and deliberately rejects
+changed candidate sources. It is not a candidate build recipe. No release tag,
+installer, binary, private profile or runtime log is published by this PR.
+
 ## Current release line
 
 | Component | Accepted version |

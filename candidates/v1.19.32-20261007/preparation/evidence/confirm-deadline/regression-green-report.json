@@ -1,0 +1,260 @@
+{
+  "schema": 1,
+  "checkedUtc": "2026-10-15T12:38:10.975622+00:00",
+  "pass": true,
+  "testsRun": 11,
+  "passed": 11,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "testSourceSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
+  "scope": "Actual Confirm and Watch AST plus real local file lock; fixture clock/health/state/restore, no deployment or runtime",
+  "observations": [
+    {
+      "deadline": "2026-10-15T12:38:58.9412506Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 0,
+      "healthLockWasAvailable": false,
+      "now": "2026-10-15T12:37:58.9412506Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "A fresh real consumer exchange must be confirmed explicitly",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:33.0614788Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:19.0614788Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Confirmation too close to rollback deadline",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:34.2302318Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:19.2302318Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Confirmation too close to rollback deadline",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:35.3547211Z",
+      "guardActive": false,
+      "guardAfterConfirm": false,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:19.3547211Z",
+      "phase": "committed",
+      "phaseAfterConfirm": "committed",
+      "reason": null,
+      "rejected": false,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:19.3856623Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:21.3856623Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Confirmation too close to rollback deadline",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:39:04.3604838Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:22.3604838Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Fixture health check failure",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:39:05.4282360Z",
+      "guardActive": false,
+      "guardAfterConfirm": false,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:23.4282360Z",
+      "phase": "committed",
+      "phaseAfterConfirm": "committed",
+      "reason": null,
+      "rejected": false,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:22.5968386Z",
+      "guardActive": false,
+      "guardAfterConfirm": false,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:06.5968386Z",
+      "phase": "committed",
+      "phaseAfterConfirm": "committed",
+      "reason": null,
+      "rejected": false,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:22.2789029Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 0,
+      "healthLockWasAvailable": false,
+      "now": "2026-10-15T12:38:07.2789029Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Confirmation too close to rollback deadline",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:38:23.9670283Z",
+      "guardActive": false,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:25.9670283Z",
+      "phase": "rolled-back",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Confirmation too close to rollback deadline",
+      "rejected": true,
+      "watchRestores": 1,
+      "watchStops": 1
+    },
+    {
+      "deadline": "2026-10-15T12:38:24.6641775Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:09.6641775Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Confirmation too close to rollback deadline",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:39:09.3702015Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:27.3702015Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Armed transaction changed during confirmation",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:39:10.1296313Z",
+      "guardActive": true,
+      "guardAfterConfirm": true,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:28.1296313Z",
+      "phase": "awaiting-confirmation",
+      "phaseAfterConfirm": "awaiting-confirmation",
+      "reason": "Armed plan drift",
+      "rejected": true,
+      "watchRestores": 0,
+      "watchStops": 0
+    },
+    {
+      "deadline": "2026-10-15T12:39:10.7848267Z",
+      "guardActive": false,
+      "guardAfterConfirm": false,
+      "healthCalls": 2,
+      "healthLockWasAvailable": true,
+      "now": "2026-10-15T12:38:28.7848267Z",
+      "phase": "rolled-back",
+      "phaseAfterConfirm": "rolled-back",
+      "reason": "Candidate is no longer awaiting confirmation",
+      "rejected": true,
+      "watchRestores": 1,
+      "watchStops": 1
+    }
+  ],
+  "outcomes": [
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_consumer_confirmation_remains_required",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_final_fifteen_second_reserve_is_exclusive",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_health_check_crossing_deadline_cannot_commit_or_remove_guard",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_health_failure_keeps_guard",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_healthy_confirm_with_enough_time_commits",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_immediate_health_with_sixteen_seconds_left_can_commit",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_initial_deadline_reserve_rejects_without_health",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_late_rejection_keeps_actual_watch_recovery_available",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_one_second_health_reaching_exact_reserve_cannot_commit",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_rearmed_or_changed_plan_during_health_cannot_commit",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_watch_rollback_during_health_cannot_be_overwritten_by_confirm",
+      "outcome": "PASS"
+    }
+  ],
+  "sourceReport": "preparation-tests.json",
+  "sourceLog": "preparation-tests.txt",
+  "observationLog": "regression-green.txt",
+  "runtimeAcceptance": false
+}

@@ -102,8 +102,8 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateSniffer(cfg.Sniffer)
 	updateHosts(cfg.Hosts)
 	updateGeneral(cfg.General, true)
-	updateNTP(cfg.NTP)
 	updateDNS(cfg.DNS, cfg.General.IPv6)
+	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
 	updateListeners(cfg.General, cfg.Listeners, force)
 	updateTun(cfg.General) // tun should not care "force"
 	updateIPTables(cfg)
@@ -165,20 +165,19 @@ func GetGeneral() *config.General {
 			ASN:     geodata.ASNUrl(),
 			GeoSite: geodata.GeoSiteUrl(),
 		},
-		GeoAutoUpdate:           updater.GeoAutoUpdate(),
-		GeoUpdateInterval:       updater.GeoUpdateInterval(),
-		GeodataMode:             geodata.GeodataMode(),
-		GeodataLoader:           geodata.LoaderName(),
-		GeositeMatcher:          geodata.SiteMatcherName(),
-		TCPConcurrent:           dialer.GetTcpConcurrent(),
-		FindProcessMode:         tunnel.FindProcessMode(),
-		Sniffing:                tunnel.IsSniffing(),
-		GlobalClientFingerprint: "",
-		GlobalUA:                mihomoHttp.UA(),
-		ETagSupport:             resource.ETag(),
-		KeepAliveInterval:       int(keepalive.KeepAliveInterval() / time.Second),
-		KeepAliveIdle:           int(keepalive.KeepAliveIdle() / time.Second),
-		DisableKeepAlive:        keepalive.DisableKeepAlive(),
+		GeoAutoUpdate:     updater.GeoAutoUpdate(),
+		GeoUpdateInterval: updater.GeoUpdateInterval(),
+		GeodataMode:       geodata.GeodataMode(),
+		GeodataLoader:     geodata.LoaderName(),
+		GeositeMatcher:    geodata.SiteMatcherName(),
+		TCPConcurrent:     dialer.GetTcpConcurrent(),
+		FindProcessMode:   tunnel.FindProcessMode(),
+		Sniffing:          tunnel.IsSniffing(),
+		GlobalUA:          mihomoHttp.UA(),
+		ETagSupport:       resource.ETag(),
+		KeepAliveInterval: int(keepalive.KeepAliveInterval() / time.Second),
+		KeepAliveIdle:     int(keepalive.KeepAliveIdle() / time.Second),
+		DisableKeepAlive:  keepalive.DisableKeepAlive(),
 	}
 
 	return general

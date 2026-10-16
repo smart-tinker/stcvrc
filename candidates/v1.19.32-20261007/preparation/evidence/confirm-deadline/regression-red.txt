@@ -1,0 +1,15 @@
+Command: C:/Program Files/Python313/python.exe -B -m unittest discover -s projects/stcvrc/scripts -p test_stcvrc_confirm_deadline.py -v
+Production source: original Confirm (before deadline fix)
+Runtime: Windows PowerShell, AST-extracted actual Confirm branch, actual local file lock.
+No VM, network, service, scheduler, installer or runtime operations.
+
+test_health_check_crossing_deadline_cannot_commit_or_remove_guard ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T12:27:20.4803005Z", "guardActive": false, "healthCalls": 2, "healthLockWasAvailable": false, "now": "2026-10-15T12:27:22.4803005Z", "phase": "committed", "reason": null, "rejected": false}
+FAIL
+AssertionError: False is not true
+Ran 1 test in 1.812s
+FAILED (failures=1)
+Exit code: 1
+
+Observed bug: after two passing simulated 9-second health operations, Confirm committed
+with the clock 2 seconds after its original deadline and removed the rollback guard.
+The failure is the expected deadline rejection assertion, not a harness/parse error.

@@ -1,0 +1,83 @@
+test_data_directory_hidden_after_archive_blocks_deletion (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_data_directory_hidden_after_archive_blocks_deletion) ... FAIL
+test_data_file_hidden_after_archive_blocks_deletion (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_data_file_hidden_after_archive_blocks_deletion) ... FAIL
+test_hidden_data_directory_blocks_cleanup (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_data_directory_blocks_cleanup) ... FAIL
+test_hidden_data_file_blocks_cleanup (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_data_file_blocks_cleanup) ... FAIL
+test_hidden_root_blocks_cleanup (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_root_blocks_cleanup) ... FAIL
+test_root_hidden_after_archive_blocks_deletion (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_root_hidden_after_archive_blocks_deletion) ... FAIL
+
+======================================================================
+FAIL: test_data_directory_hidden_after_archive_blocks_deletion (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_data_directory_hidden_after_archive_blocks_deletion)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 195, in test_data_directory_hidden_after_archive_blocks_deletion
+    self.assert_hidden_blocks_cleanup(self.root / 'data/timeline', True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 172, in assert_hidden_blocks_cleanup
+    with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+======================================================================
+FAIL: test_data_file_hidden_after_archive_blocks_deletion (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_data_file_hidden_after_archive_blocks_deletion)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 192, in test_data_file_hidden_after_archive_blocks_deletion
+    self.assert_hidden_blocks_cleanup(self.root / 'data/timeline/fixture.jsonl', True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 172, in assert_hidden_blocks_cleanup
+    with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+======================================================================
+FAIL: test_hidden_data_directory_blocks_cleanup (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_data_directory_blocks_cleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 186, in test_hidden_data_directory_blocks_cleanup
+    self.assert_hidden_blocks_cleanup(self.root / 'data/timeline')
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 172, in assert_hidden_blocks_cleanup
+    with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+======================================================================
+FAIL: test_hidden_data_file_blocks_cleanup (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_data_file_blocks_cleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 183, in test_hidden_data_file_blocks_cleanup
+    self.assert_hidden_blocks_cleanup(self.root / 'data/timeline/fixture.jsonl')
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 172, in assert_hidden_blocks_cleanup
+    with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+======================================================================
+FAIL: test_hidden_root_blocks_cleanup (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_root_blocks_cleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 189, in test_hidden_root_blocks_cleanup
+    self.assert_hidden_blocks_cleanup(self.root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 172, in assert_hidden_blocks_cleanup
+    with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+======================================================================
+FAIL: test_root_hidden_after_archive_blocks_deletion (test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_root_hidden_after_archive_blocks_deletion)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 198, in test_root_hidden_after_archive_blocks_deletion
+    self.assert_hidden_blocks_cleanup(self.root, True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "<fixture>/test_stcvrc_atomic_observer_cleanup.py", line 172, in assert_hidden_blocks_cleanup
+    with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+----------------------------------------------------------------------
+Ran 6 tests in 21.962s
+
+FAILED (failures=6)

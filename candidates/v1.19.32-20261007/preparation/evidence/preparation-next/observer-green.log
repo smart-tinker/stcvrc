@@ -1,0 +1,16 @@
+test_absence_is_explicit_and_payload_drift_never_stages (test_stcvrc_observer_transaction.ObserverTransactionTest.test_absence_is_explicit_and_payload_drift_never_stages) ... ok
+test_absent_baseline_removes_candidate_task_and_payload_not_new_history (test_stcvrc_observer_transaction.ObserverTransactionTest.test_absent_baseline_removes_candidate_task_and_payload_not_new_history) ... ok
+test_common_ui_core_rollback_cannot_finish_before_observer_restore (test_stcvrc_observer_transaction.ObserverTransactionTest.test_common_ui_core_rollback_cannot_finish_before_observer_restore) ... ok
+test_disabled_or_unbounded_observer_task_baseline_is_rejected (test_stcvrc_observer_transaction.ObserverTransactionTest.test_disabled_or_unbounded_observer_task_baseline_is_rejected) ... ok
+test_existing_observer_payload_and_task_are_both_pinned (test_stcvrc_observer_transaction.ObserverTransactionTest.test_existing_observer_payload_and_task_are_both_pinned) ... ok
+test_foreign_payload_or_task_configuration_never_stages (test_stcvrc_observer_transaction.ObserverTransactionTest.test_foreign_payload_or_task_configuration_never_stages) ... ok
+test_live_schedule_and_protected_root_acl_are_read_back (test_stcvrc_observer_transaction.ObserverTransactionTest.test_live_schedule_and_protected_root_acl_are_read_back) ... ok
+test_observer_appearance_during_ui_upgrade_is_rejected_before_writes (test_stcvrc_observer_transaction.ObserverTransactionTest.test_observer_appearance_during_ui_upgrade_is_rejected_before_writes) ... ok
+test_observer_backup_or_task_failure_cannot_block_core_recovery (test_stcvrc_observer_transaction.ObserverTransactionTest.test_observer_backup_or_task_failure_cannot_block_core_recovery) ... ok
+test_observer_health_needs_completed_task_and_fresh_matching_row (test_stcvrc_observer_transaction.ObserverTransactionTest.test_observer_health_needs_completed_task_and_fresh_matching_row) ... ok
+test_partial_observer_update_restores_payload_task_but_not_history (test_stcvrc_observer_transaction.ObserverTransactionTest.test_partial_observer_update_restores_payload_task_but_not_history) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 10.689s
+
+OK

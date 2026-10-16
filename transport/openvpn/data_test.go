@@ -5,8 +5,8 @@ import (
 	"crypto/aes"
 	"crypto/sha1"
 	"encoding/binary"
+	"errors"
 	"testing"
-	"time"
 )
 
 func TestDataChannelAESGCMV2RoundTrip(t *testing.T) {
@@ -22,11 +22,11 @@ func TestDataChannelAESGCMV2RoundTrip(t *testing.T) {
 		RecvCipherKey: clientKeys.SendCipherKey,
 		RecvHMACKey:   clientKeys.SendHMACKey,
 	}
-	client, err := NewDataChannel(clientKeys, CipherAES128GCM, AuthSHA256, 7, "")
+	client, err := NewDataChannel(clientKeys, CipherAES128GCM, AuthSHA256, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewDataChannel(serverKeys, CipherAES128GCM, AuthSHA256, 7, "")
+	server, err := NewDataChannel(serverKeys, CipherAES128GCM, AuthSHA256, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,255 +63,6 @@ func TestDataChannelAESGCMV2RoundTrip(t *testing.T) {
 	}
 }
 
-func TestDataChannelRekeyRotatesSendKeyAndKeepsReceiveOverlap(t *testing.T) {
-	clientKeys1 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
-	}
-	serverKeys1 := &KeyMaterial{
-		SendCipherKey: clientKeys1.RecvCipherKey,
-		SendHMACKey:   clientKeys1.RecvHMACKey,
-		RecvCipherKey: clientKeys1.SendCipherKey,
-		RecvHMACKey:   clientKeys1.SendHMACKey,
-	}
-	clientKeys2 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x55}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x66}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x77}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x88}, maxHMACKeyLength),
-	}
-	serverKeys2 := &KeyMaterial{
-		SendCipherKey: clientKeys2.RecvCipherKey,
-		SendHMACKey:   clientKeys2.RecvHMACKey,
-		RecvCipherKey: clientKeys2.SendCipherKey,
-		RecvHMACKey:   clientKeys2.SendHMACKey,
-	}
-	client, err := NewDataChannel(clientKeys1, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err := NewDataChannel(serverKeys1, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	oldPacket := []byte{0x45, 0, 0, 20, 1, 2, 3, 4, 64, 6, 0, 0, 10, 8, 0, 2, 1, 1, 1, 1}
-	oldEncrypted, err := client.Encrypt(oldPacket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, keyID := parseOpcodeKeyID(oldEncrypted[0]); keyID != 0 {
-		t.Fatalf("unexpected initial key id: %d", keyID)
-	}
-
-	if err := client.Rekey(clientKeys2, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := server.Rekey(serverKeys2, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-		t.Fatal(err)
-	}
-	newPacket := []byte{0x45, 0, 0, 20, 1, 2, 3, 5, 64, 6, 0, 0, 10, 8, 0, 2, 1, 1, 1, 1}
-	newEncrypted, err := client.Encrypt(newPacket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, keyID := parseOpcodeKeyID(newEncrypted[0]); keyID != 1 {
-		t.Fatalf("unexpected rotated key id: %d", keyID)
-	}
-
-	plain, err := server.Decrypt(oldEncrypted)
-	if err != nil {
-		t.Fatalf("old key overlap decrypt failed: %v", err)
-	}
-	if !bytes.Equal(plain, oldPacket) {
-		t.Fatalf("unexpected old plaintext: %x", plain)
-	}
-	plain, err = server.Decrypt(newEncrypted)
-	if err != nil {
-		t.Fatalf("new key decrypt failed: %v", err)
-	}
-	if !bytes.Equal(plain, newPacket) {
-		t.Fatalf("unexpected new plaintext: %x", plain)
-	}
-}
-
-func TestDataChannelDelayedSendKeyPromotesAfterPeerUsesNewKey(t *testing.T) {
-	clientKeys1 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
-	}
-	clientKeys2 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x55}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x66}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x77}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x88}, maxHMACKeyLength),
-	}
-	reverse := func(keys *KeyMaterial) *KeyMaterial {
-		return &KeyMaterial{
-			SendCipherKey: keys.RecvCipherKey,
-			SendHMACKey:   keys.RecvHMACKey,
-			RecvCipherKey: keys.SendCipherKey,
-			RecvHMACKey:   keys.SendHMACKey,
-		}
-	}
-	client, err := NewDataChannel(clientKeys1, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err := NewDataChannel(reverse(clientKeys1), CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	client.clock = func() time.Time { return time.Unix(100, 0) }
-	if err := client.RekeyWithSendDelay(clientKeys2, CipherAES128GCM, AuthSHA256, 7, "", time.Minute); err != nil {
-		t.Fatal(err)
-	}
-	outbound, err := client.Encrypt([]byte{0x45, 0, 0, 20, 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, keyID := parseOpcodeKeyID(outbound[0]); keyID != 0 {
-		t.Fatalf("expected previous send key before peer confirmation, got %d", keyID)
-	}
-	if _, err := server.Decrypt(outbound); err != nil {
-		t.Fatalf("expected peer to accept previous send key: %v", err)
-	}
-	if err := server.Rekey(reverse(clientKeys2), CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-		t.Fatal(err)
-	}
-	inbound, err := server.Encrypt([]byte{0x45, 0, 0, 20, 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.Decrypt(inbound); err != nil {
-		t.Fatalf("expected new receive key to be available during send overlap: %v", err)
-	}
-	outbound, err = client.Encrypt([]byte{0x45, 0, 0, 20, 3})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, keyID := parseOpcodeKeyID(outbound[0]); keyID != 1 {
-		t.Fatalf("expected peer-confirmed key id 1, got %d", keyID)
-	}
-}
-
-func TestDataChannelRetiresPreviousReceiveKeys(t *testing.T) {
-	clientKeys1 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
-	}
-	serverKeys1 := &KeyMaterial{
-		SendCipherKey: clientKeys1.RecvCipherKey,
-		SendHMACKey:   clientKeys1.RecvHMACKey,
-		RecvCipherKey: clientKeys1.SendCipherKey,
-		RecvHMACKey:   clientKeys1.SendHMACKey,
-	}
-	clientKeys2 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x55}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x66}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x77}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x88}, maxHMACKeyLength),
-	}
-	serverKeys2 := &KeyMaterial{
-		SendCipherKey: clientKeys2.RecvCipherKey,
-		SendHMACKey:   clientKeys2.RecvHMACKey,
-		RecvCipherKey: clientKeys2.SendCipherKey,
-		RecvHMACKey:   clientKeys2.SendHMACKey,
-	}
-	client, err := NewDataChannel(clientKeys1, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err := NewDataChannel(serverKeys1, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldEncrypted, err := client.Encrypt([]byte{0x45, 0, 0, 20, 1, 2, 3, 4, 64, 6, 0, 0, 10, 8, 0, 2, 1, 1, 1, 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := server.Rekey(serverKeys2, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-		t.Fatal(err)
-	}
-	server.RetirePreviousKeys()
-	if _, err := server.Decrypt(oldEncrypted); err == nil {
-		t.Fatal("expected retired old key to reject packet")
-	}
-}
-
-func TestDataChannelKeepsOnlyImmediatePreviousReceiveKey(t *testing.T) {
-	keys1 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
-	}
-	keys2 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x55}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x66}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x77}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x88}, maxHMACKeyLength),
-	}
-	keys3 := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x99}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0xaa}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0xbb}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0xcc}, maxHMACKeyLength),
-	}
-	channel, err := NewDataChannel(keys1, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := channel.Rekey(keys2, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := channel.Rekey(keys3, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-		t.Fatal(err)
-	}
-	if channel.recvKey(0) != nil {
-		t.Fatal("expected key id 0 to be retired after two rekeys")
-	}
-	if channel.recvKey(1) == nil {
-		t.Fatal("expected key id 1 to remain as immediate previous key")
-	}
-	if channel.recvKey(2) == nil {
-		t.Fatal("expected key id 2 to be active")
-	}
-}
-
-func TestDataChannelRekeyKeyIDSkipsZeroAfterRollover(t *testing.T) {
-	keys := &KeyMaterial{
-		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
-		SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
-		RecvCipherKey: bytes.Repeat([]byte{0x33}, 16),
-		RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
-	}
-	channel, err := NewDataChannel(keys, CipherAES128GCM, AuthSHA256, 7, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wantKeyIDs := []uint8{1, 2, 3, 4, 5, 6, 7, 1}
-	for _, want := range wantKeyIDs {
-		if err := channel.Rekey(keys, CipherAES128GCM, AuthSHA256, 7, ""); err != nil {
-			t.Fatal(err)
-		}
-		encrypted, err := channel.Encrypt([]byte{0x45, 0, 0, 20})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, got := parseOpcodeKeyID(encrypted[0]); got != want {
-			t.Fatalf("unexpected data key id: got %d want %d", got, want)
-		}
-	}
-}
-
 func TestDataChannelAcceptsOutOfOrderPacketsWithinReplayWindow(t *testing.T) {
 	clientKeys := &KeyMaterial{
 		SendCipherKey: bytes.Repeat([]byte{0x11}, 16),
@@ -325,11 +76,11 @@ func TestDataChannelAcceptsOutOfOrderPacketsWithinReplayWindow(t *testing.T) {
 		RecvCipherKey: clientKeys.SendCipherKey,
 		RecvHMACKey:   clientKeys.SendHMACKey,
 	}
-	client, err := NewDataChannel(clientKeys, CipherAES128GCM, AuthSHA256, 7, "")
+	client, err := NewDataChannel(clientKeys, CipherAES128GCM, AuthSHA256, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewDataChannel(serverKeys, CipherAES128GCM, AuthSHA256, 7, "")
+	server, err := NewDataChannel(serverKeys, CipherAES128GCM, AuthSHA256, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,11 +155,11 @@ func TestDataChannelChaCha20Poly1305V2RoundTrip(t *testing.T) {
 		RecvCipherKey: clientKeys.SendCipherKey,
 		RecvHMACKey:   clientKeys.SendHMACKey,
 	}
-	client, err := NewDataChannel(clientKeys, CipherChaCha20Poly1305, AuthSHA256, 7, "")
+	client, err := NewDataChannel(clientKeys, CipherChaCha20Poly1305, AuthSHA256, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewDataChannel(serverKeys, CipherChaCha20Poly1305, AuthSHA256, 7, "")
+	server, err := NewDataChannel(serverKeys, CipherChaCha20Poly1305, AuthSHA256, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,11 +195,11 @@ func TestDataChannelAESCBCSHA1V2RoundTrip(t *testing.T) {
 		RecvCipherKey: clientKeys.SendCipherKey,
 		RecvHMACKey:   clientKeys.SendHMACKey,
 	}
-	client, err := NewDataChannel(clientKeys, CipherAES128CBC, AuthSHA1, 7, "")
+	client, err := NewDataChannel(clientKeys, CipherAES128CBC, AuthSHA1, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewDataChannel(serverKeys, CipherAES128CBC, AuthSHA1, 7, "")
+	server, err := NewDataChannel(serverKeys, CipherAES128CBC, AuthSHA1, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,5 +239,32 @@ func TestDataChannelAESCBCSHA1V2RoundTrip(t *testing.T) {
 	encrypted[headerSize+sha1.Size] ^= 0xff
 	if _, err := server.Decrypt(encrypted); err == nil {
 		t.Fatal("expected HMAC authentication failure after IV tamper")
+	}
+}
+
+func TestDataChannelStopsAtPacketIDRekeyThreshold(t *testing.T) {
+	for _, cipher := range []string{CipherAES128GCM, CipherAES128CBC, CipherChaCha20Poly1305} {
+		t.Run(cipher, func(t *testing.T) {
+			keys := &KeyMaterial{
+				SendCipherKey: bytes.Repeat([]byte{0x11}, 32),
+				SendHMACKey:   bytes.Repeat([]byte{0x22}, maxHMACKeyLength),
+				RecvCipherKey: bytes.Repeat([]byte{0x33}, 32),
+				RecvHMACKey:   bytes.Repeat([]byte{0x44}, maxHMACKeyLength),
+			}
+			channel, err := NewDataChannel(keys, cipher, AuthSHA256, 7, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			channel.sendPacketID = dataPacketIDRekeyThreshold - 1
+			if _, err := channel.Encrypt([]byte{0x45, 0, 0, 20}); err != nil {
+				t.Fatalf("final packet before rekey threshold: %v", err)
+			}
+			if _, err := channel.Encrypt([]byte{0x45, 0, 0, 20}); !errors.Is(err, errDataPacketIDExhausted) {
+				t.Fatalf("packet at rekey threshold returned %v", err)
+			}
+			if packetID := channel.sendPacketID; packetID != dataPacketIDRekeyThreshold {
+				t.Fatalf("packet ID advanced after threshold: got %#x", packetID)
+			}
+		})
 	}
 }

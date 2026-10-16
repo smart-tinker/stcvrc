@@ -1,0 +1,350 @@
+{
+  "schema": 1,
+  "checkedUtc": "2026-10-15T11:45:08.224863+00:00",
+  "pythonVersion": "3.13.13",
+  "platform": "win32",
+  "suite": "observer",
+  "modules": [
+    "test_stcvrc_observer"
+  ],
+  "testsRun": 73,
+  "passed": 73,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "pass": true,
+  "seconds": 57.939,
+  "fullOriginal55ReproducedAgainstSanitizedCopies": false,
+  "artifactInput": "not-supplied",
+  "sourceSha256": {
+    "scripts/test_stcvrc_candidate_gate.py": "6b782e7f8d525c933a2cfc20c5fe7bcc5db8a6399a01429ab36012dd4fdcd7b1",
+    "scripts/test_stcvrc_lab_stack.py": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
+    "scripts/test_stcvrc_safe_rollout.py": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
+    "scripts/test_stcvrc_ui_candidate_rollout.py": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
+    "scripts/test_stcvrc_observer_installer.py": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
+    "scripts/stcvrc_lab_stack.py": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
+    "scripts/invoke-uservm-stcvrc-desktop-autostart.py": "5d9b6108f5f9a71854f75e20e06024eff09424ef6ce7762b9c370a9422d5cd67",
+    "scripts/uservm-stcvrc-fullstack.remote.ps1": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
+    "scripts/install-stcvrc-observer-lab.ps1": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
+    "scripts/prepare-stcvrc-safe-rollout.py": "d5f04f343d3e5d5fc6fdc295bc6b574ce94c4e04fc9af287a9a7dbaa4bdebe9f",
+    "scripts/stcvrc-safe-rollout.ps1": "5ed150f0d6a7f1f72482e4c72508372a9a5bb0d6ba07fb1240ac2f99da03b8b9",
+    "scripts/stmc_yaml.py": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
+    "scripts/stcvrc_single_egress.py": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
+    "scripts/stcvrc_observer.py": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+    "scripts/preserve-stcvrc-evidence.ps1": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
+    "scripts/uservm-stcvrc-ui-autostart.remote.ps1": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
+    "scripts/uservm-stcvrc-desktop-autostart.remote.ps1": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
+    "scripts/uservm-stcvrc-safe-rollout.remote.ps1": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
+    "scripts/invoke-uservm-stcvrc-safe-rollout.py": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
+    "scripts/invoke-uservm-stcvrc-autoselect.py": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
+    "scripts/stcvrc_lab_transport.py": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
+    "scripts/stcvrc_corporate_gate.py": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
+    "scripts/stcvrc_rotation_gate.py": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
+    "scripts/test_stcvrc_observer.py": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9"
+  },
+  "outcomes": [
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_active_checks_do_not_run_each_minute",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_api_write_endpoint_rejected",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_application_order_covers_both_leaves_per_target",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_archive_copy_budget",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_archive_deadline_defers_without_marking_source_captured",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_archive_index_forgets_removed_source_and_expired_archive",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_archive_index_keeps_existing_source_after_archive_expiry",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_archive_index_keeps_retained_archive_without_source",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_auth_failure_is_not_hidden_by_decrypt_counter",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_body_content_contract_required",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_body_error_is_not_http_success",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_boot_time_estimate_drift_does_not_duplicate_native_sample",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_classification_discards_private_data",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_closed_logs_archived_once",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_completed_body_and_no_body_disclosure",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_controller_absence_is_unknown_no_active_probe",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_corrupt_checkpoint_does_not_hide_gap",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_daily_traffic_limit_is_hard",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_empty_204_success",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_endpoint_attribution_never_records_endpoint",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_failed_archive_is_not_published_as_complete",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_fresh_specific_health_not_general_alive",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_freshness_clock_is_taken_after_api_read",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_hardlinked_source_is_rejected",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_host_record_exists_when_config_is_missing",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_incremental_log_no_duplicates",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_init_refuses_existing_unowned_data",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_invalid_pending_does_not_discard_evidence",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_kill_after_reservation_does_not_reset_budget",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_listener_collision",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_missing_owner_config_does_not_fall_back_to_appdata",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_new_core_link_error_keeps_specific_auth_and_keepalive_cause",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_new_core_link_errors_are_not_claimed_as_reconnects",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_no_event_for_ordinary_user_traffic",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_nonzero_cumulative_counter_is_still_statistics",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_only_known_names_persist",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_open_writer_is_not_archived",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_openai_unauthenticated_response_has_a_body_contract",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_openai_wrong_status_is_not_a_pass",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_optional_api_failures_do_not_disable_application_checks",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_owner_config_used_without_disclosing_paths_or_secret",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_partial_line_is_not_consumed",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_partial_record_repaired",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_physical_gateway_excludes_tun_and_uses_combined_metric",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_profile_is_scoped_and_idempotent",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_real_decrypt_error_is_retained_beside_counter",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_reconnect_is_not_hidden_by_decrypt_counter",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_reconnect_scan_counts_once_and_preserves_counter",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_recover_commit_after_append_does_not_duplicate",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_recover_commit_before_append",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_retention_budget_explicit",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_retention_only_owned_old_files",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_retention_refuses_unexpected_file",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_rotation_identity_and_truncation",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_scan_cap_and_missing_source",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_scheduled_payload_reservations_fit_daily_budget",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_scheduler_disabled_channel_remains_explicit",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_scheduler_query_is_scoped_and_output_is_numeric",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_scheduler_refuses_unknown_task_names",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_scheduler_unavailable_is_not_reported_as_no_failures",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_service_owner_layout_is_explicit_and_sid_derived",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_shutdown_requires_bounding_events",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_single_writer",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_sleep_requires_paired_bounding_evidence",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_slow_component_leaves_time_to_commit_unknowns",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_stale_missing_and_clock_future",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_stale_partial_archive_is_rebuilt_not_published",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_three_log_roots_archive_old_files_with_one_limit",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_three_log_roots_share_budget_and_keep_all_cursors",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_unsupported_curl_never_downloads",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_windows_file_version_is_read_without_execution",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_wrong_marker",
+      "outcome": "PASS"
+    },
+    {
+      "test": "test_stcvrc_observer.ObserverTests.test_zero_decrypt_counter_is_not_decrypt_failure",
+      "outcome": "PASS"
+    }
+  ],
+  "scope": "local Python unit/fixture and extracted PowerShell AST checks; artifacts read only for SHA-256",
+  "remoteCommands": 0,
+  "vmGate": "NOT_RUN",
+  "homeReady": false,
+  "notAccepted": [
+    "candidate TUN/recovery",
+    "atomic observer/UI/core restoration",
+    "Work host rollout",
+    "VM integration/reboot/cleanup",
+    "Home/Work readiness"
+  ]
+}

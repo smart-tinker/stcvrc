@@ -1,0 +1,16 @@
+TUN_SELECTOR_WATCH_OBSERVATION {"recoveryLockAvailable": true, "selector": "4VPS", "firstWriteSerialized": false, "laterRejected": false, "puts": 2, "firstReachedIo": true}
+test_watch_completed_between_leaves_blocks_later_selector_write (test_stcvrc_tun_gate.CandidateTunTests.test_watch_completed_between_leaves_blocks_later_selector_write) ... FAIL
+
+======================================================================
+FAIL: test_watch_completed_between_leaves_blocks_later_selector_write (test_stcvrc_tun_gate.CandidateTunTests.test_watch_completed_between_leaves_blocks_later_selector_write)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<review-root>\scripts\test_stcvrc_tun_gate.py", line 117, in test_watch_completed_between_leaves_blocks_later_selector_write
+    self.assertEqual(observed['puts'],1,observed)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 1 : {'recoveryLockAvailable': True, 'selector': '4VPS', 'firstWriteSerialized': False, 'laterRejected': False, 'puts': 2, 'firstReachedIo': True}
+
+----------------------------------------------------------------------
+Ran 1 test in 0.573s
+
+FAILED (failures=1)

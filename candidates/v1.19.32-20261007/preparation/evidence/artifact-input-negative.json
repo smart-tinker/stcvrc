@@ -1,0 +1,8 @@
+{
+  "exitCode": 1,
+  "expectedFailureObserved": true,
+  "testCount": 1,
+  "skipped": 0,
+  "reason": "Explicit artifact root missing pinned files fails, never skips",
+  "test": "test_stcvrc_candidate_gate.CandidateTransactionTests.test_candidate_pins_exact_258_artifacts"
+}

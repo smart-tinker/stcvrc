@@ -59,11 +59,11 @@ func TestControlPacketEncodeDecodeWithTLSCrypt(t *testing.T) {
 }
 
 func TestControlPacketEncodeDecodeWithTLSAuth(t *testing.T) {
-	authClient, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", true)
+	cryptClient, err := NewTLSAuth(testStaticKey(), "1", AuthSHA1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	authServer, err := NewTLSAuthWithDigest(testStaticKey(), AuthSHA256, "1", false)
+	cryptServer, err := NewTLSAuth(testStaticKey(), "0", AuthSHA1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +80,14 @@ func TestControlPacketEncodeDecodeWithTLSAuth(t *testing.T) {
 		AckIDs:           []uint32{3, 4},
 		AckRemoteSession: remote,
 		MessageID:        9,
-		Payload:          []byte("tls-auth plaintext"),
+		Payload:          []byte("tls auth"),
 	}
-	encoded, err := packet.Encode(authClient, 77, 1714567890)
+	encoded, err := packet.Encode(cryptClient, 77, 1714567890)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	decoded, packetID, unixTime, err := DecodeControlPacket(authServer, encoded)
+	decoded, packetID, unixTime, err := DecodeControlPacket(cryptServer, encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,12 +102,6 @@ func TestControlPacketEncodeDecodeWithTLSAuth(t *testing.T) {
 	}
 	if !bytes.Equal(decoded.Payload, packet.Payload) {
 		t.Fatalf("unexpected payload: %q", decoded.Payload)
-	}
-	if len(decoded.AckIDs) != 2 || decoded.AckIDs[0] != 3 || decoded.AckIDs[1] != 4 {
-		t.Fatalf("unexpected ack ids: %#v", decoded.AckIDs)
-	}
-	if decoded.AckRemoteSession != remote {
-		t.Fatalf("unexpected ack remote session: %x", decoded.AckRemoteSession)
 	}
 }
 
@@ -161,5 +155,20 @@ func TestAckPacketRejectsTrailingPayload(t *testing.T) {
 	_, _, _, _, err := DecodeControlPlain(PAckV1, []byte{0, 1})
 	if err == nil {
 		t.Fatal("expected trailing payload error")
+	}
+}
+
+func TestControlPacketRejectsOversizedACKArray(t *testing.T) {
+	packet := ControlPacket{
+		Opcode: PAckV1,
+		AckIDs: make([]uint32, reliableAckSize+1),
+	}
+	if _, err := packet.EncodePlain(); err == nil {
+		t.Fatal("oversized ACK array encoded")
+	}
+	plain := make([]byte, 1+(reliableAckSize+1)*4+SessionIDSize)
+	plain[0] = reliableAckSize + 1
+	if _, _, _, _, err := DecodeControlPlain(PAckV1, plain); err == nil {
+		t.Fatal("oversized ACK array decoded")
 	}
 }

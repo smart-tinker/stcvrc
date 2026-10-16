@@ -1,0 +1,105 @@
+{
+  "checkedUtc": "2026-10-15T11:43:52.447636+00:00",
+  "sourceSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
+  "workBudgetSeconds": 35,
+  "finalizeReserveSeconds": 10,
+  "hostViewSeconds": [
+    25.251,
+    1.693
+  ],
+  "bodyProbeCallCount": 0,
+  "expectedBodyProbeCallCount": 6,
+  "first": {
+    "durationMs": 25313,
+    "components": {
+      "host": "ok",
+      "controller": "ok",
+      "providers": "ok",
+      "version": "ok",
+      "binaries": "deadline",
+      "logs": "deadline",
+      "archive": "deadline",
+      "power": "deadline",
+      "scheduler": "deadline",
+      "gateway": "deadline"
+    },
+    "stageDurationMs": {},
+    "applicationMode": "forced-leaves",
+    "application": [
+      {
+        "leaf": "4VPS",
+        "target": "google-204",
+        "errorClass": "budget-or-deadline",
+        "success": null
+      },
+      {
+        "leaf": "GC",
+        "target": "google-204",
+        "errorClass": "budget-or-deadline",
+        "success": null
+      },
+      {
+        "leaf": "4VPS",
+        "target": "control-body",
+        "errorClass": "budget-or-deadline",
+        "success": null
+      },
+      {
+        "leaf": "GC",
+        "target": "control-body",
+        "errorClass": "budget-or-deadline",
+        "success": null
+      },
+      {
+        "leaf": "4VPS",
+        "target": "openai-unauthenticated",
+        "errorClass": "budget-or-deadline",
+        "success": null
+      },
+      {
+        "leaf": "GC",
+        "target": "openai-unauthenticated",
+        "errorClass": "budget-or-deadline",
+        "success": null
+      }
+    ],
+    "traffic": {
+      "day": "2026-10-15",
+      "reservedBodyBytes": 0,
+      "limitBodyBytes": 16777216,
+      "transportOverheadMeasured": false
+    }
+  },
+  "second": {
+    "durationMs": 1829,
+    "components": {
+      "host": "ok",
+      "controller": "ok",
+      "providers": "ok",
+      "version": "ok",
+      "binaries": "ok",
+      "logs": "ok",
+      "archive": "ok",
+      "power": "ok",
+      "scheduler": "ok",
+      "gateway": "ok"
+    },
+    "stageDurationMs": {
+      "binaries": 0,
+      "logs": 5,
+      "archive": 5,
+      "power": 1,
+      "scheduler": 0,
+      "gateway": 0
+    },
+    "applicationMode": "forced-leaves",
+    "application": [],
+    "traffic": {
+      "day": "2026-10-15",
+      "reservedBodyBytes": 0,
+      "limitBodyBytes": 16777216,
+      "transportOverheadMeasured": false
+    }
+  },
+  "scope": "Read-only local host enumeration; synthetic app/API/body probes; no deployment or remote commands"
+}

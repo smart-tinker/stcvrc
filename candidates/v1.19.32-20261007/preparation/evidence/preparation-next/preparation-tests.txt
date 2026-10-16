@@ -1,0 +1,114 @@
+test_candidate_pins_exact_258_artifacts (test_stcvrc_candidate_gate.CandidateTransactionTests.test_candidate_pins_exact_258_artifacts) ... ok
+test_home_rollback_uses_current_approved_owner_runtime_and_exact_pair (test_stcvrc_candidate_gate.CandidateTransactionTests.test_home_rollback_uses_current_approved_owner_runtime_and_exact_pair) ... {"stage": "ui-system-transaction"}
+ok
+test_invalid_cli_pairs_and_mixed_gates_fail_before_remote_setup (test_stcvrc_candidate_gate.CandidateTransactionTests.test_invalid_cli_pairs_and_mixed_gates_fail_before_remote_setup) ... ok
+test_observer_installer_accepts_only_reviewed_owner_versions (test_stcvrc_candidate_gate.CandidateTransactionTests.test_observer_installer_accepts_only_reviewed_owner_versions) ... ok
+test_post_rollback_readback_accepts_only_actual_source_core (test_stcvrc_candidate_gate.CandidateTransactionTests.test_post_rollback_readback_accepts_only_actual_source_core) ... ok
+test_work_rollback_preserves_legacy_source_and_exact_target (test_stcvrc_candidate_gate.CandidateTransactionTests.test_work_rollback_preserves_legacy_source_and_exact_target) ... {"stage": "ui-system-transaction"}
+ok
+test_approved_core_is_registered_and_read_back (test_stcvrc_lab_stack.StackTests.test_approved_core_is_registered_and_read_back) ... ok
+test_corporate_baseline_changes_only_the_core (test_stcvrc_lab_stack.StackTests.test_corporate_baseline_changes_only_the_core) ... ok
+test_desktop_acceptance_cannot_hide_failure_or_missing_evidence (test_stcvrc_lab_stack.StackTests.test_desktop_acceptance_cannot_hide_failure_or_missing_evidence) ... ok
+test_inventory_keeps_raw_instances_but_compares_templates (test_stcvrc_lab_stack.StackTests.test_inventory_keeps_raw_instances_but_compares_templates) ... ok
+test_inventory_requires_matching_collection_context (test_stcvrc_lab_stack.StackTests.test_inventory_requires_matching_collection_context) ... ok
+test_native_identity_rejects_false_new_sample_and_unstable_epoch (test_stcvrc_lab_stack.StackTests.test_native_identity_rejects_false_new_sample_and_unstable_epoch) ... ok
+test_native_identity_requires_repeated_samples_for_both_leaves (test_stcvrc_lab_stack.StackTests.test_native_identity_requires_repeated_samples_for_both_leaves) ... ok
+test_next_layout_and_device_prefix (test_stcvrc_lab_stack.StackTests.test_next_layout_and_device_prefix) ... ok
+test_pinned_pairs_and_safe_names (test_stcvrc_lab_stack.StackTests.test_pinned_pairs_and_safe_names) ... ok
+test_prelogin_observer_requires_current_boot_trigger_without_desktop (test_stcvrc_lab_stack.StackTests.test_prelogin_observer_requires_current_boot_trigger_without_desktop) ... ok
+test_programdata_requires_explicit_preservation (test_stcvrc_lab_stack.StackTests.test_programdata_requires_explicit_preservation) ... ok
+test_real_logon_verification_does_not_launch_ui (test_stcvrc_lab_stack.StackTests.test_real_logon_verification_does_not_launch_ui) ... ok
+test_unknown_stack_fails_closed (test_stcvrc_lab_stack.StackTests.test_unknown_stack_fails_closed) ... ok
+test_approved_core_registered_in_both_directions_before_service_start (test_stcvrc_safe_rollout.SafeRolloutTest.test_approved_core_registered_in_both_directions_before_service_start) ... ok
+test_approved_core_uses_official_helper_and_verifies_result (test_stcvrc_safe_rollout.SafeRolloutTest.test_approved_core_uses_official_helper_and_verifies_result) ... ok
+test_completed_watchdog_serializes_task_cleanup (test_stcvrc_safe_rollout.SafeRolloutTest.test_completed_watchdog_serializes_task_cleanup) ... ok
+test_config_rollback_readback_uses_the_actual_starting_stack (test_stcvrc_safe_rollout.SafeRolloutTest.test_config_rollback_readback_uses_the_actual_starting_stack) ... ok
+test_confirmation_requires_consumer_and_deadline (test_stcvrc_safe_rollout.SafeRolloutTest.test_confirmation_requires_consumer_and_deadline) ... ok
+test_core_rollback_replays_changed_manual_selector (test_stcvrc_safe_rollout.SafeRolloutTest.test_core_rollback_replays_changed_manual_selector) ... ok
+test_history_hook_fails_closed_and_checks_pinned_helper (test_stcvrc_safe_rollout.SafeRolloutTest.test_history_hook_fails_closed_and_checks_pinned_helper) ... ok
+test_history_required_before_runtime_or_deadline_mutation (test_stcvrc_safe_rollout.SafeRolloutTest.test_history_required_before_runtime_or_deadline_mutation) ... ok
+test_http_retry_is_bounded_and_preserves_first_failure (test_stcvrc_safe_rollout.SafeRolloutTest.test_http_retry_is_bounded_and_preserves_first_failure) ... ok
+test_launch_is_scheduler_owned (test_stcvrc_safe_rollout.SafeRolloutTest.test_launch_is_scheduler_owned) ... ok
+test_metadata_only_foreign_pins_removed (test_stcvrc_safe_rollout.SafeRolloutTest.test_metadata_only_foreign_pins_removed) ... ok
+test_provider_repair_captures_foreign_and_unrelated_selectors (test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_captures_foreign_and_unrelated_selectors) ... ok
+test_provider_repair_does_not_reset_foreign_selection (test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_does_not_reset_foreign_selection) ... ok
+test_provider_repair_lab_never_copies_corporate_vpn (test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_lab_never_copies_corporate_vpn) ... ok
+test_provider_repair_requires_reviewed_topology_and_two_references (test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_requires_reviewed_topology_and_two_references) ... ok
+test_provider_repair_stages_only_two_files_and_preserves_registry_bytes (test_stcvrc_safe_rollout.SafeRolloutTest.test_provider_repair_stages_only_two_files_and_preserves_registry_bytes) ... ok
+test_recovery_does_not_require_intact_candidate (test_stcvrc_safe_rollout.SafeRolloutTest.test_recovery_does_not_require_intact_candidate) ... ok
+test_rejected_lab_baseline_does_not_authorize_full_cleanup (test_stcvrc_safe_rollout.SafeRolloutTest.test_rejected_lab_baseline_does_not_authorize_full_cleanup) ... ok
+test_ui_expectations_only_add_owner_pipe_and_disabled_dns_preference (test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_expectations_only_add_owner_pipe_and_disabled_dns_preference) ... ok
+test_ui_migration_has_preservation_and_guarded_selector_restore (test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_migration_has_preservation_and_guarded_selector_restore) ... ok
+test_ui_migration_installer_bound_and_arguments (test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_migration_installer_bound_and_arguments) ... ok
+test_ui_migration_only_updates_implicit_tun_ipv6_default (test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_migration_only_updates_implicit_tun_ipv6_default) ... ok
+test_ui_serialization_requires_pinned_semantic_comparison (test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_serialization_requires_pinned_semantic_comparison) ... ok
+test_ui_system_transaction_uses_existing_guard_and_owner_task (test_stcvrc_safe_rollout.SafeRolloutTest.test_ui_system_transaction_uses_existing_guard_and_owner_task) ... ok
+test_watchdog_armed_before_runtime_mutation (test_stcvrc_safe_rollout.SafeRolloutTest.test_watchdog_armed_before_runtime_mutation) ... ok
+test_downgrade_restores_home_approved_service_not_legacy_work_layout (test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_downgrade_restores_home_approved_service_not_legacy_work_layout) ... ok
+test_home_preflight_starts_from_approved_service_layout (test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_home_preflight_starts_from_approved_service_layout) ... ok
+test_home_runtime_checkpoint_is_before_for_preflight_and_rollback (test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_home_runtime_checkpoint_is_before_for_preflight_and_rollback) ... ok
+test_home_upgrade_uses_actual_owner_runtime_and_restores_approved_generation (test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_home_upgrade_uses_actual_owner_runtime_and_restores_approved_generation) ... ok
+test_transaction_guard_accepts_only_reviewed_ui_pairs_and_layouts (test_stcvrc_ui_candidate_rollout.CandidateUiTests.test_transaction_guard_accepts_only_reviewed_ui_pairs_and_layouts) ... ok
+test_input_checks_before_install_and_protected_copy_before_task (test_stcvrc_observer_installer.ObserverInstallerTest.test_input_checks_before_install_and_protected_copy_before_task) ... ok
+test_one_boot_minute_task_no_wake_no_runtime_control (test_stcvrc_observer_installer.ObserverInstallerTest.test_one_boot_minute_task_no_wake_no_runtime_control) ... ok
+test_production_acceptance_is_guarded_uservm_only_and_restores_history (test_stcvrc_observer_installer.ObserverInstallerTest.test_production_acceptance_is_guarded_uservm_only_and_restores_history) ... ok
+test_production_resource_sample_is_bounded_and_not_zero_on_missing_worker (test_stcvrc_observer_installer.ObserverInstallerTest.test_production_resource_sample_is_bounded_and_not_zero_on_missing_worker) ... ok
+test_remove_task_preserves_history_and_requires_ownership (test_stcvrc_observer_installer.ObserverInstallerTest.test_remove_task_preserves_history_and_requires_ownership) ... ok
+test_scopes_and_rejected_targets (test_stcvrc_observer_installer.ObserverInstallerTest.test_scopes_and_rejected_targets) ... ok
+test_consumer_confirmation_remains_required (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_consumer_confirmation_remains_required) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:33:22.8528276Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 0, "healthLockWasAvailable": false, "now": "2026-10-15T15:32:22.8528276Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "A fresh real consumer exchange must be confirmed explicitly", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_final_fifteen_second_reserve_is_exclusive (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_final_fifteen_second_reserve_is_exclusive) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:56.6267884Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:42.6267884Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:57.3945307Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:42.3945307Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:58.1559077Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:42.1559077Z", "phase": "committed", "phaseAfterConfirm": "committed", "reason": null, "rejected": false, "watchRestores": 0, "watchStops": 0}
+ok
+test_health_check_crossing_deadline_cannot_commit_or_remove_guard (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_health_check_crossing_deadline_cannot_commit_or_remove_guard) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:41.9365322Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:43.9365322Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_health_failure_keeps_guard (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_health_failure_keeps_guard) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:33:26.6960864Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:44.6960864Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Fixture health check failure", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_healthy_confirm_with_enough_time_commits (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_healthy_confirm_with_enough_time_commits) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:33:27.5746511Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:45.5746511Z", "phase": "committed", "phaseAfterConfirm": "committed", "reason": null, "rejected": false, "watchRestores": 0, "watchStops": 0}
+ok
+test_immediate_health_with_sixteen_seconds_left_can_commit (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_immediate_health_with_sixteen_seconds_left_can_commit) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:44.7081944Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:28.7081944Z", "phase": "committed", "phaseAfterConfirm": "committed", "reason": null, "rejected": false, "watchRestores": 0, "watchStops": 0}
+ok
+test_initial_deadline_reserve_rejects_without_health (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_initial_deadline_reserve_rejects_without_health) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:44.8295840Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 0, "healthLockWasAvailable": false, "now": "2026-10-15T15:32:29.8295840Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_late_rejection_keeps_actual_watch_recovery_available (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_late_rejection_keeps_actual_watch_recovery_available) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:46.8545827Z", "guardActive": false, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:48.8545827Z", "phase": "rolled-back", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 1, "watchStops": 1}
+ok
+test_one_second_health_reaching_exact_reserve_cannot_commit (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_one_second_health_reaching_exact_reserve_cannot_commit) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:32:47.8512172Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:32.8512172Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Confirmation too close to rollback deadline", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_rearmed_or_changed_plan_during_health_cannot_commit (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_rearmed_or_changed_plan_during_health_cannot_commit) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:33:32.7752143Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:50.7752143Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Armed transaction changed during confirmation", "rejected": true, "watchRestores": 0, "watchStops": 0}
+CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:33:33.6092082Z", "guardActive": true, "guardAfterConfirm": true, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:51.6092082Z", "phase": "awaiting-confirmation", "phaseAfterConfirm": "awaiting-confirmation", "reason": "Armed plan drift", "rejected": true, "watchRestores": 0, "watchStops": 0}
+ok
+test_watch_rollback_during_health_cannot_be_overwritten_by_confirm (test_stcvrc_confirm_deadline.ConfirmDeadlineTest.test_watch_rollback_during_health_cannot_be_overwritten_by_confirm) ... CONFIRM_DEADLINE_OBSERVATION {"deadline": "2026-10-15T15:33:34.4742596Z", "guardActive": false, "guardAfterConfirm": false, "healthCalls": 2, "healthLockWasAvailable": true, "now": "2026-10-15T15:32:52.4742596Z", "phase": "rolled-back", "phaseAfterConfirm": "rolled-back", "reason": "Candidate is no longer awaiting confirmation", "rejected": true, "watchRestores": 1, "watchStops": 1}
+ok
+test_exact_candidate_pair_is_admitted_without_opening_other_ui_versions (test_stcvrc_tun_gate.CandidateTunTests.test_exact_candidate_pair_is_admitted_without_opening_other_ui_versions) ... ok
+test_guard_rechecks_live_system_identity_boot_and_exact_watch_action (test_stcvrc_tun_gate.CandidateTunTests.test_guard_rechecks_live_system_identity_boot_and_exact_watch_action) ... ok
+test_live_runtime_must_match_pinned_candidate_or_original_generation (test_stcvrc_tun_gate.CandidateTunTests.test_live_runtime_must_match_pinned_candidate_or_original_generation) ... ok
+test_probe_rechecks_guard_after_baseline_before_tun_patch (test_stcvrc_tun_gate.CandidateTunTests.test_probe_rechecks_guard_after_baseline_before_tun_patch) ... ok
+test_recovery_is_bound_to_successful_fresh_probe_plan_dns_and_rollback (test_stcvrc_tun_gate.CandidateTunTests.test_recovery_is_bound_to_successful_fresh_probe_plan_dns_and_rollback) ... ok
+test_watch_completed_between_leaves_blocks_later_selector_write (test_stcvrc_tun_gate.CandidateTunTests.test_watch_completed_between_leaves_blocks_later_selector_write) ... TUN_SELECTOR_WATCH_OBSERVATION {"recoveryLockAvailable": true, "selector": "VPS-POOL", "firstWriteSerialized": true, "laterRejected": true, "puts": 1, "firstReachedIo": true}
+ok
+test_atomic_cleanup_archives_before_remove_and_reads_back_exact_absence (test_stcvrc_tun_gate.TunGateTests.test_atomic_cleanup_archives_before_remove_and_reads_back_exact_absence) ... ok
+test_atomic_health_requires_completed_fresh_candidate_observer_row (test_stcvrc_tun_gate.TunGateTests.test_atomic_health_requires_completed_fresh_candidate_observer_row) ... ok
+test_atomic_observer_baseline_rejects_existing_root_task_or_worker (test_stcvrc_tun_gate.TunGateTests.test_atomic_observer_baseline_rejects_existing_root_task_or_worker) ... ok
+test_atomic_observer_can_only_join_exact_candidate_transaction (test_stcvrc_tun_gate.TunGateTests.test_atomic_observer_can_only_join_exact_candidate_transaction) ... ok
+test_harness_allows_candidate_tun_but_not_unreviewed_combinations (test_stcvrc_tun_gate.TunGateTests.test_harness_allows_candidate_tun_but_not_unreviewed_combinations) ... ok
+test_harness_uses_existing_timer_without_confirm_or_repeat (test_stcvrc_tun_gate.TunGateTests.test_harness_uses_existing_timer_without_confirm_or_repeat) ... ok
+test_outer_cleanup_does_not_race_unconfirmed_system_recovery (test_stcvrc_tun_gate.TunGateTests.test_outer_cleanup_does_not_race_unconfirmed_system_recovery) ... ok
+test_transaction_staging_includes_nested_observer_payload (test_stcvrc_tun_gate.TunGateTests.test_transaction_staging_includes_nested_observer_payload) ... ok
+test_transient_guarded_lab_scope (test_stcvrc_tun_gate.TunGateTests.test_transient_guarded_lab_scope) ... ok
+test_absence_is_explicit_and_payload_drift_never_stages (test_stcvrc_observer_transaction.ObserverTransactionTest.test_absence_is_explicit_and_payload_drift_never_stages) ... ok
+test_absent_baseline_removes_candidate_task_and_payload_not_new_history (test_stcvrc_observer_transaction.ObserverTransactionTest.test_absent_baseline_removes_candidate_task_and_payload_not_new_history) ... ok
+test_common_ui_core_rollback_cannot_finish_before_observer_restore (test_stcvrc_observer_transaction.ObserverTransactionTest.test_common_ui_core_rollback_cannot_finish_before_observer_restore) ... ok
+test_disabled_or_unbounded_observer_task_baseline_is_rejected (test_stcvrc_observer_transaction.ObserverTransactionTest.test_disabled_or_unbounded_observer_task_baseline_is_rejected) ... ok
+test_existing_observer_payload_and_task_are_both_pinned (test_stcvrc_observer_transaction.ObserverTransactionTest.test_existing_observer_payload_and_task_are_both_pinned) ... ok
+test_foreign_payload_or_task_configuration_never_stages (test_stcvrc_observer_transaction.ObserverTransactionTest.test_foreign_payload_or_task_configuration_never_stages) ... ok
+test_live_schedule_and_protected_root_acl_are_read_back (test_stcvrc_observer_transaction.ObserverTransactionTest.test_live_schedule_and_protected_root_acl_are_read_back) ... ok
+test_observer_appearance_during_ui_upgrade_is_rejected_before_writes (test_stcvrc_observer_transaction.ObserverTransactionTest.test_observer_appearance_during_ui_upgrade_is_rejected_before_writes) ... ok
+test_observer_backup_or_task_failure_cannot_block_core_recovery (test_stcvrc_observer_transaction.ObserverTransactionTest.test_observer_backup_or_task_failure_cannot_block_core_recovery) ... ok
+test_observer_health_needs_completed_task_and_fresh_matching_row (test_stcvrc_observer_transaction.ObserverTransactionTest.test_observer_health_needs_completed_task_and_fresh_matching_row) ... ok
+test_partial_observer_update_restores_payload_task_but_not_history (test_stcvrc_observer_transaction.ObserverTransactionTest.test_partial_observer_update_restores_payload_task_but_not_history) ... ok
+
+----------------------------------------------------------------------
+Ran 92 tests in 37.980s
+
+OK

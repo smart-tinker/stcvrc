@@ -1,0 +1,39 @@
+{
+  "checkedUtc": "2026-10-15T11:35:09.631909+00:00",
+  "sourceCommit": "3d0127d8cc24a6d6c10f7063dad4e0fd97565432",
+  "sourceTree": "f5541fdebd99b877619656e54a16f1b3c8a20d03",
+  "goVersion": "go1.26.5 windows/amd64",
+  "command": "go test -json -v -tags with_gvisor -count=1 -timeout=90s ./transport/openvpn -run '^TestInitialHandshakeRetriesDeferredPush$'",
+  "environment": {
+    "GOTOOLCHAIN": "local",
+    "GOPROXY": "off",
+    "GOSUMDB": "off",
+    "GOTELEMETRY": "off"
+  },
+  "tests": [
+    {
+      "name": "TestInitialHandshakeRetriesDeferredPush/silent",
+      "elapsedSeconds": 1.01,
+      "result": "PASS"
+    },
+    {
+      "name": "TestInitialHandshakeRetriesDeferredPush/auth-pending",
+      "elapsedSeconds": 1,
+      "result": "PASS"
+    },
+    {
+      "name": "TestInitialHandshakeRetriesDeferredPush/continuation",
+      "elapsedSeconds": 1.5,
+      "result": "PASS"
+    },
+    {
+      "name": "TestInitialHandshakeRetriesDeferredPush",
+      "elapsedSeconds": 3.51,
+      "result": "PASS"
+    }
+  ],
+  "packageElapsedSeconds": 5.639,
+  "exitCode": 0,
+  "log": "push-retry.jsonl",
+  "scope": "local in-memory/mock handshake only; no VM, VPN server, host changes or installation"
+}
