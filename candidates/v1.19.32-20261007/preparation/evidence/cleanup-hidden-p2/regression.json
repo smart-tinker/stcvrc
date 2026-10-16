@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "checkedUtc": "2026-10-16T05:08:13.268747+00:00",
+  "baseCommit": "e599d4b2411b76387157eb322a8183da9b93cfa9",
+  "finding": "P2 Hidden archive omission before observer cleanup",
+  "strategy": "reject Hidden root/files/directories before archive and again before delete",
+  "red": {
+    "checkedUtc": "2026-10-16T05:04:38.835935+00:00",
+    "scope": "local real Windows PowerShell fixture only; no VM/runtime/publication",
+    "testsRun": 6,
+    "failures": 6,
+    "errors": 0,
+    "skipped": 0,
+    "failedNames": [
+      "test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_data_directory_hidden_after_archive_blocks_deletion",
+      "test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_data_file_hidden_after_archive_blocks_deletion",
+      "test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_data_directory_blocks_cleanup",
+      "test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_data_file_blocks_cleanup",
+      "test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_hidden_root_blocks_cleanup",
+      "test_stcvrc_atomic_observer_cleanup.AtomicObserverCleanupTest.test_root_hidden_after_archive_blocks_deletion"
+    ],
+    "sourceSha256": "c2a9740b5d36b29f2a4cbf20c5a94e3572cf3e77020a37e0dc03b8c08bf3f3b2",
+    "testsSha256": "c65444c3941d0933ea9f329c12e8bac7243c925400db89ed6b7208ed10b6b6d6"
+  },
+  "green": {
+    "checkedUtc": "2026-10-16T05:05:48.356841+00:00",
+    "scope": "local real Windows PowerShell fixture only; no VM/runtime/publication",
+    "python": "3.13.13 (tags/v3.13.13:01104ce, Apr  7 2026, 19:25:48) [MSC v.1944 64 bit (AMD64)]",
+    "testsRun": 19,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "sourceSha256": "9d135e5739118a8651543dee12004661dc27d7c7427497693b70109d216d91a6",
+    "testsSha256": "c65444c3941d0933ea9f329c12e8bac7243c925400db89ed6b7208ed10b6b6d6"
+  },
+  "powershellVersion": "5.1.26100.9549",
+  "publicRerun": "NOT_RUN",
+  "fullPreparationRunner": "NOT_RUN",
+  "vmRun": "NOT_RUN",
+  "publication": "REVIEW_SOURCE_ONLY",
+  "patchCheck": "PASS against pinned public copy, line endings preserved",
+  "maps": [
+    {
+      "path": "preparation/scripts/invoke-uservm-stcvrc-desktop-autostart.py",
+      "originalBeforeSha256": "c2a9740b5d36b29f2a4cbf20c5a94e3572cf3e77020a37e0dc03b8c08bf3f3b2",
+      "originalAfterSha256": "9d135e5739118a8651543dee12004661dc27d7c7427497693b70109d216d91a6",
+      "publishedBaseSha256": "4b719bd7734ae41e23a03a608ad9c909a9f06dbc405f706a57d0ab7470dfad7e",
+      "proposedPublicAfterSha256": "fdb4b09041011ef4548269f3170ea13a8a6140b8e04ac111bc8bc8ec5e8bb91b",
+      "change": "insertion only; no identity substitutions changed"
+    },
+    {
+      "path": "preparation/scripts/test_stcvrc_atomic_observer_cleanup.py",
+      "originalBeforeSha256": "f40f2cc7f311f440267d0f225e81db16131b01c819d7ce3e6879e1388ec88898",
+      "originalAfterSha256": "c65444c3941d0933ea9f329c12e8bac7243c925400db89ed6b7208ed10b6b6d6",
+      "publishedBaseSha256": "4537ce910056fdb2620cc9d0ef41354cecb08043e74c872e29d77c70c456ae5b",
+      "proposedPublicAfterSha256": "318cd9f1548bd4a586860438530d9cac1c4070184f250f3c09e848ad1f806684",
+      "change": "insertion only; no identity substitutions changed"
+    }
+  ],
+  "rawLogSha256": {
+    "red.log": "15d5c2f769ff43940e96cc66017e99b3e7e45c9239c5e933054d4b9b7c0ad0b7",
+    "green.log": "ac55cc504ef4fc3036816fa148e3ae933471f768e3c72981a3e20c6881e08b27"
+  },
+  "artifactsSha256": {
+    "green.log": "f6d9e7137ae262d32802094199f4704e7823ec8c9bc5a65ff4acc3edf566e468",
+    "README.md": "528d50c741f19d33a43ad24f10d34659a8d402274aa40726b20ce1a7bc2629eb",
+    "red.log": "4f0770704af71911279f97b57a6e50b4295c612327db694a91e05215475cbcd5",
+    "review.patch": "b60deed6dcbd48b92a67d815f1db4b91274e9e78c0d10a71ef1f14588bcdf035"
+  },
+  "savedRegressionSha256": "95368e45242871ded248440c6e71bc4f86201d81ac830e386d5f65668675d193",
+  "scope": "Two P2 sources/evidence; no XML/163/full runner/public execution/VM/runtime acceptance",
+  "historical145AtCommit": "e599d4b2411b76387157eb322a8183da9b93cfa9"
+}

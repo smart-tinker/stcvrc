@@ -312,6 +312,8 @@ if(Test-Path -LiteralPath $root){
  $ancestor=$root;while($ancestor){if((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Observer reparse ancestor'};$ancestor=Split-Path -Parent $ancestor}
  $items=@(Get-ChildItem -LiteralPath $root -Recurse -Force)
  if($items|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Observer cleanup reparse'}
+ # Compress-Archive skips Hidden items; retain originals instead of deleting unarchived history.
+ if(((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::Hidden) -or ($items|Where-Object {$_.Attributes -band [IO.FileAttributes]::Hidden})){throw 'Observer cleanup hidden content'}
  foreach($name in @('.stcvrc-observer','.stcvrc-transaction','.stcvrc-claim.json')){if(-not (Test-Path -LiteralPath (Join-Path $root $name) -PathType Leaf)){throw 'Observer cleanup claim missing'}}
  if([IO.File]::ReadAllText(($root+'\.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Observer cleanup marker mismatch'}
  if([IO.File]::ReadAllText(($root+'\.stcvrc-transaction')) -cne $tx){throw 'Observer cleanup transaction marker mismatch'}

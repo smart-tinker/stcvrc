@@ -262,7 +262,7 @@
     "runtimeAccepted": false,
     "homeReady": false,
     "workReady": false,
-    "publication": "NOT_STARTED",
+    "publication": "PUBLISHED_AT_BASE_COMMIT",
     "vmAttempts": [
       {
         "runId": "20261016-034522",
@@ -304,6 +304,24 @@
       "originalGuardSha256": "7176b3e3b88f9a4dab50c053e92c15746f4041cef610f6e34b2da33c4a3b17bd",
       "change": "Native Scheduler XML schema-default recovery follow-up",
       "includedInThisSnapshot": false
-    }
+    },
+    "testedAtCommit": "e599d4b2411b76387157eb322a8183da9b93cfa9",
+    "currentP2SourcesCovered": false
+  },
+  "cleanupHiddenReview": {
+    "baseCommit": "e599d4b2411b76387157eb322a8183da9b93cfa9",
+    "report": "preparation/evidence/cleanup-hidden-p2/regression.json",
+    "sourceMaps": 2,
+    "savedOriginalTestsRun": 19,
+    "savedOriginalPassed": 19,
+    "originalCheckedUtc": "2026-10-16T05:05:48.356841+00:00",
+    "publicReexecution": "NOT_RUN",
+    "fullPreparationRunner": "NOT_RUN",
+    "vmRun": "NOT_RUN",
+    "overview": "preparation/evidence/cleanup-hidden-p2/README.md",
+    "runtimeAccepted": false,
+    "homeReady": false,
+    "workReady": false,
+    "independentReview": "PENDING"
   }
 }

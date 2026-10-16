@@ -1,3 +1,5 @@
+> Текущий source snapshot содержит отдельный [P2 Hidden cleanup](preparation/evidence/cleanup-hidden-p2/README.md). Ниже сохранён отчёт поколения e599d4b2; его 145 PASS не покрывают два новых P2 source bytes. Старая publication NOT_STARTED ниже — исторический pre-publication статус, не текущий head.
+
 # VM-readiness follow-up — версия с 145 PASS, не VM-ready
 
 Base: `5813dcfe958e884858e35da4acd8f2306f2f319c`. Публикация NOT_STARTED.
@@ -16,7 +18,7 @@ Canonical guard SHA-256:
 Canonical harness SHA-256:
 `c2a9740b5d36b29f2a4cbf20c5a94e3572cf3e77020a37e0dc03b8c08bf3f3b2`.
 Public bytes обезличены, original/public hashes не тождественны:
-[33 source maps](preparation/provenance.json),
+[33 source maps](https://github.com/smart-tinker/stcvrc/blob/e599d4b2411b76387157eb322a8183da9b93cfa9/candidates/v1.19.32-20261007/preparation/provenance.json),
 [15 report-source bindings](preparation/evidence/vm-readiness-followup/source-binding.json),
 [actual report](preparation/evidence/vm-readiness-followup/original-preparation-tests.json),
 [sanitized actual log](preparation/evidence/vm-readiness-followup/original-preparation-tests.txt).

@@ -200,7 +200,7 @@
  if($armed.planHash -ine (Get-FileHash -LiteralPath ($tx+'\plan.json')).Hash -or $rollback.pass -ne $true -or $rollback.observerRestored -ne $true){throw 'Observer rollback identity/result unconfirmed'}
  if(Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue){throw 'Observer task still present'}
  if(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}){throw 'Observer worker still present'}
-@@ -343,7 +343,7 @@
+@@ -345,7 +345,7 @@
  def core_rollout_gate(ui_update=False):
      print(json.dumps({'stage':'ui-system-transaction' if ui_update else 'approved-core-transaction'}),flush=True)
      snapshot=local/'core-input';(snapshot/'profiles').mkdir(parents=True)
@@ -209,7 +209,7 @@
      owner=r'C:\ProgramData\clash-verge-service\users'+'\\'+hashlib.sha256(sid.encode('ascii')).hexdigest()
      for name in ('profiles.yaml','verge.yaml'):
          download(app+'\\'+name,snapshot/name)
-@@ -366,7 +366,7 @@
+@@ -368,7 +368,7 @@
      stage=local/'core-transaction'
      target=lab+'\\transactions\\stcvrc-safe-'+stamp
      command=[sys.executable,'-B',str(PROJECT/'scripts/prepare-stcvrc-safe-rollout.py'),
@@ -218,7 +218,7 @@
          '--old-core',str(PROJECT/original_stack['core']),
          '--candidate-core',str(PROJECT/target_stack['core']),
          '--service-owner-sid',sid,
-@@ -541,7 +541,7 @@
+@@ -543,7 +543,7 @@
  if(Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue){throw 'Invocation already running'}
  """ + f"""
  $a=New-ScheduledTaskAction -Execute 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' -Argument '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{control}\\desktop.ps1" -Action {action}'
@@ -227,7 +227,7 @@
  $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
  $null=Register-ScheduledTask -TaskName $task -Action $a -Principal $p -Settings $s
  Start-ScheduledTask -TaskName $task
-@@ -574,22 +574,22 @@
+@@ -576,22 +576,22 @@
      if args.observer_bundle:
          ps("if(Test-Path -LiteralPath '"+protected+"'){throw 'Observer footprint'};if(Get-ScheduledTask -TaskName 'STCVRC-Observer*' -ErrorAction SilentlyContinue){throw 'Observer tasks'}")
      ps(r"""
@@ -256,7 +256,7 @@
      download(lab+'\\input\\transfer-probe.bin',local/'transfer-return.bin')
      report['transferPass']=(actual.lower()==H['hash_file'](probe)==H['hash_file'](local/'transfer-return.bin'))
      if not report['transferPass']:
-@@ -755,7 +755,7 @@
+@@ -757,7 +757,7 @@
      # Distinct evidence avoids a cross-account delete and reuse of an earlier sample.
      report['taskLaunch'] = step('Test', 120)['value']
      report['afterCanaries'] = step('CanaryAfter', 40)['value']
@@ -265,7 +265,7 @@
      report['flagPersisted'] = stmc_yaml.load((local / 'after-settings.yaml').read_bytes()).get('enable_auto_launch') is True
      report['selectorsPreserved'] = report['taskLaunch']['selectors'] == {'FOREIGN-EGRESS': 'GC', 'LAB-UNCHANGED': 'REJECT'}
      report['pass'] = all([report['taskLaunch']['pass'], report['baselineCanaries']['pass'], report['afterCanaries']['pass'], report['flagPersisted'], report['selectorsPreserved']])
-@@ -840,7 +840,7 @@
+@@ -842,7 +842,7 @@
          report['routingStartupContract']='after-logon' if args.await_logon else 'before-logon'
          print(json.dumps({'stage':'Reboot','awaitLogon':args.await_logon}),flush=True)
          try:
@@ -274,7 +274,7 @@
          except TransportFailure as exc:
              report['rebootSubmissionUncertain']=exc.kind
          deadline=time.monotonic()+360
-@@ -874,18 +874,18 @@
+@@ -876,18 +876,18 @@
              report['preloginObserver']=prelogin_observer_check(report['observerAfterBoot'],after_boot,state['interactiveCount'])
              if not report['preloginObserver']['pass'] or not report['historySurvivedBoot']:
                  raise RuntimeError('Pre-login observer proof failed')
@@ -296,7 +296,7 @@
                  time.sleep(10)
              report['logonLaunch']=step('VerifyLogon',120)['value']
              report['logonCanaries']=step('CanaryLogon',40)['value']
-@@ -925,7 +925,7 @@
+@@ -927,7 +927,7 @@
              report['pass']=False
          if args.stack in ('next','next-baseline','candidate') or args.ui_rollout_gate or args.ui_migration_gate:
              try:
@@ -305,7 +305,7 @@
                  owner_root='C:\\ProgramData\\clash-verge-service\\users\\'+owner_key
                  saved=ps("$r='C:\\ProgramData\\clash-verge-service';if(Test-Path -LiteralPath '"+owner_root+"\\logs'){if([IO.File]::ReadAllText(($r+'\\.stcvrc-desktop-state')) -cne '"+stamp+"'){throw 'Not lab service state'};$logs='"+owner_root+"\\logs';if(Get-ChildItem -LiteralPath $logs -Recurse -Force|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Log reparse'};if((Get-ChildItem -LiteralPath $logs -Recurse -File|Measure-Object Length -Sum).Sum -gt 134217728){throw 'Lab evidence size limit'};$null=& '"+control+"\\preserve.ps1' -AppDirectory '"+owner_root+"' -Destination '"+control+"\\service-evidence' -MaxLogBytes 134217728 -RequireComplete -SkipEvents;Compress-Archive -LiteralPath '"+control+"\\service-evidence' -DestinationPath '"+control+"\\service-evidence.zip';'SAVED'}else{'NO_LOGS'}",180)
                  if saved == 'SAVED':
-@@ -985,12 +985,12 @@
+@@ -987,12 +987,12 @@
                  raise RuntimeError('Restoration verification failed; control directory retained')
          if created:
              ps(r"""

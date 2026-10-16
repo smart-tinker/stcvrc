@@ -152,6 +152,51 @@ function Get-CimInstance {param($ClassName) return}
                        if 'Compress-Archive -LiteralPath $root' in code)
         self.assertLess(archive, removal)
 
+    def assert_hidden_blocks_cleanup(self, path, after_archive=False):
+        before = tree_bytes(self.root)
+        directories = {item.relative_to(self.root) for item in self.root.rglob('*')
+                       if item.is_dir()}
+        marked = []
+
+        def mark_hidden():
+            self.powershell("$item=Get-Item -LiteralPath '" + str(path) +
+                            "' -Force;$item.Attributes=$item.Attributes -bor [IO.FileAttributes]::Hidden")
+            self.assertTrue(path.stat().st_file_attributes & 2,
+                            'Fixture must set the real Windows Hidden attribute')
+            marked.append(path.stat().st_file_attributes)
+
+        if after_archive:
+            self.after_download = mark_hidden
+        else:
+            mark_hidden()
+        with self.assertRaisesRegex(RuntimeError, 'Observer cleanup hidden content'):
+            self.cleanup(str(self.transaction))
+        self.assertEqual(len(marked), 1, 'Hidden fault must actually be injected')
+        self.assertTrue(self.root.is_dir())
+        self.assertEqual(tree_bytes(self.root), before)
+        self.assertEqual({item.relative_to(self.root) for item in self.root.rglob('*')
+                          if item.is_dir()}, directories)
+        self.assertEqual(path.stat().st_file_attributes, marked[0])
+        self.assertEqual(len(self.transfers), 1 if after_archive else 0)
+
+    def test_hidden_data_file_blocks_cleanup(self):
+        self.assert_hidden_blocks_cleanup(self.root / 'data/timeline/fixture.jsonl')
+
+    def test_hidden_data_directory_blocks_cleanup(self):
+        self.assert_hidden_blocks_cleanup(self.root / 'data/timeline')
+
+    def test_hidden_root_blocks_cleanup(self):
+        self.assert_hidden_blocks_cleanup(self.root)
+
+    def test_data_file_hidden_after_archive_blocks_deletion(self):
+        self.assert_hidden_blocks_cleanup(self.root / 'data/timeline/fixture.jsonl', True)
+
+    def test_data_directory_hidden_after_archive_blocks_deletion(self):
+        self.assert_hidden_blocks_cleanup(self.root / 'data/timeline', True)
+
+    def test_root_hidden_after_archive_blocks_deletion(self):
+        self.assert_hidden_blocks_cleanup(self.root, True)
+
     def test_wrong_observer_marker_is_preserved(self):
         (self.root / '.stcvrc-observer').write_text('FOREIGN_OBSERVER')
         self.assert_rejected_preserving_tree('Observer cleanup marker mismatch')

@@ -1,3 +1,5 @@
+> Актуальный P2: [Hidden cleanup](evidence/cleanup-hidden-p2/README.md): сохранённые 6 RED → 19/19 GREEN для originals. Public/full-runner/VM NOT_RUN. Ниже исторические поколения, не проверка текущих P2 bytes.
+
 > Текущий follow-up: [VM-READINESS-FOLLOWUP.md](../VM-READINESS-FOLLOWUP.md). Ниже исторический текст; новый public rerun NOT_RUN.
 
 > Directory ownership follow-up: [актуальная проверка](../OBSERVER-DIRECTORY-CLAIM.md). VM/runtime acceptance остаётся открытой.
