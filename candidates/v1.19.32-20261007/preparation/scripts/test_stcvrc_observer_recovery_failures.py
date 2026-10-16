@@ -226,6 +226,47 @@ function Copy-ObserverPayload([bool]$Candidate){
   if($fixtureMode -ceq 'partial-apply'){throw 'fixture-partial-apply-failure'}
  }
 }
+$writeJsonActual=${function:Write-Json}
+$script:rootReceiptInterrupted=$false;$script:claimedRootEmptyAtInterruption=$false
+$unrelated=Join-Path $Root 'unrelated-owned.bin'
+[IO.File]::WriteAllBytes($unrelated,[byte[]]@(0,17,128,255))
+$unrelatedHash=Hash $unrelated
+function Write-Json([string]$Path,$Value){
+ if($fixtureMode -clike 'interrupted-root-receipt*' -and $Path -ceq (Join-Path $Root 'observer-created.json')){
+  # Intercept only after the real atomic Move and before its durable receipt.
+  # Assert the injection boundary rather than simulating directory acquisition.
+  if($script:rootReceiptInterrupted){throw 'Unexpected repeated root receipt write'}
+  if(-not (Test-Path -LiteralPath $observer) -or (Test-Path -LiteralPath (Join-Path $Root 'observer.create'))){throw 'Fixture did not reach post-Move boundary'}
+  if(Test-Path -LiteralPath $Path){throw 'Fixture root receipt already exists'}
+  if([IO.File]::ReadAllText((Join-Path $observer '.stcvrc-transaction')) -cne $Root){throw 'Fixture root transaction mismatch'}
+  $allowedProof=@('.stcvrc-observer','.stcvrc-transaction')
+  $embedded=Join-Path $observer '.stcvrc-claim.json'
+  if(Test-Path -LiteralPath $embedded){
+   $proof=Read-Json $embedded
+   if($proof.root -cne $observer -or $proof.transaction -cne $Root -or $proof.planHash -cne (Hash $PlanPath)){throw 'Fixture embedded acquisition proof mismatch'}
+   $allowedProof+='.stcvrc-claim.json'
+  }
+  $unexpected=@(Microsoft.PowerShell.Management\Get-ChildItem -LiteralPath $observer -Force|Where-Object {$_.PSIsContainer -or $_.Name -cnotin $allowedProof})
+  $script:claimedRootEmptyAtInterruption=($unexpected.Count -eq 0) -and -not $script:taskPresent -and $script:copyObserverCalls -eq 0
+  if(-not $script:claimedRootEmptyAtInterruption){throw 'Fixture root contains unexpected pre-payload state'}
+  $script:rootReceiptInterrupted=$true;$script:events+='interrupted-after-root-move-before-receipt'
+  # Recovery must preserve independently appended evidence, even in this early
+  # owned-root state. This is fixture data, not execution of the observer.
+  [IO.Directory]::CreateDirectory((Join-Path $observer 'data'))|Out-Null
+  [IO.File]::WriteAllText((Join-Path $observer 'data\history.jsonl'),'history survives rollback')
+  if($fixtureMode -ceq 'interrupted-root-receipt-missing-proof'){
+   if(-not (Test-Path -LiteralPath $embedded)){throw 'Fixture embedded proof unavailable for missing-proof control'}
+   [IO.File]::Delete($embedded)
+  }elseif($fixtureMode -ceq 'interrupted-root-receipt-corrupt-proof'){
+   if(-not (Test-Path -LiteralPath $embedded)){throw 'Fixture embedded proof unavailable for corrupt-proof control'}
+   $proof=Read-Json $embedded;$proof.planHash=('0'*64)
+   & $writeJsonActual $embedded $proof
+  }
+  $script:interruptedObserverBefore=Snapshot-Observer
+  throw 'fixture-interrupted-after-root-move-before-receipt'
+ }
+ & $writeJsonActual $Path $Value
+}
 $before=Snapshot-Observer
 $applyRejected=$false;$applyReason=$null
 $rollbackRejected=$false;$rollbackReason=$null
@@ -246,6 +287,7 @@ if($fullApply){
  $rollbackRejected=(Test-Path -LiteralPath (Join-Path $Root 'rollback-result.json')) -and -not (Read-Json (Join-Path $Root 'rollback-result.json')).pass
  if($rollbackRejected){$rollbackReason=$applyReason}
  if($script:rootRaceInjected){$before=$script:foreignObserverBefore}
+ if($script:rootReceiptInterrupted){$before=$script:interruptedObserverBefore}
 }elseif($absent){
  # The empty baseline was captured before this separately-owned installation.
  # It deliberately has exact candidate bytes and normal task identity: hashes
@@ -296,6 +338,11 @@ try {
   rootRaceBefore=$(if($script:rootRaceInjected){$before|ConvertFrom-Json}else{$null});
   rootRaceAfter=$(if($script:rootRaceInjected){Snapshot-Observer|ConvertFrom-Json}else{$null});
   rootClaimPresent=(Test-Path -LiteralPath (Join-Path $Root 'observer-created.json'));
+  embeddedClaimPresent=(Test-Path -LiteralPath (Join-Path $observer '.stcvrc-claim.json'));
+  rootReceiptInterrupted=$script:rootReceiptInterrupted;claimedRootEmptyAtInterruption=$script:claimedRootEmptyAtInterruption;
+  observerMarkerPreserved=((Test-Path -LiteralPath (Join-Path $observer '.stcvrc-observer')) -and [IO.File]::ReadAllText((Join-Path $observer '.stcvrc-observer')) -ceq 'STCVRC_OBSERVER_V1');
+  transactionMarkerMatches=((Test-Path -LiteralPath (Join-Path $observer '.stcvrc-transaction')) -and [IO.File]::ReadAllText((Join-Path $observer '.stcvrc-transaction')) -ceq $Root);
+  unrelatedFileUnchanged=((Test-Path -LiteralPath $unrelated) -and (Hash $unrelated) -ceq $unrelatedHash);
   taskIntentPresent=(Test-Path -LiteralPath (Join-Path $Root 'observer-task.intent.json'));
   taskClaimPresent=(Test-Path -LiteralPath (Join-Path $Root 'observer-task.created.json'));
   transactionMarkerPresent=(Test-Path -LiteralPath (Join-Path $observer '.stcvrc-transaction'));
@@ -378,6 +425,69 @@ try {
         self.assertTrue(report["historyPreserved"], report)
         self.assertTrue(report["successRecorded"], report)
         self.assertFalse(report["guardActive"], report)
+
+    def test_full_apply_recovers_owned_root_after_move_before_created_receipt(self):
+        report = self.run_scenario(mode="interrupted-root-receipt", full_apply=True)
+        self.assertTrue(report["fullApply"], report)
+        self.assertTrue(report["rootReceiptInterrupted"], report)
+        self.assertTrue(report["claimedRootEmptyAtInterruption"], report)
+        self.assertTrue(report["applyRejected"], report)
+        self.assertIn("interrupted-after-root-move-before-receipt", report["events"], report)
+        self.assertFalse(report["rootClaimPresent"], report)
+        self.assertEqual(report["copyObserverCalls"], 0, report)
+        self.assertTrue(report["payloadRemoved"], report)
+        self.assertFalse(report["taskPresent"], report)
+        self.assertFalse(report["taskIntentPresent"], report)
+        self.assertFalse(report["taskClaimPresent"], report)
+        self.assertTrue(report["observerMarkerPreserved"], report)
+        self.assertTrue(report["transactionMarkerMatches"], report)
+        self.assertTrue(report["historyPreserved"], report)
+        self.assertTrue(report["unrelatedFileUnchanged"], report)
+        for counter in ("disableCount", "stopCount", "unregisterCount", "startCount", "forcedOverwriteCount"):
+            self.assertEqual(report[counter], 0, report)
+        self.assertTrue(report["coreRestored"], report)
+        self.assertTrue(report["lockReleased"], report)
+        self.assertIn("baseline-ui-installed", report["events"], report)
+        self.assertIn("baseline-core-registered", report["events"], report)
+        self.assertIn("apply-task-removed", report["events"], report)
+        self.assertFalse(report["rollbackRejected"], report)
+        self.assertTrue(report["successRecorded"], report)
+        self.assertEqual(report["phase"], "rolled-back", report)
+        self.assertFalse(report["guardActive"], report)
+
+    def assert_interrupted_unproved_root_preserved(self, report):
+        self.assertTrue(report["fullApply"], report)
+        self.assertTrue(report["rootReceiptInterrupted"], report)
+        self.assertTrue(report["claimedRootEmptyAtInterruption"], report)
+        self.assertTrue(report["applyRejected"], report)
+        self.assertIn("interrupted-after-root-move-before-receipt", report["events"], report)
+        self.assertFalse(report["rootClaimPresent"], report)
+        self.assertTrue(report["rollbackRejected"], report)
+        self.assertEqual(report["phase"], "rollback-failed", report)
+        self.assertTrue(report["guardActive"], report)
+        self.assertFalse(report["successRecorded"], report)
+        self.assertTrue(report["observerUnchanged"], report)
+        self.assertTrue(report["observerMarkerPreserved"], report)
+        self.assertTrue(report["transactionMarkerMatches"], report)
+        self.assertTrue(report["historyPreserved"], report)
+        self.assertTrue(report["unrelatedFileUnchanged"], report)
+        self.assertFalse(report["taskPresent"], report)
+        self.assertFalse(report["taskIntentPresent"], report)
+        self.assertFalse(report["taskClaimPresent"], report)
+        for counter in ("copyObserverCalls", "disableCount", "stopCount", "unregisterCount", "startCount", "forcedOverwriteCount"):
+            self.assertEqual(report[counter], 0, report)
+        self.assertTrue(report["coreRestored"], report)
+        self.assertTrue(report["lockReleased"], report)
+
+    def test_full_apply_preserves_root_when_both_acquisition_receipts_are_missing(self):
+        report = self.run_scenario(mode="interrupted-root-receipt-missing-proof", full_apply=True)
+        self.assert_interrupted_unproved_root_preserved(report)
+        self.assertFalse(report["embeddedClaimPresent"], report)
+
+    def test_full_apply_preserves_root_when_only_embedded_receipt_is_corrupt(self):
+        report = self.run_scenario(mode="interrupted-root-receipt-corrupt-proof", full_apply=True)
+        self.assert_interrupted_unproved_root_preserved(report)
+        self.assertTrue(report["embeddedClaimPresent"], report)
 
     def test_foreign_task_registration_race_never_uses_force_or_removes_task(self):
         report = self.run_scenario(mode="register-race")

@@ -1,3 +1,5 @@
+> Текущий follow-up: [VM-READINESS-FOLLOWUP.md](../VM-READINESS-FOLLOWUP.md). Ниже исторический текст; новый public rerun NOT_RUN.
+
 > Directory ownership follow-up: [актуальная проверка](../OBSERVER-DIRECTORY-CLAIM.md). VM/runtime acceptance остаётся открытой.
 
 > Rollback follow-up: [исправления и актуальная проверка](../OBSERVER-RECOVERY.md). VM/runtime recovery не принято.

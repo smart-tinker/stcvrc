@@ -191,13 +191,19 @@ function Assert-ObserverClaim {
     $o=$Plan.observer
     if($o.oldPresent){return $true}
     $receiptPath=Join-Path $Root 'observer-created.json'
-    if(-not (Test-Path -LiteralPath $receiptPath)){return $false}
-    No-Reparse $receiptPath;No-Reparse $o.root
-    $receipt=Read-Json $receiptPath
+    $embeddedPath=Join-Path $o.root '.stcvrc-claim.json'
+    $receipts=@($receiptPath,$embeddedPath|Where-Object {Test-Path -LiteralPath $_})
+    if(-not $receipts.Count){return $false}
+    No-Reparse $o.root
     $marker=Join-Path $o.root '.stcvrc-transaction'
     No-Reparse $marker
     $planHash=Hash $PlanPath
-    if($receipt.root -cne $o.root -or $receipt.transaction -cne $Root -or $receipt.planHash -cne $planHash -or [IO.File]::ReadAllText($marker) -cne $Root){throw 'Observer transaction ownership changed'}
+    if([IO.File]::ReadAllText($marker) -cne $Root){throw 'Observer transaction ownership changed'}
+    foreach($path in $receipts){
+        No-Reparse $path
+        $receipt=Read-Json $path
+        if($receipt.root -cne $o.root -or $receipt.transaction -cne $Root -or $receipt.planHash -cne $planHash){throw 'Observer transaction ownership changed'}
+    }
     foreach($entry in $o.newFiles.PSObject.Properties){
         $path=Join-Path $o.root $entry.Name
         No-Reparse $path
@@ -307,8 +313,12 @@ function Apply-Observer {
         [IO.File]::WriteAllText((Join-Path $createdRoot '.stcvrc-observer'),'STCVRC_OBSERVER_V1')
         $stream=[IO.File]::Open((Join-Path $createdRoot '.stcvrc-transaction'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         try {$bytes=[Text.Encoding]::UTF8.GetBytes($Root);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+        # This proof moves atomically with our directory. Recovery can validate
+        # it even if the worker dies before persisting the transaction receipt.
+        $claim=@{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath)}
+        Write-Json (Join-Path $createdRoot '.stcvrc-claim.json') $claim
         [IO.Directory]::Move($createdRoot,$o.root)
-        Write-Json (Join-Path $Root 'observer-created.json') @{root=$o.root;transaction=$Root;planHash=(Hash $PlanPath)}
+        Write-Json (Join-Path $Root 'observer-created.json') $claim
     }
     if(-not (Assert-ObserverClaim)){throw 'Observer payload write requires transaction ownership'}
     Copy-ObserverPayload $true
@@ -621,7 +631,14 @@ function Preserve-History([ValidateSet('before','rollback')][string]$Phase) {
 function Stop-Runtime {
     foreach($p in (Exact-Processes $Ui)){Stop-Process -Id $p.ProcessId -Force}
     $s=Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if($s -and $s.Status -ne 'Stopped'){Stop-Service -Name $ServiceName -Force;$s.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))}
+    if($s -and $s.Status -ne 'Stopped'){
+        $stopError=$null
+        try {Stop-Service -Name $ServiceName -Force}catch{$stopError=$_}
+        # A request error does not establish the terminal service state.
+        # Continue only after the same bounded Stopped confirmation succeeds.
+        try {$s.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))}
+        catch {if($stopError){throw $stopError};throw}
+    }
     foreach($path in (@($Core,$ExecutingCore,$ApprovedCore)|Select-Object -Unique)){
         foreach($p in (Exact-Processes $path)){Stop-Process -Id $p.ProcessId -Force}
         if(@(Exact-Processes $path).Count){throw 'Core remains after stop'}

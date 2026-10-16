@@ -14,9 +14,7 @@ import time
 import unittest
 
 HERE = Path(__file__).resolve().parent
-MODULES = ['test_stcvrc_candidate_gate', 'test_stcvrc_lab_stack', 'test_stcvrc_safe_rollout',
-           'test_stcvrc_ui_candidate_rollout', 'test_stcvrc_observer_installer',
-           'test_stcvrc_confirm_deadline', 'test_stcvrc_tun_gate', 'test_stcvrc_observer_transaction', 'test_stcvrc_observer_recovery_failures']
+MODULES = ['test_stcvrc_candidate_gate', 'test_stcvrc_lab_stack', 'test_stcvrc_safe_rollout', 'test_stcvrc_ui_candidate_rollout', 'test_stcvrc_observer_installer', 'test_stcvrc_confirm_deadline', 'test_stcvrc_tun_gate', 'test_stcvrc_observer_transaction', 'test_stcvrc_observer_recovery_failures', 'test_stcvrc_atomic_observer_cleanup', 'test_stcvrc_desktop_preflight', 'test_stcvrc_stop_runtime', 'test_stcvrc_lab_command_envelope']
 
 
 class Results(unittest.TextTestResult):
@@ -37,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifacts-root', type=Path, help='External root containing local/artifacts paths; never execute binaries')
     parser.add_argument('--work-dir', type=Path, required=True, help='Caller-owned scratch directory for temporary fixtures')
-    parser.add_argument('--output-dir', type=Path, default=HERE / 'evidence/observer-directory-claim')
+    parser.add_argument('--output-dir', type=Path, default=HERE / 'evidence/vm-readiness-followup/public-reexecution')
     parser.add_argument('--suite', choices=['preparation', 'observer'], default='preparation')
     args = parser.parse_args()
     if os.name != 'nt':

@@ -132,7 +132,7 @@
  import base64
  import argparse
  import hashlib
-@@ -22,9 +22,9 @@
+@@ -23,9 +23,9 @@
  parser.add_argument('--atomic-observer-bundle',type=Path,help='Pinned observer payload staged inside the candidate SYSTEM transaction; fresh absent userVM baseline only')
  parser.add_argument('--atomic-observer-label',choices=('home','work'),default='home')
  parser.add_argument('--observer-production',action='store_true',help='Accept the production installer on disposable userVM, then remove its exact footprint')
@@ -144,7 +144,7 @@
  parser.add_argument('--stack',choices=STACKS,default='accepted')
  parser.add_argument('--preserve-service-state',action='store_true')
  parser.add_argument('--corporate-canaries',action='store_true',help='Separately approved parallel LT/Elitech sessions; loopback-only')
-@@ -78,14 +78,14 @@
+@@ -79,14 +79,14 @@
  
  H = runpy.run_path(str(Path(__file__).with_name('invoke-uservm-stcvrc-safe-rollout.py')))
  PROJECT, RUNTIME, RELEASE = H['PROJECT'], H['RUNTIME'], H['RELEASE']
@@ -162,7 +162,7 @@
  report = {'startedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'error': None, 'pass':False,
            'cleanupError': None, 'homeBefore': H['hash_file'](RUNTIME)}
  created = prepared = False
-@@ -94,9 +94,9 @@
+@@ -95,9 +95,9 @@
  observer_task='STCVRC-Observer' if args.observer_production else 'STCVRC-Observer-Lab'
  observer_marker='.stcvrc-observer' if args.observer_production else '.stcvrc-observer-lab'
  observer_marker_value='STCVRC_OBSERVER_V1' if args.observer_production else 'STCVRC_OBSERVER_LAB_V1'
@@ -175,7 +175,7 @@
  
  
  def ps(code, timeout=60, *, read_only=False):
-@@ -242,7 +242,7 @@
+@@ -252,7 +252,7 @@
  def atomic_observer_baseline():
      # This lab path does not acquire ownership of an existing observer.
      observed=json.loads(ps(r"""
@@ -184,7 +184,7 @@
  $root='C:\ProgramData\STCVRC-observer'
  @{rootAbsent=(-not (Test-Path -LiteralPath $root));taskAbsent=(-not (Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue));workersAbsent=(@(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}).Count -eq 0)}|ConvertTo-Json -Compress
  """,read_only=True))
-@@ -288,13 +288,13 @@
+@@ -298,13 +298,13 @@
      # An absent-baseline transaction preserves its newly collected history.
      # Archive that history before removing only this run's inactive lab remainder.
      guard=r"""
@@ -200,7 +200,7 @@
  if($armed.planHash -ine (Get-FileHash -LiteralPath ($tx+'\plan.json')).Hash -or $rollback.pass -ne $true -or $rollback.observerRestored -ne $true){throw 'Observer rollback identity/result unconfirmed'}
  if(Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue){throw 'Observer task still present'}
  if(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}){throw 'Observer worker still present'}
-@@ -329,7 +329,7 @@
+@@ -343,7 +343,7 @@
  def core_rollout_gate(ui_update=False):
      print(json.dumps({'stage':'ui-system-transaction' if ui_update else 'approved-core-transaction'}),flush=True)
      snapshot=local/'core-input';(snapshot/'profiles').mkdir(parents=True)
@@ -209,7 +209,7 @@
      owner=r'C:\ProgramData\clash-verge-service\users'+'\\'+hashlib.sha256(sid.encode('ascii')).hexdigest()
      for name in ('profiles.yaml','verge.yaml'):
          download(app+'\\'+name,snapshot/name)
-@@ -352,7 +352,7 @@
+@@ -366,7 +366,7 @@
      stage=local/'core-transaction'
      target=lab+'\\transactions\\stcvrc-safe-'+stamp
      command=[sys.executable,'-B',str(PROJECT/'scripts/prepare-stcvrc-safe-rollout.py'),
@@ -218,7 +218,7 @@
          '--old-core',str(PROJECT/original_stack['core']),
          '--candidate-core',str(PROJECT/target_stack['core']),
          '--service-owner-sid',sid,
-@@ -527,7 +527,7 @@
+@@ -541,7 +541,7 @@
  if(Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue){throw 'Invocation already running'}
  """ + f"""
  $a=New-ScheduledTaskAction -Execute 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' -Argument '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{control}\\desktop.ps1" -Action {action}'
@@ -227,7 +227,7 @@
  $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
  $null=Register-ScheduledTask -TaskName $task -Action $a -Principal $p -Settings $s
  Start-ScheduledTask -TaskName $task
-@@ -560,21 +560,21 @@
+@@ -574,22 +574,22 @@
      if args.observer_bundle:
          ps("if(Test-Path -LiteralPath '"+protected+"'){throw 'Observer footprint'};if(Get-ScheduledTask -TaskName 'STCVRC-Observer*' -ErrorAction SilentlyContinue){throw 'Observer tasks'}")
      ps(r"""
@@ -236,8 +236,9 @@
 +if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
 +$sid='S-1-5-21-1-2-3-1001'
  $desktop=@(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Where-Object {$_.SessionId -gt 0 -and (Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid).Sid -eq $sid})
--if($desktop.Count -ne 1){throw 'Approved <REDACTED_06> desktop missing'}
-+if($desktop.Count -ne 1){throw 'Approved FixtureUser desktop missing'}
+ $desktopSessions=@($desktop|Select-Object -ExpandProperty SessionId -Unique)
+-if($desktopSessions.Count -ne 1){throw 'Approved <REDACTED_06> desktop missing'}
++if($desktopSessions.Count -ne 1){throw 'Approved FixtureUser desktop missing'}
  if(Get-CimInstance Win32_Process | Where-Object Name -match 'clash|mihomo'){throw 'Existing runtime'}
  foreach($n in @('Clash Verge','Clash Verge (Admin)','STCVRC-userVM-Desktop-Gate','STCVRC-userVM-Autostart-Cleanup')){if(Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue){throw 'Existing task'}}
 -foreach($p in @('C:\Users\<REDACTED_06>\stcvrc-fullstack-lab','C:\Users\<REDACTED_06>\stcvrc-autostart-control','C:\Program Files\Clash Verge')){if(Test-Path -LiteralPath $p){throw 'Existing footprint'}}
@@ -255,7 +256,7 @@
      download(lab+'\\input\\transfer-probe.bin',local/'transfer-return.bin')
      report['transferPass']=(actual.lower()==H['hash_file'](probe)==H['hash_file'](local/'transfer-return.bin'))
      if not report['transferPass']:
-@@ -740,7 +740,7 @@
+@@ -755,7 +755,7 @@
      # Distinct evidence avoids a cross-account delete and reuse of an earlier sample.
      report['taskLaunch'] = step('Test', 120)['value']
      report['afterCanaries'] = step('CanaryAfter', 40)['value']
@@ -264,7 +265,7 @@
      report['flagPersisted'] = stmc_yaml.load((local / 'after-settings.yaml').read_bytes()).get('enable_auto_launch') is True
      report['selectorsPreserved'] = report['taskLaunch']['selectors'] == {'FOREIGN-EGRESS': 'GC', 'LAB-UNCHANGED': 'REJECT'}
      report['pass'] = all([report['taskLaunch']['pass'], report['baselineCanaries']['pass'], report['afterCanaries']['pass'], report['flagPersisted'], report['selectorsPreserved']])
-@@ -825,7 +825,7 @@
+@@ -840,7 +840,7 @@
          report['routingStartupContract']='after-logon' if args.await_logon else 'before-logon'
          print(json.dumps({'stage':'Reboot','awaitLogon':args.await_logon}),flush=True)
          try:
@@ -273,7 +274,7 @@
          except TransportFailure as exc:
              report['rebootSubmissionUncertain']=exc.kind
          deadline=time.monotonic()+360
-@@ -859,18 +859,18 @@
+@@ -874,18 +874,18 @@
              report['preloginObserver']=prelogin_observer_check(report['observerAfterBoot'],after_boot,state['interactiveCount'])
              if not report['preloginObserver']['pass'] or not report['historySurvivedBoot']:
                  raise RuntimeError('Pre-login observer proof failed')
@@ -295,7 +296,7 @@
                  time.sleep(10)
              report['logonLaunch']=step('VerifyLogon',120)['value']
              report['logonCanaries']=step('CanaryLogon',40)['value']
-@@ -910,7 +910,7 @@
+@@ -925,7 +925,7 @@
              report['pass']=False
          if args.stack in ('next','next-baseline','candidate') or args.ui_rollout_gate or args.ui_migration_gate:
              try:
@@ -304,7 +305,7 @@
                  owner_root='C:\\ProgramData\\clash-verge-service\\users\\'+owner_key
                  saved=ps("$r='C:\\ProgramData\\clash-verge-service';if(Test-Path -LiteralPath '"+owner_root+"\\logs'){if([IO.File]::ReadAllText(($r+'\\.stcvrc-desktop-state')) -cne '"+stamp+"'){throw 'Not lab service state'};$logs='"+owner_root+"\\logs';if(Get-ChildItem -LiteralPath $logs -Recurse -Force|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Log reparse'};if((Get-ChildItem -LiteralPath $logs -Recurse -File|Measure-Object Length -Sum).Sum -gt 134217728){throw 'Lab evidence size limit'};$null=& '"+control+"\\preserve.ps1' -AppDirectory '"+owner_root+"' -Destination '"+control+"\\service-evidence' -MaxLogBytes 134217728 -RequireComplete -SkipEvents;Compress-Archive -LiteralPath '"+control+"\\service-evidence' -DestinationPath '"+control+"\\service-evidence.zip';'SAVED'}else{'NO_LOGS'}",180)
                  if saved == 'SAVED':
-@@ -970,12 +970,12 @@
+@@ -985,12 +985,12 @@
                  raise RuntimeError('Restoration verification failed; control directory retained')
          if created:
              ps(r"""
@@ -423,7 +424,7 @@
          if not re.fullmatch(r'C:\\ProgramData\\clash-verge-service\\users\\[0-9a-f]{64}',
 --- original-redacted/scripts/stcvrc-safe-rollout.ps1
 +++ public/scripts/stcvrc-safe-rollout.ps1
-@@ -405,7 +405,7 @@
+@@ -415,7 +415,7 @@
      if($profileRoot -notmatch '^C:\\Users\\[^\\]+$' -or $Plan.appRoot -ine $expectedApp){throw 'AppData owner boundary mismatch'}
      $parent=if($Plan.lab){Join-Path $profileRoot 'stcvrc-fullstack-lab\transactions'}else{Join-Path $profileRoot 'Documents\HomeLab\projects\stcvrc\local\rollouts'}
      if((Split-Path -Parent $Root) -ine $parent -or (Split-Path -Leaf $Root) -notmatch '^stcvrc-safe-[0-9-]+$'){throw 'Unsafe transaction root'}
@@ -708,3 +709,81 @@
          self.assertIn("$plan.policy -cne 'core-update'", source)
          self.assertLess(source.index('$result.watch=Assert-Watch'), source.index("Api '/configs' Patch"))
          self.assertIn('--noproxy', source)
+--- original-redacted/scripts/test_stcvrc_atomic_observer_cleanup.py
++++ public/scripts/test_stcvrc_atomic_observer_cleanup.py
+@@ -54,7 +54,7 @@
+         self.history = b'{"sampleId":"owned-history","checkpoint":"ok"}\n'
+         (self.root / 'data' / 'timeline' / 'fixture.jsonl').write_bytes(self.history)
+         self.plan = {
+-            'lab': True, 'host': '<REDACTED_07>', 'root': str(self.transaction),
++            'lab': True, 'host': 'LABHOST', 'root': str(self.transaction),
+             'observer': {'root': str(self.root), 'task': 'STCVRC-Observer',
+                          'oldPresent': False}}
+         self.write_plan()
+@@ -90,7 +90,7 @@
+         and deletion execute in real Windows PowerShell on the temporary tree.
+         """
+         code = code.replace(OBSERVER, str(self.root))
+-        if OBSERVER in code or 'C:\\Users\\<REDACTED_06>' in code:
++        if OBSERVER in code or 'C:\\Users\\FixtureUser' in code:
+             raise AssertionError('Fixture did not isolate a production path')
+         self.calls.append(code)
+         wrapper = r"""
+@@ -100,7 +100,7 @@
+ Import-Module Microsoft.PowerShell.Utility
+ Import-Module Microsoft.PowerShell.Archive
+ [Console]::OutputEncoding=[Text.Encoding]::UTF8
+-$env:COMPUTERNAME='<REDACTED_07>'
++$env:COMPUTERNAME='LABHOST'
+ function Get-ScheduledTask {param($TaskName,$ErrorAction) return}
+ function Get-CimInstance {param($ClassName) return}
+ """ + code
+--- original-redacted/scripts/test_stcvrc_desktop_preflight.py
++++ public/scripts/test_stcvrc_desktop_preflight.py
+@@ -9,7 +9,7 @@
+ 
+ 
+ HARNESS = Path(__file__).with_name('invoke-uservm-stcvrc-desktop-autostart.py')
+-APPROVED = '<REDACTED_01>'
++APPROVED = 'S-1-5-21-1-2-3-1001'
+ FOREIGN = 'S-1-5-21-100-200-300-999'
+ 
+ 
+@@ -20,7 +20,7 @@
+                and node.func.id == 'ps' and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+-               and 'Approved <REDACTED_06> desktop missing' in node.args[0].value]
++               and 'Approved FixtureUser desktop missing' in node.args[0].value]
+     if len(scripts) != 1:
+         raise AssertionError('Expected one production desktop preflight')
+     return scripts[0]
+@@ -38,7 +38,7 @@
+ $env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
+ Import-Module Microsoft.PowerShell.Utility
+ [Console]::OutputEncoding=[Text.Encoding]::UTF8
+-$env:COMPUTERNAME='<REDACTED_07>'
++$env:COMPUTERNAME='LABHOST'
+ $script:explorers='__FIXTURE__'|ConvertFrom-Json
+ function Get-CimInstance {
+  param($ClassName,$Filter)
+@@ -73,7 +73,7 @@
+     def assert_rejected(self, explorers):
+         result = self.execute(explorers)
+         self.assertNotEqual(result.returncode, 0)
+-        self.assertIn('Approved <REDACTED_06> desktop missing',
++        self.assertIn('Approved FixtureUser desktop missing',
+                       result.stderr.decode('utf-8-sig', errors='replace'))
+ 
+     def test_single_approved_explorer_is_admitted(self):
+--- original-redacted/scripts/test_stcvrc_lab_command_envelope.py
++++ public/scripts/test_stcvrc_lab_command_envelope.py
+@@ -70,7 +70,7 @@
+                      'atomic_observer_baseline': lambda: {'rootAbsent': True}}
+         cleanup = load_function(HARNESS, 'atomic_observer_cleanup', namespace)
+         try:
+-            result = cleanup(r'C:\Users\<REDACTED_06>\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261016-040000')
++            result = cleanup(r'C:\Users\FixtureUser\stcvrc-fullstack-lab\transactions\stcvrc-safe-20261016-040000')
+         except ValueError as exc:
+             self.fail('Actual cleanup guard must reach bounded transport: ' + str(exc))
+         self.assertEqual(result, {'rootAbsent': True})

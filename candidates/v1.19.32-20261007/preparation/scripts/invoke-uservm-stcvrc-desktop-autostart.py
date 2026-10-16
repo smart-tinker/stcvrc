@@ -2,6 +2,7 @@
 import base64
 import argparse
 import hashlib
+import gzip
 from datetime import datetime
 import json
 from pathlib import Path
@@ -103,6 +104,15 @@ def ps(code, timeout=60, *, read_only=False):
     access=H['ACCESS']
     code="$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';"+code
     encoded=base64.b64encode(code.encode('utf-16le')).decode('ascii')
+    if len(encoded)>7500:
+        packed=base64.b64encode(gzip.compress(code.encode('utf-8'),mtime=0)).decode('ascii')
+        bootstrap=("$ErrorActionPreference='Stop';"
+                   "$m=[IO.MemoryStream]::new([Convert]::FromBase64String('"+packed+"'));"
+                   "$z=[IO.Compression.GZipStream]::new($m,[IO.Compression.CompressionMode]::Decompress);"
+                   "$r=[IO.StreamReader]::new($z,[Text.Encoding]::UTF8);"
+                   "try{$c=$r.ReadToEnd()}finally{$r.Dispose();$z.Dispose();$m.Dispose()};"
+                   "& ([ScriptBlock]::Create($c))")
+        encoded=base64.b64encode(bootstrap.encode('utf-16le')).decode('ascii')
     if len(encoded)>7500:
         raise ValueError('Use a staged script for an oversized encoded command')
     command=[access['SSH'],*access['OPTIONS'],
@@ -300,11 +310,15 @@ if(Get-ScheduledTask -TaskName 'STCVRC-Observer' -ErrorAction SilentlyContinue){
 if(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -like ($root+'\*')}){throw 'Observer worker still present'}
 if(Test-Path -LiteralPath $root){
  $ancestor=$root;while($ancestor){if((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Observer reparse ancestor'};$ancestor=Split-Path -Parent $ancestor}
- if([IO.File]::ReadAllText(($root+'\.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Observer cleanup marker mismatch'}
  $items=@(Get-ChildItem -LiteralPath $root -Recurse -Force)
  if($items|Where-Object {$_.Attributes -band [IO.FileAttributes]::ReparsePoint}){throw 'Observer cleanup reparse'}
+ foreach($name in @('.stcvrc-observer','.stcvrc-transaction','.stcvrc-claim.json')){if(-not (Test-Path -LiteralPath (Join-Path $root $name) -PathType Leaf)){throw 'Observer cleanup claim missing'}}
+ if([IO.File]::ReadAllText(($root+'\.stcvrc-observer')) -cne 'STCVRC_OBSERVER_V1'){throw 'Observer cleanup marker mismatch'}
+ if([IO.File]::ReadAllText(($root+'\.stcvrc-transaction')) -cne $tx){throw 'Observer cleanup transaction marker mismatch'}
+ $claim=[IO.File]::ReadAllText(($root+'\.stcvrc-claim.json'))|ConvertFrom-Json
+ if($claim.root -cne $root -or $claim.transaction -cne $tx -or $claim.planHash -ine $armed.planHash){throw 'Observer cleanup claim mismatch'}
  if(Get-ChildItem -LiteralPath $root -Directory|Where-Object Name -notin @('data','bin')){throw 'Unexpected observer directory'}
- if($items|Where-Object {-not $_.PSIsContainer -and $_.FullName -cne ($root+'\.stcvrc-observer') -and -not $_.FullName.StartsWith(($root+'\data\'),[StringComparison]::OrdinalIgnoreCase)}){throw 'Observer payload or unexpected file remains'}
+ if($items|Where-Object {-not $_.PSIsContainer -and $_.FullName -cnotin @(($root+'\.stcvrc-observer'),($root+'\.stcvrc-transaction'),($root+'\.stcvrc-claim.json')) -and -not $_.FullName.StartsWith(($root+'\data\'),[StringComparison]::OrdinalIgnoreCase)}){throw 'Observer payload or unexpected file remains'}
  if(($items|Where-Object {-not $_.PSIsContainer}|Measure-Object Length -Sum).Sum -gt 67108864){throw 'Observer evidence size limit'}
 }
 """.replace('__TRANSACTION__',target)
@@ -563,7 +577,8 @@ try:
 if($env:COMPUTERNAME -cne 'LABHOST'){throw 'Wrong VM'}
 $sid='S-1-5-21-1-2-3-1001'
 $desktop=@(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Where-Object {$_.SessionId -gt 0 -and (Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid).Sid -eq $sid})
-if($desktop.Count -ne 1){throw 'Approved FixtureUser desktop missing'}
+$desktopSessions=@($desktop|Select-Object -ExpandProperty SessionId -Unique)
+if($desktopSessions.Count -ne 1){throw 'Approved FixtureUser desktop missing'}
 if(Get-CimInstance Win32_Process | Where-Object Name -match 'clash|mihomo'){throw 'Existing runtime'}
 foreach($n in @('Clash Verge','Clash Verge (Admin)','STCVRC-userVM-Desktop-Gate','STCVRC-userVM-Autostart-Cleanup')){if(Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue){throw 'Existing task'}}
 foreach($p in @('C:\Users\FixtureUser\stcvrc-fullstack-lab','C:\Users\FixtureUser\stcvrc-autostart-control','C:\Program Files\Clash Verge')){if(Test-Path -LiteralPath $p){throw 'Existing footprint'}}

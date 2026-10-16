@@ -38,7 +38,7 @@
       "priorOriginalSha256": "cda5b36f896e33955c60f19b6cb76ab1be00412883107ba981d18798ec9f3cca",
       "priorPublicSha256": "5cd7a6d6842b2b0694321181324ce917c33103abbddad3622497a62b3ae60c3c",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "91d98bf5bcf8ac723b125c6565606a765696cce91be51b30251ee8a252aeec94"
     },
     {
@@ -51,7 +51,7 @@
       "priorOriginalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
       "priorPublicSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "3dff73df02a7e1afc71a98a177b43af246aeb1e968c1c1a0a6969827dbed0932"
     },
     {
@@ -77,7 +77,7 @@
       "priorOriginalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8",
       "priorPublicSha256": "b3946bba44a7951ee1f0767b12e1f9983e9370fd1d1d7d8dd0e38264b46c4ffb",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "10251d602ea74fa871452bc74a2c822592f347699432d31d181beb23e3e854e8"
     },
     {
@@ -103,7 +103,7 @@
       "priorOriginalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8",
       "priorPublicSha256": "96e32c5aed0a4156a4c4a2cd9b0ad2d34b13c90d9fc7f17ed781b30508b8eed9",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "84aaff6d472bfcd4d0d5d48998e1b951a7c52d786b93c96532728f8d5e4330d8"
     },
     {
@@ -123,7 +123,7 @@
       "priorOriginalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541",
       "priorPublicSha256": "67cbb3bcc1937685626e78ae9b3215ae85f05bd25bd02b33619cf4a99bd86218",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "69754ccefb309b3c637c6a659c67d8913a25f352ae3ffcab70aa7e3902f53541"
     },
     {
@@ -136,14 +136,14 @@
       "priorOriginalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
       "priorPublicSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "a9ad07568fa625d1f90c3b88ce7fb6bbb0f8eeda03041fee35678e065c324bff"
     },
     {
       "originalPath": "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
-      "originalSha256": "fb918dfe1e9822370a68a763ea731403669f89666499f20016eaa82ae23e7c06",
+      "originalSha256": "c2a9740b5d36b29f2a4cbf20c5a94e3572cf3e77020a37e0dc03b8c08bf3f3b2",
       "publicPath": "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
-      "publicSha256": "2dc6a450f48a25e271aaa7c76c61bc4c3376e59335c3b8334cd74b56a25f636d",
+      "publicSha256": "4b719bd7734ae41e23a03a608ad9c909a9f06dbc405f706a57d0ab7470dfad7e",
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -173,8 +173,8 @@
       "inOriginalNine": true,
       "priorOriginalSha256": "fb918dfe1e9822370a68a763ea731403669f89666499f20016eaa82ae23e7c06",
       "priorPublicSha256": "2dc6a450f48a25e271aaa7c76c61bc4c3376e59335c3b8334cd74b56a25f636d",
-      "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "unchangedFromPriorOriginal": false,
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "c3c92ea97ad86958685514d04467f35aebb3bf385f3b96cd0e1a538ef6338ec4"
     },
     {
@@ -230,7 +230,7 @@
       "priorOriginalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6",
       "priorPublicSha256": "655fd37ecfea5fb639eba4d1e9684812f090af9ccfca42ed451662e5b38582ab",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "84083449df6e5591668b673a6da8fed9472638a87efbb8305e196a91b8f2fbb6"
     },
     {
@@ -268,7 +268,7 @@
       "priorOriginalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042",
       "priorPublicSha256": "d438d403b0f6a2da3fdb35bc83a202b5f883210ce206e4af8b3e512a13a75968",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "adb615d6b03d44e4343bf87602aa33a289b42c96a7f62c9d080b23e6c614c042"
     },
     {
@@ -294,14 +294,14 @@
       "priorOriginalSha256": "cdabf3d7fa6e0aa7e57e564ec50f9c006019fbf42678091aa508aeb5ba816144",
       "priorPublicSha256": "a7a9ad8d0671e8b1e06738660c2c30502999323fcdb8287f6b0e71360a91b387",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "bdeb30107e91e714ad6be9a50ac8ddf6833b2b4077f5909133f50bc08d3d5e32"
     },
     {
       "originalPath": "scripts/stcvrc-safe-rollout.ps1",
-      "originalSha256": "39c78a911197a5863426a6105aa71f49c770ef5e4725e533b5f38b7b37382f92",
+      "originalSha256": "106644394117983ab02edbb13269333788d22704ff9ed2b99f2d078fb36d178d",
       "publicPath": "scripts/stcvrc-safe-rollout.ps1",
-      "publicSha256": "20e2130901b56b43daf80bb626fc89915ee95c998fba45c56d2010feffa0634c",
+      "publicSha256": "1117c1179add4d9d7a08ea66a2ffccca02642df67311847eaec07cf30b16791e",
       "changes": [
         {
           "kind": "fixture_identity_or_endpoint_substitution",
@@ -317,10 +317,10 @@
         }
       ],
       "inOriginalNine": true,
-      "priorOriginalSha256": "80ec7a30177454d1f817d5e9172330e88e14a5f7ebc104c6b6662c3c694f4ca8",
-      "priorPublicSha256": "066da3519f5deff2366869dd089d2275a1e06970d7e89f64f52aedb42b89de02",
+      "priorOriginalSha256": "39c78a911197a5863426a6105aa71f49c770ef5e4725e533b5f38b7b37382f92",
+      "priorPublicSha256": "20e2130901b56b43daf80bb626fc89915ee95c998fba45c56d2010feffa0634c",
       "unchangedFromPriorOriginal": false,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "9b7a4848a15ada7dc3fc3cc37d331ea16b128eb264d42b17b670c38584a78630"
     },
     {
@@ -333,7 +333,7 @@
       "priorOriginalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
       "priorPublicSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "211f1f021432899c4005b62e57fecd7a4672fe5e430527fde49e2b355293c898"
     },
     {
@@ -346,7 +346,7 @@
       "priorOriginalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
       "priorPublicSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "20f13e911e06b2cde4a65a7b24cae383122ad483c29c278c2162751680f99270"
     },
     {
@@ -359,7 +359,7 @@
       "priorOriginalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
       "priorPublicSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "d9a9171f722c5a395d8db57ecd1099215a032de3a6dc8cf547164c07ef75c66d"
     },
     {
@@ -372,7 +372,7 @@
       "priorOriginalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
       "priorPublicSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "f10872934ebbba60272e8f333eb9acd780b130a1416d76c717ecd8a6feedf228"
     },
     {
@@ -404,7 +404,7 @@
       "priorOriginalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7",
       "priorPublicSha256": "6d2e60cd9092990ca66d7b0e2e1bbb9c6dd12302190ce9a2de42b939e2ebbff8",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "4bad77685c87c1fa92ae097dc0717b4aa0f9bfd713ce861bc5afc5d1e0efa8d7"
     },
     {
@@ -436,7 +436,7 @@
       "priorOriginalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7",
       "priorPublicSha256": "841e9e9b637b3bd69e31f2d85395c85921e052e8d8f9afa7d838d0d06986d048",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "01ec54943f4af0e202f2b696b310b4b21a275280da61b31ece063f95190283b7"
     },
     {
@@ -456,7 +456,7 @@
       "priorOriginalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542",
       "priorPublicSha256": "838d6350e0873924c7f290d7f4b13542b5669be63713a03632c594cb3a30d6c9",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "d72335df2607060516e551cfa00ce8d34879704049c3576b55f26f755a8f7542"
     },
     {
@@ -482,7 +482,7 @@
       "priorOriginalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6",
       "priorPublicSha256": "9990365389b063ac21f78bf7135f236f66f751096447c80936de56684eddebca",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "37d63cb30598c03744aa2099fa9ef27dc768a948f6b28a444992d67d47d2e9f6"
     },
     {
@@ -532,7 +532,7 @@
       "priorOriginalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73",
       "priorPublicSha256": "54e31d549ab75896bf0d53c8d0a3c269b0c41903f9113592bac37655ada8536c",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "18ff7938f80e35ac650873fa55c34ef16afa07f67ce030b57b5540e697bf1b73"
     },
     {
@@ -545,7 +545,7 @@
       "priorOriginalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
       "priorPublicSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "dfa35b319549c613ee53c3f0ca10f33b9084c9427adc594671fa9df419d1861d"
     },
     {
@@ -558,7 +558,7 @@
       "priorOriginalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
       "priorPublicSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "36106981a6772c0b611a4e2b3b78a4fe8506b8ff119ecb28a19f0d7cfcd61efb"
     },
     {
@@ -590,7 +590,7 @@
       "priorOriginalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0",
       "priorPublicSha256": "c981599c7404c06994a5fba7247fb69435a5bdef02e503da0a0d0fac6395ac80",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "3402e03d60a96a0014fd53bfc9e11fa10fe0b9dfc3b2a7d2a4b6d64a33bf86a0"
     },
     {
@@ -620,7 +620,7 @@
       "priorOriginalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1",
       "priorPublicSha256": "80936c59c2d8938d029cdfdc946f8bde99f548e3d584ebdc9545188c0cb304f9",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "fe3bf5c30bbe428139a19262fa532e862c065e50f70a94528447483cee9b12b1"
     },
     {
@@ -633,7 +633,7 @@
       "priorOriginalSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
       "priorPublicSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "dcfae046371de2853b0e2fe0fa278f14f3812e00cb15f968ee107025c30a34ce"
     },
     {
@@ -659,7 +659,7 @@
       "priorOriginalSha256": "67b45fb7e2da7a437b3113951835e2ce89accaf244baf5ddad92cd4e447d1c2a",
       "priorPublicSha256": "5115e61299c938841c25cc023f51fbc73d70487870519f50a928d3cd223be73d",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "67b45fb7e2da7a437b3113951835e2ce89accaf244baf5ddad92cd4e447d1c2a"
     },
     {
@@ -685,7 +685,7 @@
       "priorOriginalSha256": "1557c98e4d38982b7e460c2dd7ffd2ad3e60d671c1948398b291ef741e07f094",
       "priorPublicSha256": "140183f78b50482c182f38da5e01eeaef7a8d74f158065042880a513b6536dce",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "1557c98e4d38982b7e460c2dd7ffd2ad3e60d671c1948398b291ef741e07f094"
     },
     {
@@ -698,42 +698,135 @@
       "priorOriginalSha256": "5c44c5793e0feb3a7e72717a2bed2a33ec7c0f21534e15e9bfe9b198a0fef75f",
       "priorPublicSha256": "5c44c5793e0feb3a7e72717a2bed2a33ec7c0f21534e15e9bfe9b198a0fef75f",
       "unchangedFromPriorOriginal": true,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
       "historicalOriginalSha256": "dba0152a7f552cbdb40cab807aef1e30eaaa23edbb18fa191b3a5e9cc4b00306"
     },
     {
       "originalPath": "scripts/test_stcvrc_observer_recovery_failures.py",
-      "originalSha256": "67d3c67e2ecd08f0a4960a87c2753450b34b1a0c648acd044714bea9acc2f464",
+      "originalSha256": "7fcdf36edd84dab8184f7139af3f2c54191cab02a976a752bd8166d4ed126c3f",
       "publicPath": "scripts/test_stcvrc_observer_recovery_failures.py",
-      "publicSha256": "67d3c67e2ecd08f0a4960a87c2753450b34b1a0c648acd044714bea9acc2f464",
+      "publicSha256": "7fcdf36edd84dab8184f7139af3f2c54191cab02a976a752bd8166d4ed126c3f",
       "changes": [],
       "inOriginalNine": false,
-      "priorOriginalSha256": "3c273765ef16e0e14ce2bac49beae7022a226651b22c742054e5961184a70917",
-      "priorPublicSha256": "3c273765ef16e0e14ce2bac49beae7022a226651b22c742054e5961184a70917",
+      "priorOriginalSha256": "67d3c67e2ecd08f0a4960a87c2753450b34b1a0c648acd044714bea9acc2f464",
+      "priorPublicSha256": "67d3c67e2ecd08f0a4960a87c2753450b34b1a0c648acd044714bea9acc2f464",
       "unchangedFromPriorOriginal": false,
-      "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4"
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c"
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_atomic_observer_cleanup.py",
+      "publicPath": "scripts/test_stcvrc_atomic_observer_cleanup.py",
+      "inOriginalNine": false,
+      "originalSha256": "f40f2cc7f311f440267d0f225e81db16131b01c819d7ce3e6879e1388ec88898",
+      "publicSha256": "4537ce910056fdb2620cc9d0ef41354cecb08043e74c872e29d77c70c456ae5b",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 2
+        }
+      ],
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
+      "priorOriginalSha256": null,
+      "priorPublicSha256": null,
+      "unchangedFromPriorOriginal": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_desktop_preflight.py",
+      "publicPath": "scripts/test_stcvrc_desktop_preflight.py",
+      "inOriginalNine": false,
+      "originalSha256": "6f33b8d1a1ea4fd04d07c3dfc5b1ffc426540124837b888aec7a25a8b22fb43d",
+      "publicSha256": "613c11513ec0d4992c665d1f8170e7c4a57cf00cdb1da861e5345edcece310bb",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "1b968944430d870d2eeb3b71d4af8272c60edd49eeaa748736c0716ebf24ad74",
+          "publicToken": "S-1-5-21-1-2-3-1001",
+          "count": 1
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 2
+        },
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "5c787923a3cff297673f951e905a26fbe2ab2773e3245945c2e6d008455983d7",
+          "publicToken": "LABHOST",
+          "count": 1
+        }
+      ],
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
+      "priorOriginalSha256": null,
+      "priorPublicSha256": null,
+      "unchangedFromPriorOriginal": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_stop_runtime.py",
+      "publicPath": "scripts/test_stcvrc_stop_runtime.py",
+      "inOriginalNine": false,
+      "originalSha256": "e4f51e821cbe3d352108c0d417ebf60490436b7dce1ad9fcab6b46f20ae8f7ba",
+      "publicSha256": "e4f51e821cbe3d352108c0d417ebf60490436b7dce1ad9fcab6b46f20ae8f7ba",
+      "changes": [],
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
+      "priorOriginalSha256": null,
+      "priorPublicSha256": null,
+      "unchangedFromPriorOriginal": false
+    },
+    {
+      "originalPath": "scripts/test_stcvrc_lab_command_envelope.py",
+      "publicPath": "scripts/test_stcvrc_lab_command_envelope.py",
+      "inOriginalNine": false,
+      "originalSha256": "0056ffa4e5511bb580ce7eca611d038bb2c749b97829b5bb5f24327b2466150e",
+      "publicSha256": "b21f6aeb2367922df367166c612c9ffb523888f2ce293bd0378b7bf755731551",
+      "changes": [
+        {
+          "kind": "fixture_identity_or_endpoint_substitution",
+          "sourceTokenSha256": "7ca2d6adecb56bd4f47f0840bf0d844c5319f086c47753e50006a5465c865be6",
+          "publicToken": "FixtureUser",
+          "count": 1
+        }
+      ],
+      "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
+      "priorOriginalSha256": null,
+      "priorPublicSha256": null,
+      "unchangedFromPriorOriginal": false
     }
   ],
   "diffBoundary": "Current hashes bind actual local originals and independently runnable sanitized copies. Prior hashes preserve b0b0363e inputs. This preparation does not accept any live recovery or production rollout.",
   "notAccepted": [
-    "candidate TUN live dataplane/recovery",
-    "atomic observer/UI/core live restoration",
+    "native automatic observer/UI/core rollback",
+    "Scheduler/ACL recovery",
+    "TUN/reboot/interruption acceptance",
     "Work host rollout",
-    "VM integration/reboot/cleanup",
     "Home/Work readiness"
   ],
   "historicalAtCommit": "162c7fe5c21258146b806a65b5602ae52021a572",
   "historicalOriginalNineMatched": 9,
   "priorPublicSources": 29,
-  "priorOriginalsUnchanged": 27,
-  "priorAtCommit": "a6a4d0a1b46040acfc8f40da99e9558d1eb677b4",
-  "currentSourceCount": 29,
-  "newSources": [],
+  "priorOriginalsUnchanged": 26,
+  "priorAtCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
+  "currentSourceCount": 33,
+  "newSources": [
+    "scripts/test_stcvrc_atomic_observer_cleanup.py",
+    "scripts/test_stcvrc_desktop_preflight.py",
+    "scripts/test_stcvrc_stop_runtime.py",
+    "scripts/test_stcvrc_lab_command_envelope.py"
+  ],
   "intentionalSourceChanges": [
     "scripts/stcvrc-safe-rollout.ps1",
+    "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
     "scripts/test_stcvrc_observer_recovery_failures.py"
   ],
-  "currentPreparation": "../OBSERVER-DIRECTORY-CLAIM.md",
+  "currentPreparation": "../VM-READINESS-FOLLOWUP.md",
   "historicalReviewFix": {
     "comment": "https://github.com/smart-tinker/stcvrc/pull/2#issuecomment-6191897311",
     "instructions": "../CONFIRM-DEADLINE.md"
@@ -743,5 +836,7 @@
     "scripts/invoke-uservm-stcvrc-desktop-autostart.py",
     "scripts/prepare-stcvrc-safe-rollout.py",
     "scripts/stcvrc-safe-rollout.ps1"
-  ]
+  ],
+  "currentPublicReexecution": "NOT_RUN",
+  "currentCanonicalReport": "evidence/vm-readiness-followup/original-preparation-tests.json"
 }

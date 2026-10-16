@@ -247,5 +247,63 @@
     "vmGate": "NOT_RUN",
     "homeReady": false,
     "workReady": false
+  },
+  "vmReadinessFollowup": {
+    "baseCommit": "5813dcfe958e884858e35da4acd8f2306f2f319c",
+    "overview": "VM-READINESS-FOLLOWUP.md",
+    "canonicalCheckedUtc": "2026-10-16T01:04:24.277970+00:00",
+    "canonicalTestsRun": 145,
+    "canonicalPassed": 145,
+    "publicReexecution": "NOT_RUN",
+    "sourceMaps": 33,
+    "evidence": "preparation/evidence/vm-readiness-followup/source-binding.json",
+    "nativeGate": "FAILED_ASSISTED_RECOVERY",
+    "baselineStatus": "PASS_BOTH_DELAYED_SAME_PRINCIPAL",
+    "runtimeAccepted": false,
+    "homeReady": false,
+    "workReady": false,
+    "publication": "NOT_STARTED",
+    "vmAttempts": [
+      {
+        "runId": "20261016-034522",
+        "nativeGate": "FAIL_ASSISTED_RECOVERY",
+        "immediateBaseline": "7/8; BITS Manual->Auto, not repaired",
+        "delayedBaseline": "8/8 PASS, same-principal context",
+        "delayedReadbackAt": "2026-10-16T04:09:16.3422618+03:00",
+        "localResultSha256": "b89f0e7848e4ad92b296be946ccf711fb9aeaf364b60db2e1223485bac8cabe5",
+        "acceptanceReportUnchanged": true,
+        "applyError": {
+          "at": "2026-10-16T00:49:49.0650956Z",
+          "type": "ServiceCommandException",
+          "line": 634
+        },
+        "exceptionMessage": "UNKNOWN_NOT_CAPTURED",
+        "fullyQualifiedErrorId": "UNKNOWN_NOT_CAPTURED",
+        "nativeErrorCode": "UNKNOWN_NOT_CAPTURED",
+        "mutation": "2.5.8 installer started; core file changed; partial UI/core upgrade",
+        "recovery": "Manual original Rollback restored UI2.5.5/core/files/observer; outer Restore restored 7 original paths/ACL/channel"
+      },
+      {
+        "runId": "20261016-041014",
+        "nativeGate": "FAIL_ASSISTED_RECOVERY",
+        "immediateBaseline": "7/8; BITS Manual->Auto, not repaired",
+        "delayedBaseline": "8/8 PASS, same-principal context",
+        "delayedReadbackAt": "2026-10-16T04:28:05.7604462+03:00",
+        "localResultSha256": "a76014a2f90c5d98acbc8cc4d4adfe29dc907ca08973b9a4b435f63be1a8da98",
+        "acceptanceReportUnchanged": true,
+        "applyError": {
+          "type": "RuntimeException",
+          "line": 184,
+          "sourceThrow": "Observer task Enabled setting unavailable"
+        },
+        "mutation": "UI2.5.8 installed; native Scheduler XML omitted schema-default Settings/Enabled",
+        "recovery": "Automatic core restore, observer incomplete; assisted own-task removal then original Rollback and outer Restore"
+      }
+    ],
+    "post145Excluded": {
+      "originalGuardSha256": "7176b3e3b88f9a4dab50c053e92c15746f4041cef610f6e34b2da33c4a3b17bd",
+      "change": "Native Scheduler XML schema-default recovery follow-up",
+      "includedInThisSnapshot": false
+    }
   }
 }
