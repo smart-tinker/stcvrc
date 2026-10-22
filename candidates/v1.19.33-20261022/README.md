@@ -8,9 +8,10 @@ The maintained delta is the existing OpenVPN keepalive/control continuity,
 deferred PUSH_REQUEST retry, teardown/reactivation, and URLTest tolerance
 behavior from the previously reviewed candidate. All 14 delta files match that
 source byte for byte. Upstream 1.19.33 already includes the P_DATA_V1 AEAD fix.
-`go.mod`, `go.sum`, and the upstream WireGuard backend default are unchanged.
-In particular, WireGuard auto selects mipstack on this base; the older Home
-build selected gvisor. External VLESS checks do not exercise that difference.
+`go.mod`, `go.sum`, and the upstream IP stack default are unchanged.
+In particular, auto selects mipstack for both OpenVPN and WireGuard on this
+base; the older Home build selected gvisor. External VLESS checks do not
+exercise that difference; unit tests do not establish corporate acceptance.
 
 The TLS dependency remains `github.com/metacubex/tls v0.1.9`. Build with the
 isolated official Go 1.26.10 Linux/amd64 toolchain, whose archive digest is
