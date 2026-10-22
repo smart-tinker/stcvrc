@@ -357,7 +357,7 @@ func (o *OpenVPN) startLocked(handshakeCtx context.Context) (ipStack, resolver.R
 			IPv6: openVPNPrefixesHas6(push.Prefixes),
 		})
 	}
-	o.startPacketLoops()
+	o.startPacketLoops(push)
 	return o.tunDevice, o.resolver, nil
 }
 
@@ -389,10 +389,11 @@ func (o *OpenVPN) openPacketIO(ctx context.Context) (ovpn.PacketIO, error) {
 	}
 }
 
-func (o *OpenVPN) startPacketLoops() {
+func (o *OpenVPN) startPacketLoops(push *ovpn.PushReply) {
 	runCtx, runCancel := context.WithCancel(o.runCtx)
 	client := o.client
 	tunDevice := o.tunDevice
+	pingInterval, pingRestart := push.Keepalive(o.config.PingInterval, o.config.PingRestart)
 	var stopOnce sync.Once
 	stop := func() {
 		stopOnce.Do(func() {
@@ -451,49 +452,20 @@ func (o *OpenVPN) startPacketLoops() {
 		}
 	}()
 
-	if o.config.PingInterval > 0 {
+	if pingInterval > 0 {
 		go func() {
 			defer stop()
-			ticker := time.NewTicker(o.config.PingInterval)
-			defer ticker.Stop()
-			for runCtx.Err() == nil {
-				select {
-				case <-ticker.C:
-					if sinceSend := client.SinceSend(); sinceSend >= o.config.PingInterval {
-						if err := client.WritePing(runCtx); err != nil {
-							if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
-								log.Warnln("[OpenVPN](%s) error writing ping packet: %v", o.name, err)
-							}
-							return
-						}
-						log.Debugln("[OpenVPN](%s) sent ping packet after %s idle", o.name, sinceSend.Round(time.Second))
-					}
-				case <-runCtx.Done():
-					return
-				}
+			if err := client.SendKeepalives(runCtx, pingInterval); !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+				log.Warnln("[OpenVPN](%s) error writing ping packet: %v", o.name, err)
 			}
 		}()
 	}
 
-	if o.config.PingRestart > 0 {
+	if pingRestart > 0 {
 		go func() {
 			defer stop()
-			ticker := time.NewTicker(o.config.PingRestart)
-			defer ticker.Stop()
-			for runCtx.Err() == nil {
-				select {
-				case <-ticker.C:
-					if sinceReceive := client.SinceReceive(); sinceReceive >= o.config.PingRestart {
-						log.Warnln(
-							"[OpenVPN](%s) ping-restart timeout: no packet received for %s",
-							o.name,
-							sinceReceive.Round(time.Second),
-						)
-						return
-					}
-				case <-runCtx.Done():
-					return
-				}
+			if err := client.WaitPingRestart(runCtx, pingRestart); !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+				log.Warnln("[OpenVPN](%s) %v", o.name, err)
 			}
 		}()
 	}

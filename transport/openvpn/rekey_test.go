@@ -160,6 +160,25 @@ func TestInterruptControlConnStopWaitsForRunningClose(t *testing.T) {
 	}
 }
 
+func TestInitialHandshakeReportsResetDeadline(t *testing.T) {
+	clientIO, _ := newMemoryPacketPair()
+	_, caPEM := newTestTLSServerCertificate(t)
+	client, err := newTestClient(&ClientConfig{
+		Proto: ProtoUDP, CA: caPEM, Cipher: CipherAES128GCM,
+		Auth: AuthSHA256, RemoteHost: "server", RemotePort: 1194,
+	}, clientIO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err = client.Handshake(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "wait server reset:") {
+		t.Fatalf("missing reset stage or deadline identity: %v", err)
+	}
+}
+
 func TestInitialHandshakeContextDeadlineRemainsHardLimit(t *testing.T) {
 	clientIO, serverIO := newMemoryPacketPair()
 	certificate, caPEM := newTestTLSServerCertificate(t)
@@ -274,6 +293,9 @@ func TestInitialHandshakeContextDeadlineRemainsHardLimit(t *testing.T) {
 	case err := <-handshakeResult:
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("handshake returned %v", err)
+		}
+		if !strings.Contains(err.Error(), "key exchange:") {
+			t.Fatalf("missing key exchange stage: %v", err)
 		}
 	case <-guardCtx.Done():
 		t.Fatal(guardCtx.Err())
@@ -430,6 +452,7 @@ func TestRealTLSRekeySurvivesExtendedAuthPending(t *testing.T) {
 				serverErr <- nil
 			}()
 
+			receivedBeforeRekey := client.lastReceiveNano.Load()
 			started := time.Now()
 			rekeyErr := make(chan error, 1)
 			go func() {
@@ -468,6 +491,9 @@ func TestRealTLSRekeySurvivesExtendedAuthPending(t *testing.T) {
 			}
 			if err := <-serverErr; err != nil {
 				t.Fatal(err)
+			}
+			if client.lastReceiveNano.Load() <= receivedBeforeRekey {
+				t.Fatal("real TLS rekey did not refresh control activity")
 			}
 			establishedAt := client.controlEstablishedAt
 			if establishedAt.Before(serverKM2ReleasedAt) || establishedAt.Before(clientKM2ReadAt) {
@@ -2038,8 +2064,8 @@ func TestInitialHandshakeRetransmitsLostClientHello(t *testing.T) {
 		}
 	}
 	cancel()
-	if err := <-handshakeErr; err == nil {
-		t.Fatal("incomplete test handshake unexpectedly succeeded")
+	if err := <-handshakeErr; !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "control TLS:") {
+		t.Fatalf("missing TLS stage or cancellation identity: %v", err)
 	}
 }
 
@@ -2612,6 +2638,10 @@ func (c *chunkConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+func (c *chunkConn) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
 func TestReadTokenPushReplyUsesExtendedContinuationDeadline(t *testing.T) {
 	limit := time.Now().Add(time.Hour)
 	conn := &chunkConn{data: [][]byte{
@@ -2779,6 +2809,29 @@ func TestReadServerKeyMethodCompleteWithEOF(t *testing.T) {
 	}
 	if parsed.Options != "server-options" || parsed.PeerInfo != "IV_VER=server\n" {
 		t.Fatalf("unexpected KM2: %#v", parsed)
+	}
+}
+
+func TestKeyMethodTimeoutReportsFramingWithoutRecordContents(t *testing.T) {
+	record := marshalTestServerKeyMethod(t)
+	_, end, err := readOpenVPNString(record, 5+keySourceRandomSize*2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := &chunkConn{data: [][]byte{record[:end]}, errs: []error{io.EOF}}
+	client := &Client{}
+	_, err = client.readServerKeyMethodFrom(context.Background(), conn)
+	if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), "options-complete=true trailing-bytes=0") {
+		t.Fatalf("missing bounded framing evidence: %v", err)
+	}
+	if strings.Contains(err.Error(), "V4,") {
+		t.Fatal("error exposed server options")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	wrapped := operationContextError(ctx, fmt.Errorf("test key-method phase: %w", io.EOF))
+	if !errors.Is(wrapped, context.Canceled) || !strings.Contains(wrapped.Error(), "test key-method phase") {
+		t.Fatalf("context cancellation lost the protocol failure: %v", wrapped)
 	}
 }
 

@@ -21,6 +21,12 @@ type PushReply struct {
 	Redirect  bool
 	BlockIPv6 bool
 
+	// Presence is distinct from zero, which explicitly disables a timer.
+	PingInterval    time.Duration
+	PingRestart     time.Duration
+	hasPingInterval bool
+	hasPingRestart  bool
+
 	// DataCiphers is the list of data channel ciphers pushed by the server
 	// via the "data-ciphers" option (OpenVPN 2.5+).
 	DataCiphers []string
@@ -131,6 +137,20 @@ func parsePushReplyInner(message string) (*PushReply, error) {
 			reply.Redirect = true
 		case "block-ipv6":
 			reply.BlockIPv6 = true
+		case "ping", "ping-restart":
+			if len(fields) != 2 {
+				return nil, fmt.Errorf("invalid pushed %s", fields[0])
+			}
+			seconds, err := strconv.ParseInt(fields[1], 10, 64)
+			if err != nil || seconds < 0 || seconds > int64((time.Duration(1<<63-1))/time.Second) {
+				return nil, fmt.Errorf("invalid pushed %s duration", fields[0])
+			}
+			duration := time.Duration(seconds) * time.Second
+			if fields[0] == "ping" {
+				reply.PingInterval, reply.hasPingInterval = duration, true
+			} else {
+				reply.PingRestart, reply.hasPingRestart = duration, true
+			}
 		case "data-ciphers", "ncp-ciphers":
 			if len(fields) >= 2 {
 				for _, c := range strings.Split(fields[1], ":") {
@@ -175,6 +195,19 @@ func (p *PushReply) AuthToken() (user, pass string, ok bool) {
 		return "", "", false
 	}
 	return p.AuthTokenUser, p.AuthTokenPass, true
+}
+
+// Keepalive applies server-pushed timers over the local values for this session.
+func (p *PushReply) Keepalive(interval, restart time.Duration) (time.Duration, time.Duration) {
+	if p != nil {
+		if p.hasPingInterval {
+			interval = p.PingInterval
+		}
+		if p.hasPingRestart {
+			restart = p.PingRestart
+		}
+	}
+	return interval, restart
 }
 
 func decodeAuthTokenUser(raw string) (string, error) {

@@ -108,6 +108,10 @@ type Client struct {
 
 	lastSendNano    atomic.Int64
 	lastReceiveNano atomic.Int64
+	// Read-loop diagnostics, not a wire capture or an application-success count.
+	lastDataPacketNano atomic.Int64
+	inboundDataPackets atomic.Uint64
+	dataDecryptErrors  atomic.Uint64
 }
 
 func NewClient(config *ClientConfig, io PacketIO) (*Client, error) {
@@ -161,6 +165,8 @@ func NewClient(config *ClientConfig, io PacketIO) (*Client, error) {
 	}
 	client.markSend()
 	client.markReceive()
+	control.onSend = client.markSend
+	control.onReceive = client.markReceive
 	go client.flushControlACKs()
 	return client, nil
 }
@@ -191,7 +197,7 @@ func (c *Client) Handshake(ctx context.Context) (*PushReply, error) {
 		return nil, fmt.Errorf("send hard reset: %w", err)
 	}
 	if err := c.waitServerReset(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wait server reset: %w", err)
 	}
 	handshakeCtx, cancelHandshake := context.WithCancelCause(ctx)
 	defer cancelHandshake(nil)
@@ -214,12 +220,12 @@ func (c *Client) Handshake(ctx context.Context) (*PushReply, error) {
 	var err error
 	interrupt, err = c.startTLSEpoch(handshakeCtx)
 	if err != nil {
-		return nil, operationContextError(handshakeCtx, err)
+		return nil, fmt.Errorf("control TLS: %w", operationContextError(handshakeCtx, err))
 	}
 
 	push, err := c.doKeyExchange(handshakeCtx)
 	if err != nil {
-		return nil, operationContextError(handshakeCtx, err)
+		return nil, fmt.Errorf("key exchange: %w", operationContextError(handshakeCtx, err))
 	}
 	if retransmitStop != nil {
 		retransmitStop()
@@ -680,7 +686,7 @@ func (c *Client) WriteIPPacket(ctx context.Context, packet []byte) error {
 }
 
 func (c *Client) WritePing(ctx context.Context) error {
-	return c.writeDataPacket(ctx, openVPNPingPacket, false)
+	return c.writeDataPacket(ctx, openVPNPingPacket, true)
 }
 
 func (c *Client) writeDataPacket(ctx context.Context, packet []byte, compress bool) error {
@@ -814,16 +820,23 @@ func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
 			}
 			return nil, err
 		}
+		c.lastDataPacketNano.Store(int64(time.Since(start)))
+		c.inboundDataPackets.Add(1)
 		plain, err := c.decryptDataPacket(packet)
 		if err != nil {
+			c.dataDecryptErrors.Add(1)
 			continue
 		}
 		c.markReceive()
+		// Compression framing applies to keepalives as well as IP packets.
+		if c.config.CompLZO == CompLzoYes && len(plain) > 0 {
+			plain, err = lzo1xDecompressSafe(plain)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if IsPingPacket(plain) {
 			continue
-		}
-		if c.config.CompLZO == CompLzoYes && len(plain) > 0 {
-			return lzo1xDecompressSafe(plain)
 		}
 		return plain, nil
 	}
@@ -1091,7 +1104,10 @@ func (c *Client) rekeyWaitDeadline(now time.Time) time.Time {
 
 func operationContextError(ctx context.Context, fallback error) error {
 	if cause := context.Cause(ctx); cause != nil {
-		return cause
+		if errors.Is(fallback, cause) {
+			return fallback
+		}
+		return fmt.Errorf("%v: %w", fallback, cause)
 	}
 	return fallback
 }
@@ -1194,6 +1210,14 @@ func (c *Client) readServerKeyMethodFrom(ctx context.Context, conn pushReadConn)
 	}
 	tmp := make([]byte, 4096)
 	var readErr error
+	framingError := func(err error) error {
+		_, end, optionsErr := readOpenVPNString(buf, 5+keySourceRandomSize*2)
+		trailing := 0
+		if optionsErr == nil {
+			trailing = len(buf) - end
+		}
+		return fmt.Errorf("read key method 2 server record (bytes=%d options-complete=%t trailing-bytes=%d): %w", len(buf), optionsErr == nil, trailing, err)
+	}
 	for {
 		// Only treat the record as complete when all four strings are
 		// present. A standard record fragmented across TLS reads must not
@@ -1218,10 +1242,10 @@ func (c *Client) readServerKeyMethodFrom(ctx context.Context, conn pushReadConn)
 			return nil, parseErr
 		}
 		if readErr != nil {
-			return nil, fmt.Errorf("read key method 2 server record: %w", readErr)
+			return nil, framingError(readErr)
 		}
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, framingError(err)
 		}
 		n, err := conn.Read(tmp)
 		if n > 0 {
@@ -1238,7 +1262,7 @@ func (c *Client) readPushReply(ctx context.Context) (*PushReply, error) {
 	return c.readPushReplyFrom(ctx, c.tlsConn.Load())
 }
 
-func (c *Client) readPushReplyFrom(ctx context.Context, conn pushReadConn) (*PushReply, error) {
+func (c *Client) readPushReplyFrom(ctx context.Context, conn pushExchangeConn) (*PushReply, error) {
 	buf := append([]byte(nil), c.leftoverTLS...)
 	c.leftoverTLS = nil
 	if len(buf) > maxTLSControlBuffer {
@@ -1247,6 +1271,9 @@ func (c *Client) readPushReplyFrom(ctx context.Context, conn pushReadConn) (*Pus
 	tmp := make([]byte, 4096)
 	var readErr error
 	var continuationDeadline time.Time
+	var protocolDeadline time.Time
+	nextRequest := time.Now().Add(ControlRetransmitDelay)
+	defer func() { _ = conn.SetReadDeadline(protocolDeadline) }()
 	for {
 		if err := controlMessageError(buf); err != nil {
 			return nil, err
@@ -1273,9 +1300,6 @@ func (c *Client) readPushReplyFrom(ctx context.Context, conn pushReadConn) (*Pus
 				continuationDeadline = c.rekeyWaitDeadline(time.Now())
 			}
 		}
-		if readErr != nil {
-			return nil, fmt.Errorf("read push reply: %w", readErr)
-		}
 		deadline := c.authPendingDeadline()
 		if !continuationDeadline.IsZero() && (deadline.IsZero() || continuationDeadline.Before(deadline)) {
 			deadline = continuationDeadline
@@ -1283,8 +1307,26 @@ func (c *Client) readPushReplyFrom(ctx context.Context, conn pushReadConn) (*Pus
 		if !deadline.IsZero() {
 			_ = conn.SetDeadline(deadline)
 		}
+		protocolDeadline = deadline
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if readErr != nil {
+			var timeout net.Error
+			now := time.Now()
+			if !continuationDeadline.IsZero() || !errors.As(readErr, &timeout) || !timeout.Timeout() ||
+				now.Before(nextRequest) || (!deadline.IsZero() && !now.Before(deadline)) {
+				return nil, fmt.Errorf("read push reply: %w", readErr)
+			}
+			// An ACK only confirms delivery, not completed server authentication.
+			// Repeat the application request until the first PUSH_REPLY segment.
+			if _, err := conn.Write([]byte(PushRequest + "\x00")); err != nil {
+				return nil, fmt.Errorf("retry push request: %w", err)
+			}
+			nextRequest = time.Now().Add(ControlRetransmitDelay)
+		}
+		if continuationDeadline.IsZero() && (deadline.IsZero() || nextRequest.Before(deadline)) {
+			_ = conn.SetReadDeadline(nextRequest)
 		}
 		n, err := conn.Read(tmp)
 		if n > 0 {
@@ -1314,6 +1356,11 @@ type pushReadConn interface {
 	Read(p []byte) (int, error)
 	SetDeadline(t time.Time) error
 	SetReadDeadline(t time.Time) error
+}
+
+type pushExchangeConn interface {
+	pushReadConn
+	Write(p []byte) (int, error)
 }
 
 // readTokenPushReply tries to consume a token-only PUSH_REPLY (an
@@ -1645,6 +1692,12 @@ func mergePushReply(prev, next *PushReply) *PushReply {
 	}
 	if next.Cipher == "" {
 		next.Cipher = prev.Cipher
+	}
+	if !next.hasPingInterval {
+		next.PingInterval, next.hasPingInterval = prev.PingInterval, prev.hasPingInterval
+	}
+	if !next.hasPingRestart {
+		next.PingRestart, next.hasPingRestart = prev.PingRestart, prev.hasPingRestart
 	}
 	if !next.Redirect {
 		next.Redirect = prev.Redirect

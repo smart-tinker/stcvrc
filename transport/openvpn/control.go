@@ -31,6 +31,10 @@ type ControlChannel struct {
 	keyID       uint8
 	local       SessionID
 	remote      SessionID
+	// Set once before use. Activity follows validation or successful wire I/O,
+	// never queue delivery, failed validation, or deliberately dropped writes.
+	onReceive func()
+	onSend    func()
 
 	mu             sync.Mutex
 	sendPacketID   uint32
@@ -604,6 +608,7 @@ func (c *ControlChannel) read(ctx context.Context, watchSoftReset bool) (*Contro
 						}
 					}
 					packet.receivedAt = time.Now()
+					c.markActivityReceived()
 					// Only one future key state can be negotiated at a time. A
 					// second distinct reset would require the peer to advance again
 					// before this epoch completed; keep the first trigger and drop
@@ -649,6 +654,7 @@ func (c *ControlChannel) read(ctx context.Context, watchSoftReset bool) (*Contro
 					}
 				}
 				packet.receivedAt = time.Now()
+				c.markActivityReceived()
 				c.mu.Unlock()
 				return packet, nil
 			}
@@ -662,6 +668,7 @@ func (c *ControlChannel) read(ctx context.Context, watchSoftReset bool) (*Contro
 		}
 
 		var deliver *ControlPacket
+		c.markActivityReceived()
 
 		c.mu.Lock()
 		for _, ackID := range packet.AckIDs {
@@ -709,6 +716,12 @@ func (c *ControlChannel) read(ctx context.Context, watchSoftReset bool) (*Contro
 		if deliver != nil {
 			return deliver, nil
 		}
+	}
+}
+
+func (c *ControlChannel) markActivityReceived() {
+	if c.onReceive != nil {
+		c.onReceive()
 	}
 }
 
@@ -830,6 +843,9 @@ func (c *ControlChannel) writeControlPacketGranted(ctx context.Context, packet *
 	}
 	if errors.Is(err, errPacketDropped) {
 		return nil
+	}
+	if err == nil && c.onSend != nil {
+		c.onSend()
 	}
 	return err
 }

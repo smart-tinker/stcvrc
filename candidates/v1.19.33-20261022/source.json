@@ -1,0 +1,42 @@
+{
+  "product": "STCVRC",
+  "status": "candidate; not released or accepted for replacement",
+  "upstream": {
+    "tag": "v1.19.33",
+    "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
+  },
+  "patchSource": {
+    "commit": "9ccecd85017ec196975239a3afeef886cf991588",
+    "base": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+    "patchSha256": "f36370decc59e77fa28a5b577ce45eefdc77d4ca9727a09a3dfae1c5cbb4a372"
+  },
+  "go": "go1.26.10 linux/amd64",
+  "goArchiveSha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+  "target": {
+    "GOOS": "windows",
+    "GOARCH": "amd64",
+    "GOAMD64": "v1",
+    "CGO_ENABLED": "0",
+    "tags": [
+      "with_gvisor"
+    ]
+  },
+  "version": "1.19.33-STCVRC-candidate-20261022",
+  "buildTime": "2026-10-22T00:00:00Z",
+  "patchFiles": {
+    "adapter/outbound/openvpn.go": "8fdba21ca31a0d1abf6ab3845ade81400260713d43ba688c91f0b8248728b1ea",
+    "adapter/outbound/openvpn_keepalive_test.go": "f7208595823d66b4e17e143b0ac5c96ef73bed891e4f3fa0d4f5aca06ebbe5d7",
+    "adapter/outboundgroup/urltest.go": "545051e9d585609386266ac20c0dc047dcc40fc47be95a72cae9b7d8c6df6e52",
+    "adapter/outboundgroup/urltest_test.go": "5980c0e26047a4dc6cf567e45df6203a05884f8599a5a695210acc162d699754",
+    "transport/openvpn/client.go": "de49a089f5a37203a6ce2363b1b036b8d8c6defc304210daf2811e138504a730",
+    "transport/openvpn/control.go": "9995b09e49438df6b153a35c2e5fc80bc8f55fa1a2a3c6c191573dcb1cca808b",
+    "transport/openvpn/keepalive.go": "017826d87069fb21436344dfb946d720a521087c012b668b95f415cc91d99f76",
+    "transport/openvpn/keepalive_diagnostics_test.go": "e15b99190136cf18c7760a513868c50576e9f4fab700549732e1c03efa423195",
+    "transport/openvpn/keepalive_lzo_test.go": "4a0e0e21e8568e16d4811d7769a3f4bf56087cfeadea66ff28b2558d1df73433",
+    "transport/openvpn/keepalive_test.go": "65e811465f60b40793bef77ab5f028cd1032601e1e59746da2e7cd80b1d6463d",
+    "transport/openvpn/push.go": "8f1c292c026cc8dcbcfd65b25b8b947bfd1301dbea765db5edcde27bb91d4771",
+    "transport/openvpn/push_keepalive_test.go": "738148c457c471f526dbc80ad9dc5e72052599798ca6ff6bc8054d45106ad711",
+    "transport/openvpn/push_retry_test.go": "622b22f9526d527e9535324bd780bfe0162351436822a99d4ce270a1bbbaf906",
+    "transport/openvpn/rekey_test.go": "0011e8c1558920c810665bd5c539b5c4045df54cd18667bea5bcf3129826941d"
+  }
+}

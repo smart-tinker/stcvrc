@@ -1,101 +1,93 @@
-<h1 align="center">
-  <img src="Meta.png" alt="Meta Kennel" width="200">
-  <br>Meta Kernel<br>
-</h1>
+<h1 align="center">STCVRC</h1>
 
-<h3 align="center">Another Mihomo Kernel.</h3>
+<h3 align="center">Smart Tinker Clash Verge Rev Core</h3>
 
-<p align="center">
-  <a href="https://goreportcard.com/report/github.com/MetaCubeX/mihomo">
-    <img src="https://goreportcard.com/badge/github.com/MetaCubeX/mihomo?style=flat-square">
-  </a>
-  <img src="https://img.shields.io/github/go-mod/go-version/MetaCubeX/mihomo/Alpha?style=flat-square">
-  <a href="https://github.com/MetaCubeX/mihomo/releases">
-    <img src="https://img.shields.io/github/release/MetaCubeX/mihomo/all.svg?style=flat-square">
-  </a>
-  <a href="https://github.com/MetaCubeX/mihomo">
-    <img src="https://img.shields.io/badge/release-Meta-00b4f0?style=flat-square">
-  </a>
-</p>
+STCVRC is a replaceable core for the unmodified
+[Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) desktop
+application. It is a downstream of
+[MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) focused on OpenVPN
+session continuity required by our Clash Verge Rev runtime.
 
-## Features
+STCVRC is an independent project and is not affiliated with MetaCubeX or Clash
+Verge Rev.
 
-- Local HTTP/HTTPS/SOCKS server with authentication support
-- VMess, VLESS, Shadowsocks, Trojan, Snell, TUIC, Hysteria protocol support
-- Built-in DNS server that aims to minimize DNS pollution attack impact, supports DoH/DoT upstream and fake IP.
-- Rules based off domains, GEOIP, IPCIDR or Process to forward packets to different nodes
-- Remote groups allow users to implement powerful rules. Supports automatic fallback, load balancing or auto select node
-  based off latency
-- Remote providers, allowing users to get node lists remotely instead of hard-coding in config
-- Netfilter TCP redirecting. Deploy Mihomo on your Internet gateway with `iptables`.
-- Comprehensive HTTP RESTful API controller
+## Architecture
 
-## Dashboard
+- Clash Verge Rev remains the stock upstream UI, service, installer, and update
+  channel. This repository does not contain a UI fork.
+- STCVRC builds only `verge-mihomo.exe`, the core binary consumed by Clash
+  Verge Rev.
+- Local profiles, credentials, certificates, route policy, and deployment state
+  are deliberately excluded from this repository.
+- The maintained source delta is limited to OpenVPN compatibility, control-plane
+  continuity during soft rekey, and the API behavior required by Clash Verge
+  Rev.
 
-A web dashboard with first-class support for this project has been created; it can be checked out at [metacubexd](https://github.com/MetaCubeX/metacubexd).
+## Candidate work
 
-## Configration example
+The isolated [Mihomo 1.19.33 candidate](candidates/v1.19.33-20261022/README.md)
+is under evaluation; the accepted release contract below is unchanged.
 
-Configuration example is located at [/docs/config.yaml](https://github.com/MetaCubeX/mihomo/blob/Alpha/docs/config.yaml).
+## Current release line
 
-## Docs
+| Component | Accepted version |
+| --- | --- |
+| STCVRC | `v1.19.29-stcvrc.1` |
+| Mihomo base | `v1.19.29` |
+| Clash Verge Rev | `v2.5.2` |
+| Go toolchain | `go1.26.5 windows/amd64` |
+| Output | `verge-mihomo.exe` |
 
-Documentation can be found in [mihomo Docs](https://wiki.metacubex.one/).
+The release contains the STCVRC core only. Obtain Clash Verge Rev from its
+[official v2.5.2 release](https://github.com/clash-verge-rev/clash-verge-rev/releases/tag/v2.5.2).
 
-## For development
+## Reproducible Windows build
 
-Requirements:
-[Go 1.20 or newer](https://go.dev/dl/)
-
-Build mihomo:
-
-```shell
-git clone https://github.com/MetaCubeX/mihomo.git
-cd mihomo && go mod download
-go build
+```powershell
+git clone https://github.com/smart-tinker/stcvrc.git
+cd stcvrc
+git checkout v1.19.29-stcvrc.1
+.\build-windows.ps1
 ```
 
-Set go proxy if a connection to GitHub is not possible:
+`build-windows.ps1` requires exactly Go `1.26.5`, runs the tests for the changed
+OpenVPN and outbound adapter contours, builds with fixed version metadata, and
+rejects an output whose SHA-256 differs from:
 
-```shell
-go env -w GOPROXY=https://goproxy.io,direct
+```text
+71195C943BE67017C5646EA2021734BC122FA83C58A408AB6713A2B25CB6B62B
 ```
 
-Build with gvisor tun stack:
+The equivalent build command is:
 
-```shell
-go build -tags with_gvisor
+```powershell
+$env:GOOS = 'windows'
+$env:GOARCH = 'amd64'
+$env:GOAMD64 = 'v1'
+$env:CGO_ENABLED = '0'
+$env:GOFLAGS = '-mod=readonly'
+go build -tags with_gvisor -trimpath -buildvcs=false `
+  -ldflags '-s -w -buildid= -X "github.com/metacubex/mihomo/constant.Version=1.19.29-STCVRC-openvpn-rekey-9e235082" -X "github.com/metacubex/mihomo/constant.BuildTime=2026-07-20T00:00:00Z"' `
+  -o .\dist\verge-mihomo.exe .
 ```
 
-### IPTABLES configuration
+## Use with Clash Verge Rev
 
-Work on Linux OS which supported `iptables`
+Back up the bundled `verge-mihomo.exe`, stop the Clash Verge Rev service, and
+replace only that core binary. The UI package and service helper remain stock.
+The release manifest records the accepted UI installer digest and its verified
+Tauri updater signature; the UI installer itself is not redistributed here.
 
-```yaml
-# Enable the TPROXY listener
-tproxy-port: 9898
+## Upstream documentation
 
-iptables:
-  enable: true # default is false
-  inbound-interface: eth0 # detect the inbound interface, default is 'lo'
-```
+Configuration and controller API documentation is maintained by MetaCubeX at
+[wiki.metacubex.one](https://wiki.metacubex.one/).
 
-## Debugging
+## Credits and license
 
-Check [wiki](https://wiki.metacubex.one/api/#debug) to get an instruction on using debug
-API.
+STCVRC retains the upstream project history and credits. See the upstream
+project and source history for the complete contributor record.
 
-## Credits
-
-- [Dreamacro/clash](https://github.com/Dreamacro/clash)
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-- [riobard/go-shadowsocks2](https://github.com/riobard/go-shadowsocks2)
-- [v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)
-- [WireGuard/wireguard-go](https://github.com/WireGuard/wireguard-go)
-- [yaling888/clash-plus-pro](https://github.com/yaling888/clash)
-
-## License
-
-This software is released under the GPL-3.0 license.
-
-**In addition, any downstream projects not affiliated with `MetaCubeX` shall not contain the word `mihomo` in their names.**
+This software is released under the GPL-3.0 license. As required by the
+upstream license notice, the downstream project name does not contain the word
+`mihomo`.
