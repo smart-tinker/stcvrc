@@ -1,0 +1,47 @@
+name: STCVRC network lab
+
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - .github/workflows/stcvrc-network-lab.yml
+      - tools/network-lab/**
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-lab:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Read the exact fixture commit without credentials
+        env:
+          FIXTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$FIXTURE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init --quiet "$GITHUB_WORKSPACE/fixture"
+          git -C "$GITHUB_WORKSPACE/fixture" fetch --quiet --depth=1 \
+            https://github.com/smart-tinker/stcvrc.git "$FIXTURE_SHA"
+          git -C "$GITHUB_WORKSPACE/fixture" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE/fixture" rev-parse HEAD)" = "$FIXTURE_SHA"
+          printf 'Fixture commit: %s\n' "$FIXTURE_SHA"
+
+      - name: Verify inputs, build the pinned candidate and test loopback failover
+        run: bash "$GITHUB_WORKSPACE/fixture/tools/network-lab/ci.sh"
