@@ -81,7 +81,7 @@ class LabTests(unittest.TestCase):
             path = pathlib.Path(folder) / "fixture.bin"
             path.write_bytes(b"not executable")
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            self.assertEqual(lab.checked_binary(path, digest), str(path))
+            self.assertEqual(lab.checked_binary(path, digest), str(path.resolve()))
             with self.assertRaises(ValueError):
                 lab.checked_binary(path, "0" * 64)
             with self.assertRaises(ValueError):
