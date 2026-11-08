@@ -11,6 +11,24 @@ import lab
 
 
 class LabTests(unittest.TestCase):
+    def test_requests_connect_to_current_core_port(self):
+        original_ports, original_target = lab.PORTS.copy(), lab.TARGET
+        try:
+            lab.select_ports()
+            selected_port = lab.PORTS["core"]
+            with mock.patch.object(lab.http.client, "HTTPConnection") as connection:
+                connection.return_value.getresponse.return_value.status = 200
+                connection.return_value.getresponse.return_value.read.return_value = b"A"
+                self.assertEqual(lab.request(), (200, "A"))
+                self.assertEqual(lab.probe(), "A")
+                self.assertEqual(connection.call_args_list,
+                                 [mock.call(lab.HOST, selected_port, timeout=1)] * 2)
+                lab.probe(43210, proxy=False)
+                connection.assert_called_with(lab.HOST, 43210, timeout=1)
+        finally:
+            lab.PORTS.update(original_ports)
+            lab.TARGET = original_target
+
     def test_new_invocation_uses_distinct_ephemeral_ports(self):
         original_ports, original_target = lab.PORTS.copy(), lab.TARGET
         try:

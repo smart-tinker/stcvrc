@@ -92,7 +92,9 @@ def configs(directory, certificate, identity, backends):
     return result
 
 
-def request(port=PORTS["core"], proxy=True, timeout=1):
+def request(port=None, proxy=True, timeout=1):
+    if port is None:
+        port = PORTS["core"]
     connection = http.client.HTTPConnection(HOST, port, timeout=timeout)
     try:
         connection.request("GET", TARGET + "/probe" if proxy else "/probe",
@@ -106,7 +108,7 @@ def request(port=PORTS["core"], proxy=True, timeout=1):
         connection.close()
 
 
-def probe(port=PORTS["core"], proxy=True):
+def probe(port=None, proxy=True):
     status, body = request(port, proxy)
     return body if status == 200 else None
 
