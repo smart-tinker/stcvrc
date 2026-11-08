@@ -9,7 +9,7 @@ SCRIPT = (HERE / "ci.sh").read_text()
 
 class CIContractTests(unittest.TestCase):
     def test_runner_and_review_gates(self):
-        self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04"])
+        self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04", "windows-2022"])
         self.assertIn("timeout-minutes: 20", WORKFLOW)
         self.assertIn("!github.event.repository.private", WORKFLOW)
         self.assertIn("!github.event.pull_request.draft", WORKFLOW)

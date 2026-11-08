@@ -20,6 +20,17 @@ PORTS = {"core": 17890, "A": 18081, "B": 18082, "direct": 18083}
 TARGET = f"http://{HOST}:{PORTS['direct']}"
 
 
+def select_ports():
+    """Avoid TIME_WAIT from a preceding invocation, including on Windows."""
+    global TARGET
+    with contextlib.ExitStack() as stack:
+        for name in PORTS:
+            reservation = stack.enter_context(socket.socket())
+            reservation.bind((HOST, 0))
+            PORTS[name] = reservation.getsockname()[1]
+    TARGET = f"http://{HOST}:{PORTS['direct']}"
+
+
 def checked_binary(path, expected):
     path = pathlib.Path(path).resolve(strict=True)
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
@@ -260,6 +271,7 @@ def main():
     parser.add_argument("--openssl", default="openssl")
     parser.add_argument("--check-tls-rejection", action="store_true")
     args = parser.parse_args()
+    select_ports()
     run(checked_binary(args.core, args.core_sha256),
         checked_binary(args.xray, args.xray_sha256), args.openssl, args.check_tls_rejection)
 

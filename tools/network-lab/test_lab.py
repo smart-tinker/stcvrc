@@ -11,6 +11,17 @@ import lab
 
 
 class LabTests(unittest.TestCase):
+    def test_new_invocation_uses_distinct_ephemeral_ports(self):
+        original_ports, original_target = lab.PORTS.copy(), lab.TARGET
+        try:
+            lab.select_ports()
+            self.assertEqual(len(set(lab.PORTS.values())), 4)
+            self.assertTrue(all(0 < port < 65536 for port in lab.PORTS.values()))
+            self.assertEqual(lab.TARGET, f"http://{lab.HOST}:{lab.PORTS['direct']}")
+        finally:
+            lab.PORTS.update(original_ports)
+            lab.TARGET = original_target
+
     def setUp(self):
         self.configs = lab.configs("/temporary/lab", "TEST CA", "test-uuid", {"A": 20001, "B": 20002})
 
