@@ -51,7 +51,7 @@ class WindowsInputsTests(unittest.TestCase):
         completed = subprocess.run([sys.executable, "-c", driver], cwd=pathlib.Path(__file__).parent,
                                    capture_output=True, text=True, timeout=15)
         self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("fixture-stderr-marker", completed.stderr)
+        self.assertIn("fixture-stderr-marker", completed.stderr.splitlines())
 
     @unittest.skipUnless(sys.platform == "win32", "Native Windows process-tree cleanup")
     def test_forced_timeout_terminates_child_and_releases_temporary_files(self):
