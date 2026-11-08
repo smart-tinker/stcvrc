@@ -10,6 +10,8 @@ The helper verifies fixed checksums for official Go 1.26.10, official Xray 26.10
 
 All application addresses are IPv4 loopback. There is no TUN, Docker, admin elevation, host routing/firewall/DNS/trust-store change, production profile or stored credential. A same-host DIRECT sentinel detects bypass; this is not a security sandbox for hostile binaries. Test CA/certificate/UUID and logs exist only in temporary directories and are cleaned after normal completion or exceptions. Abrupt job termination relies on the disposable runner's lifetime.
 
+The Linux port preflight tolerates TIME_WAIT after the preceding test, while still rejecting a live listener. It never terminates a pre-existing process. Use a dedicated runner; the short bind/start race is not a cross-process reservation guarantee.
+
 No Actions cache or artifacts are used. Go's temporary compiler/module directories are deleted at the end; they are not persisted between jobs. There are no repository writes, releases, deployments or external service credentials. Only compact results and checksums enter the job log/summary. Standard public-repository hosted compute is [free](https://docs.github.com/en/billing/concepts/product-billing/github-actions); this does not guarantee a zero bill for unrelated account usage/storage.
 
 ## Review and activation

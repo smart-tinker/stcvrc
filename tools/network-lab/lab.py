@@ -9,6 +9,7 @@ import pathlib
 import re
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -153,6 +154,15 @@ def stop(process):
             process.wait(timeout=5)
 
 
+def check_ports_available(ports):
+    for port in ports:
+        with socket.socket() as reservation:
+            if sys.platform == "linux":
+                # Reuse TIME_WAIT sockets, but never an existing listening socket.
+                reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            reservation.bind((HOST, port))
+
+
 @contextlib.contextmanager
 def backend(identity, port=0):
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -189,9 +199,7 @@ def run(core, xray, openssl, check_tls_hostname=False):
     # No TUN, Docker, controller, host routing, system trust-store or DNS changes.
     with contextlib.ExitStack() as stack:
         directory = pathlib.Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="stcvrc-lab-")))
-        for port in PORTS.values():
-            with socket.socket() as reservation:
-                reservation.bind((HOST, port))
+        check_ports_available(PORTS.values())
         endpoints = {name: stack.enter_context(backend(name)) for name in ("A", "B")}
         stack.enter_context(backend("DIRECT", PORTS["direct"]))
         if probe(PORTS["direct"], proxy=False) != "DIRECT":

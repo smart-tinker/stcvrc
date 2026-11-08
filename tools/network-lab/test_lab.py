@@ -1,6 +1,8 @@
 import hashlib
 import http.client
 import pathlib
+import socket
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -117,6 +119,30 @@ class LabTests(unittest.TestCase):
     def test_backend_negative_control_really_returns_direct(self):
         with lab.backend("DIRECT") as port:
             self.assertEqual(lab.probe(port, proxy=False), "DIRECT")
+
+    def test_port_preflight_rejects_an_existing_listener(self):
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((lab.HOST, 0))
+            listener.listen()
+            with self.assertRaises(OSError):
+                lab.check_ports_available([listener.getsockname()[1]])
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux TIME_WAIT regression")
+    def test_port_preflight_allows_time_wait_after_previous_run(self):
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((lab.HOST, 0))
+            port = listener.getsockname()[1]
+            listener.listen()
+            with socket.create_connection((lab.HOST, port), timeout=1) as client:
+                connection, _ = listener.accept()
+                connection.close()
+                self.assertEqual(client.recv(1), b"")
+        with socket.socket() as strict:
+            with self.assertRaises(OSError):
+                strict.bind((lab.HOST, port))
+        lab.check_ports_available([port])
 
     def test_health_check_head_matches_candidate_urltest(self):
         for identity, status in (("A", 204), ("B", 204), ("DIRECT", 200)):
