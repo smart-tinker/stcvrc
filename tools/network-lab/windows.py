@@ -34,6 +34,29 @@ def extract_xray(archive, destination):
     return hashlib.sha256(destination.read_bytes()).hexdigest()
 
 
+def run_fixture(command, timeout=120):
+    # Keep the parent alive until taskkill has identified its owned child tree.
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=None, text=True)
+    try:
+        try:
+            stdout, _ = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                           check=True, timeout=15)
+            process.communicate(timeout=15)
+            raise
+        if process.returncode:
+            print(stdout, file=sys.stderr, end="")
+            raise subprocess.CalledProcessError(process.returncode, command, output=stdout)
+        return stdout
+    finally:
+        # Popen's context manager can wait indefinitely if tree termination fails.
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=15)
+        process.stdout.close()
+
+
 def main():
     if sys.platform != "win32":
         raise SystemExit("This check requires native Windows")
@@ -51,12 +74,12 @@ def main():
         subprocess.run([str(xray), "version"], check=True, timeout=15)
         results = []
         for extra in ([], ["--check-tls-rejection"]):
-            completed = subprocess.run([
+            stdout = run_fixture([
                 sys.executable, str(here / "lab.py"), "--core", str(core),
                 "--core-sha256", CORE_SHA, "--xray", str(xray),
                 "--xray-sha256", xray_sha, "--openssl", openssl, *extra,
-            ], check=True, capture_output=True, text=True, timeout=120)
-            results.append(json.loads(completed.stdout))
+            ])
+            results.append(json.loads(stdout))
         evidence = {"core_sha256": CORE_SHA, "xray_zip_sha256": XRAY_ZIP_SHA,
                     "xray_sha256": xray_sha, "results": results}
         rendered = json.dumps(evidence, sort_keys=True)

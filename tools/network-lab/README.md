@@ -18,6 +18,8 @@ No Actions cache or artifacts are used. Go's temporary compiler/module directori
 
 ## Review and activation
 
+On Windows, fixture stderr streams to the job log. A fixture timeout invokes `taskkill.exe /PID <owned-parent> /T /F` before waiting for the parent, so its core/Xray descendants are included. Termination errors fail the job. A Windows-only regression forces a timeout with a live child and checks its termination and release of an open temporary file; Linux skips that native check.
+
 The workflow is limited to this public repository. Fork PRs and draft PRs skip the job. Publish a **draft PR**, review its exact diff and checksums, then mark it ready for review to trigger the first eligible run. Subsequent relevant commits to a non-draft PR also run it. A draft publication can create a skipped workflow record, not a protocol test result.
 
 `workflow_dispatch` is provided for later manual runs. GitHub only exposes a new manual workflow after it exists on the default branch; merging is **not** part of this pilot's publication step. Do not merge merely to obtain a run. The existing workflows target Alpha/version tags and are not used here. Keep #6 open: removing inherited destructive release paths remains separate work.
