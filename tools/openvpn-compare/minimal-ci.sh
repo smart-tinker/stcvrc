@@ -8,6 +8,9 @@ cleanup() {
   if [[ -x "$work/go/bin/go" ]]; then
     GOPATH="$work/gopath" GOCACHE="$work/gocache-cleanup" "$work/go/bin/go" clean -modcache || status=1
   fi
+  if [[ -x "$work/go124/go/bin/go" ]]; then
+    GOPATH="$work/gopath124" GOMODCACHE="$work/gopath124/pkg/mod" GOCACHE="$work/gocache-cleanup124" "$work/go124/go/bin/go" clean -modcache || status=1
+  fi
   rm -rf -- "$work" || status=1
   exit "$status"
 }

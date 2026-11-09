@@ -119,5 +119,17 @@ class MinimalSourceTests(unittest.TestCase):
         self.assertIn("Verified Go 1.24.0 build", script)
 
 
+    def test_ci_cleans_go124_module_cache_before_temp_root(self):
+        script = Path(__file__).with_name("minimal-ci.sh").read_text()
+        clean = script.index('if [[ -x "$work/go124/go/bin/go" ]]; then')
+        remove = script.index('rm -rf -- "$work"')
+        self.assertLess(clean, remove)
+        self.assertIn('GOPATH="$work/gopath124" GOMODCACHE="$work/gopath124/pkg/mod"', script)
+        self.assertIn('"$work/go124/go/bin/go" clean -modcache || status=1', script)
+
+    def test_compare_workflow_timeout_matches_source_contract(self):
+        workflow = Path(__file__).parents[2] / ".github" / "workflows" / "openvpn-compare.yml"
+        self.assertIn("timeout-minutes: 40", workflow.read_text())
+
 if __name__ == "__main__":
     unittest.main()

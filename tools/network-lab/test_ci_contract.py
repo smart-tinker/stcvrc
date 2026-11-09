@@ -24,7 +24,7 @@ class CIContractTests(unittest.TestCase):
             if name == "openvpn-compare.yml":
                 self.assertIn("runs-on: ubuntu-24.04", workflow)
                 self.assertIn("permissions:\n  contents: read", workflow)
-                self.assertIn("timeout-minutes: 25", workflow)
+                self.assertIn("timeout-minutes: 40", workflow)
                 self.assertIn("!github.event.repository.private", workflow)
                 self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
                 continue
