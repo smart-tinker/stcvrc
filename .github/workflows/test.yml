@@ -10,6 +10,7 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - tools/network-lab/**
+      - tools/license-audit/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
@@ -20,6 +21,7 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - tools/network-lab/**
+      - tools/license-audit/**
   workflow_dispatch: {}
 
 permissions:
@@ -83,6 +85,7 @@ jobs:
           set -euo pipefail
           actionlint -color
           python3 -m unittest discover -s tools/network-lab -p 'test_*.py' -v
+          python3 -m unittest discover -s tools/license-audit -p 'test_*.py' -v
 
       - name: Test current source and compile Linux and Windows cores
         working-directory: source
