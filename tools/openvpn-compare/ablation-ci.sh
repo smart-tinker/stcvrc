@@ -24,6 +24,8 @@ export PATH="$work/go/bin:$PATH"
 python3 -m unittest discover -s "$HERE" -p 'test_*.py' -v
 go version
 openvpn --version
+scenarios=(idle idle-local idle-lzo rekey deadline)
+if [[ "$PATCH" == scheduler ]]; then scenarios=(deadline); fi
 for variant in upstream stcvrc minus only; do
   if [[ "$variant" == upstream ]]; then
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
@@ -73,7 +75,7 @@ for variant in upstream stcvrc minus only; do
     cat "$work/all-$variant.jsonl"
     printf '\nFull suite %s: %s\n' "$variant" "$suite_status" >> "$GITHUB_STEP_SUMMARY"
   fi
-  for scenario in idle idle-local idle-lzo rekey; do
+  for scenario in "${scenarios[@]}"; do
     set +e
     sudo timeout 150s unshare --net -- python3 "$HERE/lab.py" \
       --namespace-parent "$(readlink /proc/self/ns/net)" --core "$work/$variant-core" \
@@ -85,7 +87,7 @@ for variant in upstream stcvrc minus only; do
 done
 for variant in upstream stcvrc minus only; do
   printf '\n### Patch %s / variant %s\n' "$PATCH" "$variant" | tee -a "$GITHUB_STEP_SUMMARY"
-  for scenario in idle idle-local idle-lzo rekey; do
+  for scenario in "${scenarios[@]}"; do
     cat "$work/$variant-$scenario.json" | tee -a "$GITHUB_STEP_SUMMARY"
   done
   for group in url push; do
@@ -93,4 +95,4 @@ for variant in upstream stcvrc minus only; do
     cat "$work/$group-$variant.status" | tee -a "$GITHUB_STEP_SUMMARY"
   done
 done
-python3 "$HERE/report.py" "$work" | tee -a "$GITHUB_STEP_SUMMARY"
+if [[ "$PATCH" != scheduler ]]; then python3 "$HERE/report.py" "$work" | tee -a "$GITHUB_STEP_SUMMARY"; fi

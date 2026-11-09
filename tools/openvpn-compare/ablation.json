@@ -113,6 +113,11 @@
       "file": "transport/openvpn/client.go",
       "old": "",
       "new": "\t\t\tc.dataDecryptErrors.Add(1)\n"
+    },
+    {
+      "file": "transport/openvpn/keepalive.go",
+      "new": "\t\t\t\tlastData := \"never\"\n\t\t\t\tif timestamp := c.lastDataPacketNano.Load(); timestamp != 0 {\n\t\t\t\t\tlastData = (time.Since(start) - time.Duration(timestamp)).Round(time.Second).String()\n\t\t\t\t}\n\t\t\t\treturn fmt.Errorf(\"%w: no packet received for %s (last-send=%s, last-data-packet=%s, inbound-data-packets=%d, data-decrypt-errors=%d)\",\n\t\t\t\t\tErrPingRestart, idle.Round(time.Second), c.SinceSend().Round(time.Second), lastData,\n\t\t\t\t\tc.inboundDataPackets.Load(), c.dataDecryptErrors.Load())",
+      "old": "\t\t\t\treturn fmt.Errorf(\"%w: no packet received for %s\", ErrPingRestart, idle.Round(time.Second))"
     }
   ]
 }

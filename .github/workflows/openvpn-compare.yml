@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        patch: [url, pushed, scheduler, control, lzo-send, lzo-receive, retry, diagnostics]
+        patch: [scheduler, diagnostics]
     env:
       PATCH: ${{ matrix.patch }}
     steps:

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -19,6 +20,8 @@ def assess(scenario, evidence):
         return 'INVALID'
     if not evidence.get('live') or evidence.get('inactivity', 0):
         return 'FAIL'
+    if scenario == 'deadline':
+        return 'PASS' if evidence.get('timeout_observed') else 'FAIL'
     if scenario.startswith('idle'):
         return 'PASS' if evidence.get('resumed') else 'FAIL'
     return 'PASS' if (evidence.get('rekeys', 0) >= 2 and evidence.get('epochs', 0) >= 2 and
@@ -127,7 +130,7 @@ verb 4
                               'auth':'SHA256', 'ca':(work/'ca.crt').read_text(),
                               'cert':(work/'client.crt').read_text(), 'key':(work/'client.key').read_text(),
                               'udp':True}], 'rules':['MATCH,vpn']}
-        if scenario in ('idle-local', 'idle-lzo'):
+        if scenario in ('idle-local', 'idle-lzo', 'deadline'):
             config['proxies'][0].update(ping=1, **{'ping-restart':5})
         if scenario == 'idle-lzo':
             config['proxies'][0]['comp-lzo'] = 'yes'
@@ -161,7 +164,31 @@ verb 4
                             break
                         time.sleep(0.2)
                     if evidence['baseline']:
-                        if scenario.startswith('idle'):
+                        if scenario == 'deadline':
+                            conn, response = request(True, '/stream')
+                            try:
+                                if response.status != 200:
+                                    raise RuntimeError('deadline setup HTTP failed')
+                                received = [response.readline() for _ in range(4)]
+                                evidence['stream_before_stop'] = received == [b'0\n', b'1\n', b'2\n', b'3\n']
+                                if not evidence['stream_before_stop']:
+                                    raise RuntimeError('deadline setup stream invalid')
+                                os.kill(server.pid, signal.SIGSTOP)
+                                stopped = time.monotonic()
+                                try:
+                                    limit = stopped + 6.5
+                                    while time.monotonic() < limit:
+                                        if 'ping-restart timeout' in (work/'core.log').read_text():
+                                            evidence['timeout_observed'] = True
+                                            evidence['timeout_after_stop'] = time.monotonic() - stopped
+                                            break
+                                        time.sleep(0.05)
+                                    evidence.setdefault('timeout_observed', False)
+                                finally:
+                                    os.kill(server.pid, signal.SIGCONT)
+                            finally:
+                                conn.close()
+                        elif scenario.startswith('idle'):
                             time.sleep(14)
                             evidence['resumed'] = probe()
                         else:
@@ -201,7 +228,7 @@ verb 4
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--core', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','rekey'), required=True)
+    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','rekey','deadline'), required=True)
     parser.add_argument('--namespace-parent', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
