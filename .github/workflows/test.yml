@@ -113,10 +113,23 @@ jobs:
       !github.event.pull_request.draft))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      AUDIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     defaults:
       run:
         shell: bash
     steps:
+      - name: Fetch audit manifest at tested revision
+        run: |
+          set -euo pipefail
+          audit_root="$RUNNER_TEMP/audit-definition"
+          git init --quiet "$audit_root"
+          git -C "$audit_root" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$audit_root" fetch --quiet --depth=1 --no-tags origin "$AUDIT_COMMIT"
+          git -C "$audit_root" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$audit_root" rev-parse HEAD)" = "$AUDIT_COMMIT"
+          printf 'Audit manifest commit: %s\n' "$AUDIT_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Fetch exact source and upstream revisions
         run: |
           set -euo pipefail
@@ -150,12 +163,12 @@ jobs:
           git -C "$candidate" fetch --quiet --depth=1 origin 9ccecd85017ec196975239a3afeef886cf991588
           patch_claim_subject="$(git -C "$candidate" show -s --format=%s 9ccecd85017ec196975239a3afeef886cf991588)"
 
-          python3 - "$stable" "$candidate" "$stable_upstream" "$candidate_upstream" "$patch_claim_subject" <<'PY'
+          python3 "$RUNNER_TEMP/audit-definition" "$stable" "$candidate" "$stable_upstream" "$candidate_upstream" "$patch_claim_subject" <<'PY'
           import hashlib, json, subprocess, sys
           from pathlib import Path
 
-          stable, candidate, stable_upstream, candidate_upstream, patch_subject = sys.argv[1:]
-          root = Path.cwd()
+          audit_root, stable, candidate, stable_upstream, candidate_upstream, patch_subject = sys.argv[1:]
+          root = Path(audit_root)
           manifest = json.loads((root / "docs/license-provenance.json").read_text(encoding="utf-8"))
           variants = {item["id"]: item for item in manifest["variants"]}
 
@@ -208,7 +221,7 @@ jobs:
           set -euo pipefail
           temp="$RUNNER_TEMP/issue7-license-audit"
           mkdir -p "$temp"
-          trap 'rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10"' EXIT
+          trap 'rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/audit-definition"' EXIT
 
           install_go() {
             local version="$1" digest="$2" dir="$RUNNER_TEMP/toolchain-go$1"
