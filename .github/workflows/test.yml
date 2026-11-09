@@ -8,6 +8,9 @@ name: STCVRC source checks
       - go.mod
       - go.sum
       - component/ca/ca-certificates.crt
+      - README.md
+      - docs/license-audit.md
+      - docs/license-provenance.json
       - .github/workflows/**
       - tools/network-lab/**
       - tools/license-audit/**
@@ -19,6 +22,9 @@ name: STCVRC source checks
       - go.mod
       - go.sum
       - component/ca/ca-certificates.crt
+      - README.md
+      - docs/license-audit.md
+      - docs/license-provenance.json
       - .github/workflows/**
       - tools/network-lab/**
       - tools/license-audit/**
@@ -289,16 +295,24 @@ jobs:
               cat go.mod
               printf '\n### Resolved module graph, including replacements\n\n'
               "$go" list -m all
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
+              "$go" install github.com/google/go-licenses/v2@v2.0.1
+            local report_status=0
+            GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
+              "$gobin/go-licenses" report . > "$temp/$id/go-licenses-report.csv" 2> "$temp/$id/go-licenses-report.stderr" || report_status=$?
+            local report_incomplete=0
+            if (( report_status != 0 )) \
+              || grep -qi "no license found" "$temp/$id/go-licenses-report.stderr" \
+              || awk -F, 'tolower($3) == "unknown" { found = 1 } END { exit !found }' "$temp/$id/go-licenses-report.csv"; then
+              report_incomplete=1
+            fi
+            {
               printf '\n### Package license report for windows/amd64 with_gvisor\n\n'
-              GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
-                "$go" install github.com/google/go-licenses/v2@v2.0.1
-              local report_status=0
-              GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
-                "$gobin/go-licenses" report . > "$temp/$id/go-licenses-report.csv" 2> "$temp/$id/go-licenses-report.stderr" || report_status=$?
               cat "$temp/$id/go-licenses-report.csv"
               cat "$temp/$id/go-licenses-report.stderr" >&2
-              if (( report_status != 0 )) || grep -qi "no license found" "$temp/$id/go-licenses-report.stderr"; then
-                license_findings=1
+              if (( report_incomplete != 0 )); then
                 printf "\nLicense report incomplete for %s (exit %s); manual license review is required.\n" "$id" "$report_status"
               fi
               printf '\n### Repository-embedded license text file digests\n\n'
@@ -319,6 +333,9 @@ jobs:
                       print(f"{path.relative_to(root)}:{number}:{line.strip()}")
           PYEMBED
             } | tee -a "$GITHUB_STEP_SUMMARY"
+            if (( report_incomplete != 0 )); then
+              license_findings=1
+            fi
 
             local save_status=0
             test ! -e "$licenses"
