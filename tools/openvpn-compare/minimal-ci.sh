@@ -45,8 +45,15 @@ for variant in upstream full minimal; do
     git -C "$work/$variant" diff --cached | sha256sum
   fi
   export GOCACHE="$work/gocache-$variant"
-  (cd "$work/$variant"; timeout 600s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -o "$work/$variant-core" .; go mod verify)
+  (
+    cd "$work/$variant"
+    timeout 600s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -o "$work/$variant-core" .
+    go mod verify
+    GOOS=windows GOARCH=amd64 timeout 600s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -o "$work/$variant-core.exe" .
+  )
   sha256sum "$work/$variant-core" | tee "$work/$variant.sha256"
+  sha256sum "$work/$variant-core.exe" | tee "$work/$variant-windows.sha256"
+  printf 'Windows %s core SHA256: %s\n' "$variant" "$(cut -d' ' -f1 "$work/$variant-windows.sha256")" >> "$GITHUB_STEP_SUMMARY"
   (cd "$work/$variant"; timeout 300s go test -count=1 -p=2 -mod=readonly -tags=with_gvisor ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup)
 done
 for variant in upstream full minimal; do
