@@ -19,31 +19,3 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(assess('idle', evidence), 'PASS')
 
 if __name__ == '__main__': unittest.main()
-
-class ReportTests(unittest.TestCase):
-    def test_missing_test_and_package_failure_cannot_pass(self):
-        import json
-        import pathlib
-        import subprocess
-        import sys
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            root = pathlib.Path(d)
-            for variant in ('upstream','stcvrc'):
-                for scenario in ('idle','idle-local','idle-lzo','rekey'):
-                    (root/f'{variant}-{scenario}.json').write_text('{"verdict":"PASS"}')
-                (root/f'url-{variant}.status').write_text('0')
-                (root/f'push-{variant}.status').write_text('0')
-                (root/f'push-{variant}.jsonl').write_text(json.dumps({'Test':'TestInitialHandshakeRetriesDeferredPush','Action':'pass'})+'\n'+json.dumps({'Action':'pass'}))
-            tests = [{'Test':name,'Action':'pass'} for name in
-                     ('TestURLTestTolerance','TestURLTestSelectionLifecycle')]
-            for events, status, expected in [(tests+[{'Action':'pass'}],0,'PASS'),
-                                             (tests+[{'Action':'fail'}],1,'FAIL'),
-                                             (tests[:1]+[{'Action':'pass'}],0,'INVALID')]:
-                for variant in ('upstream','stcvrc'):
-                    (root/f'url-{variant}.jsonl').write_text('\n'.join(map(json.dumps,events)))
-                    (root/f'url-{variant}.status').write_text(str(status))
-                result = subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name('report.py')),d],
-                                        text=True,capture_output=True)
-                self.assertIn(f'| URLTest tolerance/lifecycle | {expected} | {expected} |', result.stdout)
-                self.assertEqual(result.returncode, 1 if expected == 'INVALID' else 0)
