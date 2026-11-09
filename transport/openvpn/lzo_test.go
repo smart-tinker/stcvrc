@@ -36,8 +36,7 @@ func TestLzo1xDecompressCompressedPayload(t *testing.T) {
 }
 
 func TestLzo1xDecompressRejectsOversizedPacket(t *testing.T) {
-	const maxIPv6PacketSize = 65575
-	const decodedSize = maxIPv6PacketSize + 1
+	const decodedSize = maxOpenVPNIPPacketSize + 1
 
 	// LZO's extended literal length encodes 3 + 257*255 + 15 + 23 bytes.
 	stream := []byte{0x00}
@@ -48,6 +47,6 @@ func TestLzo1xDecompressRejectsOversizedPacket(t *testing.T) {
 	packet := append([]byte{lzoCompressLZO}, stream...)
 
 	if _, err := lzo1xDecompressSafe(packet); err == nil {
-		t.Fatalf("accepted decompressed packet larger than IPv6 maximum (%d bytes)", maxIPv6PacketSize)
+		t.Fatalf("accepted decompressed packet larger than IPv6 maximum (%d bytes)", maxOpenVPNIPPacketSize)
 	}
 }
