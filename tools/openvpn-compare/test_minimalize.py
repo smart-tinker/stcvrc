@@ -112,11 +112,12 @@ class MinimalSourceTests(unittest.TestCase):
         self.assertNotIn('python3 "$HERE/minimalize.py" "$work/minimal"', script)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_ci_verifies_declared_minimum_go_toolchain(self):
         script = Path(__file__).with_name("minimal-ci.sh").read_text()
         self.assertIn("go1.24.0.linux-amd64.tar.gz", script)
         self.assertIn("dea9ca38a0b852a74e81c26134671af7c0fbe65d81b0dc1c5bfe22cf7d4c8858", script)
         self.assertIn("Verified Go 1.24.0 build", script)
+
+
+if __name__ == "__main__":
+    unittest.main()
