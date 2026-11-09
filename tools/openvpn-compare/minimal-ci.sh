@@ -29,8 +29,11 @@ for variant in full minimal upstream; do
   if [[ "$variant" == upstream ]]; then
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
     repo=https://github.com/MetaCubeX/mihomo.git
-  else
+  elif [[ "$variant" == full ]]; then
     sha=c38b5ba746ffcf6113222f72275b2cd4542a9bc8
+    repo=https://github.com/smart-tinker/stcvrc.git
+  else
+    sha=76b7ec3ff9854d32cb3964403c065928ecdc9dd6
     repo=https://github.com/smart-tinker/stcvrc.git
   fi
   git init --quiet "$work/$variant"
@@ -58,10 +61,27 @@ for variant in full minimal upstream; do
     )
   fi
   if [[ "$variant" == minimal ]]; then
-    python3 "$HERE/minimalize.py" "$work/$variant"
-    git -C "$work/$variant" add -A
-    git -C "$work/$variant" diff --cached --stat
-    git -C "$work/$variant" diff --cached | sha256sum
+    git -C "$work/full" checkout --quiet -- .
+    python3 "$HERE/minimalize.py" "$work/full"
+    diff -ru --exclude=.git "$work/full" "$work/minimal"
+    printf 'Counter-only minimal candidate matches exact source %s\n' "$sha" >> "$GITHUB_STEP_SUMMARY"
+
+    mkdir -p "$work/go124" "$work/gopath124" "$work/gocache124" "$work/tmp124"
+    curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+      https://go.dev/dl/go1.24.0.linux-amd64.tar.gz -o "$work/go124.tar.gz"
+    printf '%s  %s\n' dea9ca38a0b852a74e81c26134671af7c0fbe65d81b0dc1c5bfe22cf7d4c8858 "$work/go124.tar.gz" | sha256sum --check --status
+    tar -xzf "$work/go124.tar.gz" -C "$work/go124"
+    (
+      cd "$work/minimal"
+      export PATH="$work/go124/go/bin:$PATH"
+      export GOPATH="$work/gopath124" GOMODCACHE="$work/gopath124/pkg/mod"
+      export GOCACHE="$work/gocache124" TMPDIR="$work/tmp124" GOTMPDIR="$work/tmp124"
+      test "$(go version)" = "go version go1.24.0 linux/amd64"
+      timeout 600s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -o "$work/minimal-go124-core" .
+      go mod verify
+      timeout 300s go test -count=1 -p=2 -mod=readonly -tags=with_gvisor ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
+      printf 'Verified Go 1.24.0 build and tests for source %s\n' "$sha" | tee -a "$GITHUB_STEP_SUMMARY"
+    )
   fi
   python3 - "$work/$variant/transport/openvpn/lzo.go" <<'PY'
 from pathlib import Path
