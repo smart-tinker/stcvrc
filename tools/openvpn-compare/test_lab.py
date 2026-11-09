@@ -42,10 +42,11 @@ class EvidenceTests(unittest.TestCase):
             no_direct_bypass=True,
         )
         self.assertEqual(assess('lzo-data', evidence), 'PASS')
-        for field, value in [('payload_matches', False), ('compressed_frames', 0),
+        for field, value in [('payload_matches', False),
                              ('response_status', 502), ('no_direct_bypass', False),
                              ('live', False), ('inactivity', 1)]:
             self.assertEqual(assess('lzo-data', dict(evidence, **{field:value})), 'FAIL')
+        self.assertEqual(assess('lzo-data', dict(evidence, compressed_frames=0)), 'INVALID')
         self.assertEqual(assess('lzo-data', dict(evidence, control_ready=False)), 'INVALID')
 
 if __name__ == '__main__': unittest.main()
