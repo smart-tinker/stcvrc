@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${PATCH:-}" == minimal ]]; then
+  exec bash "$HERE/minimal-ci.sh"
+fi
 work="$(mktemp -d "$RUNNER_TEMP/openvpn-compare.XXXXXXXX")"
 cleanup() {
   status=$?

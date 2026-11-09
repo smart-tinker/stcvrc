@@ -10,7 +10,6 @@ FIELD_BLOCK = (
     "\tinboundDataPackets atomic.Uint64\n"
     "\tdataDecryptErrors  atomic.Uint64\n"
 )
-COUNTERS = ("lastDataPacketNano", "inboundDataPackets", "dataDecryptErrors")
 
 
 class MinimalSourceTests(unittest.TestCase):
@@ -45,14 +44,28 @@ class MinimalSourceTests(unittest.TestCase):
             self.assertEqual((root / "transport/openvpn/client.go").read_text(), before)
             self.assertTrue((root / "transport/openvpn/keepalive_diagnostics_test.go").exists())
 
-    def test_requires_exact_field_block_and_diagnostic_test_file(self):
+    def test_requires_exact_field_block(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             self.fixture(root)
             client = root / "transport/openvpn/client.go"
             client.write_text("type Client struct {}\n")
+            before = client.read_text()
             with self.assertRaises(AssertionError):
                 strip_diagnostics(root)
+            self.assertEqual(client.read_text(), before)
+            self.assertTrue((root / "transport/openvpn/keepalive_diagnostics_test.go").exists())
+
+    def test_requires_diagnostic_test_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.fixture(root)
+            diagnostics = root / "transport/openvpn/keepalive_diagnostics_test.go"
+            diagnostics.unlink()
+            before = (root / "transport/openvpn/client.go").read_text()
+            with self.assertRaises(AssertionError):
+                strip_diagnostics(root)
+            self.assertEqual((root / "transport/openvpn/client.go").read_text(), before)
 
 
 if __name__ == "__main__":
