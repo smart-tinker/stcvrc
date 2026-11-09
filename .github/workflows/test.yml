@@ -84,8 +84,8 @@ jobs:
         run: |
           set -euo pipefail
           actionlint -color
-          python3 -m unittest discover -s tools/network-lab -p 'test_*.py' -v
-          python3 -m unittest discover -s tools/license-audit -p 'test_*.py' -v
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/network-lab -p 'test_*.py' -v
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/license-audit -p 'test_*.py' -v
 
       - name: Test current source and compile Linux and Windows cores
         working-directory: source
