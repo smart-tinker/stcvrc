@@ -46,7 +46,7 @@ def write_fixture(root):
         (root / f"push-{variant}.jsonl").write_text(
             "\n".join(json.dumps(event) for event in push_events) + "\n")
 
-        if variant != "upstream":
+        if variant in ("stcvrc", "minus"):
             outcomes = ["pass", "pass", "pass"]
             if variant == "minus":
                 outcomes[0] = "fail"
@@ -84,6 +84,14 @@ class InvalidEvidenceGateTests(unittest.TestCase):
             result = run_report(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("| idle | FAIL |", result.stdout)
+
+    def test_only_variant_does_not_require_unrelated_full_suite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_fixture(root)
+            self.assertFalse((root / "all-only.jsonl").exists())
+            result = run_report(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_package_failure_without_failed_test_is_invalid(self):
         with tempfile.TemporaryDirectory() as directory:
