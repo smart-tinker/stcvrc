@@ -163,7 +163,7 @@ jobs:
           git -C "$candidate" fetch --quiet --depth=1 origin 9ccecd85017ec196975239a3afeef886cf991588
           patch_claim_subject="$(git -C "$candidate" show -s --format=%s 9ccecd85017ec196975239a3afeef886cf991588)"
 
-          python3 "$RUNNER_TEMP/audit-definition" "$stable" "$candidate" "$stable_upstream" "$candidate_upstream" "$patch_claim_subject" <<'PY'
+          python3 - "$RUNNER_TEMP/audit-definition" "$stable" "$candidate" "$stable_upstream" "$candidate_upstream" "$patch_claim_subject" <<'PY'
           import hashlib, json, subprocess, sys
           from pathlib import Path
 
