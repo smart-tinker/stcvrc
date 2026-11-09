@@ -107,9 +107,6 @@ class MinimalSourceTests(unittest.TestCase):
         script = Path(__file__).with_name("minimal-ci.sh").read_text()
         self.assertIn("sha=c38b5ba746ffcf6113222f72275b2cd4542a9bc8", script)
         self.assertIn("sha=76b7ec3ff9854d32cb3964403c065928ecdc9dd6", script)
-        self.assertIn("go1.24.0.linux-amd64.tar.gz", script)
-        self.assertIn("dea9ca38a0b852a74e81c26134671af7c0fbe65d81b0dc1c5bfe22cf7d4c8858", script)
-        self.assertIn("Verified Go 1.24.0 build", script)
         self.assertIn('python3 "$HERE/minimalize.py" "$work/full"', script)
         self.assertIn('diff -ru --exclude=.git "$work/full" "$work/minimal"', script)
         self.assertNotIn('python3 "$HERE/minimalize.py" "$work/minimal"', script)
@@ -117,3 +114,9 @@ class MinimalSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_ci_verifies_declared_minimum_go_toolchain(self):
+        script = Path(__file__).with_name("minimal-ci.sh").read_text()
+        self.assertIn("go1.24.0.linux-amd64.tar.gz", script)
+        self.assertIn("dea9ca38a0b852a74e81c26134671af7c0fbe65d81b0dc1c5bfe22cf7d4c8858", script)
+        self.assertIn("Verified Go 1.24.0 build", script)
