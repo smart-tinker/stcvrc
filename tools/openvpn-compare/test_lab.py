@@ -46,4 +46,4 @@ class ReportTests(unittest.TestCase):
                 result = subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name('report.py')),d],
                                         text=True,capture_output=True)
                 self.assertIn(f'| URLTest tolerance/lifecycle | {expected} | {expected} |', result.stdout)
-                self.assertEqual(result.returncode, 1 if expected == 'INVALID' else 0)\n
+                self.assertEqual(result.returncode, 1 if expected == 'INVALID' else 0)
