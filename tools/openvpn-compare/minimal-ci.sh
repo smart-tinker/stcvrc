@@ -30,7 +30,7 @@ for variant in full minimal upstream; do
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
     repo=https://github.com/MetaCubeX/mihomo.git
   else
-    sha=d888dfad5e785217778bb7515c931840d5307dd4
+    sha=9438f4cbbf4c7e399e66b30c600d4028d48b870b
     repo=https://github.com/smart-tinker/stcvrc.git
   fi
   git init --quiet "$work/$variant"
