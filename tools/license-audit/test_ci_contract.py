@@ -29,6 +29,15 @@ class DistributionAuditContractTests(unittest.TestCase):
                 "go_version": "1.26.10",
                 "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
             },
+            "candidate-1.19.33-mit-lzo": {
+                "distribution_status": "unpublished-candidate",
+                "release_tag": None,
+                "asset_sha256": None,
+                "source_commit": "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
+                "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+                "go_version": "1.26.10",
+                "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+            },
         }
         self.assertEqual(set(variants), set(expected))
         self.assertEqual(manifest["scope"], "core-binaries-only")
@@ -128,6 +137,13 @@ class DistributionAuditContractTests(unittest.TestCase):
         self.assertEqual(candidate["build"]["target"], "windows/amd64")
         self.assertEqual(candidate["build"]["version"], "1.19.33-STCVRC-candidate-mit-lzo-20261109")
         self.assertEqual(candidate["build"]["build_time"], "2026-11-09T00:00:00Z")
+        self.assertEqual(candidate["lzo_decoder"], {
+            "module": "github.com/anchore/go-lzo",
+            "version": "v0.1.1",
+            "go_sum": "h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=",
+            "license": "MIT",
+            "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE",
+        })
         self.assertIsNone(candidate["asset_sha256"])
         self.assertIsNone(candidate["release_tag"])
 
@@ -137,7 +153,9 @@ class DistributionAuditContractTests(unittest.TestCase):
             "candidate-1.19.33-mit-lzo",
             "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
             "github.com/anchore/go-lzo v0.1.1",
+            "github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=",
             "github.com/rasky/go-lzo",
+            '$1 == "github.com/anchore/go-lzo" && $3 == "MIT"',
             "No published reference asset; candidate SHA256 is recorded only",
         ):
             self.assertIn(required, workflow)

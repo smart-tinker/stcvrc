@@ -153,6 +153,46 @@
           "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-candidate-20261022 -X github.com/metacubex/mihomo/constant.BuildTime=2026-10-22T00:00:00Z"
         ]
       }
+    },
+    {
+      "id": "candidate-1.19.33-mit-lzo",
+      "distribution_status": "unpublished-candidate",
+      "release_tag": null,
+      "release_url": null,
+      "asset": "verge-mihomo.exe",
+      "asset_sha256": null,
+      "source_commit": "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
+      "upstream_tag": "v1.19.33",
+      "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+      "go_version": "1.26.10",
+      "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+      "lzo_decoder": {
+        "module": "github.com/anchore/go-lzo",
+        "version": "v0.1.1",
+        "go_sum": "h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=",
+        "license": "MIT",
+        "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE"
+      },
+      "build": {
+        "source": "fresh-checkout",
+        "host": "linux/amd64",
+        "target": "windows/amd64",
+        "goamd64": "v1",
+        "cgo_enabled": 0,
+        "tags": [
+          "with_gvisor"
+        ],
+        "version": "1.19.33-STCVRC-candidate-mit-lzo-20261109",
+        "build_time": "2026-11-09T00:00:00Z",
+        "flags": [
+          "-mod=readonly",
+          "-p=2",
+          "-tags=with_gvisor",
+          "-trimpath",
+          "-buildvcs=false",
+          "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-candidate-mit-lzo-20261109 -X github.com/metacubex/mihomo/constant.BuildTime=2026-11-09T00:00:00Z"
+        ]
+      }
     }
   ]
 }

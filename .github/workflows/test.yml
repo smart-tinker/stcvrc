@@ -157,6 +157,19 @@ jobs:
           fetch_tag "$stable" https://github.com/smart-tinker/stcvrc.git v1.19.29-stcvrc.1 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
           fetch_tag "$candidate" https://github.com/smart-tinker/stcvrc.git stcvrc-1.19.33-rc.2 d888dfad5e785217778bb7515c931840d5307dd4
 
+          mit_lzo_candidate="$RUNNER_TEMP/source-1.19.33-mit-lzo"
+          mkdir -p "$mit_lzo_candidate"
+          git -C "$mit_lzo_candidate" init --quiet
+          git -C "$mit_lzo_candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$mit_lzo_candidate" fetch --quiet --depth=1 --no-tags origin 76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+          git -C "$mit_lzo_candidate" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$mit_lzo_candidate" rev-parse HEAD)" = 76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+          git -C "$mit_lzo_candidate" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          mit_lzo_upstream="$(git -C "$mit_lzo_candidate" rev-parse 'FETCH_HEAD^{commit}')"
+          test "$mit_lzo_upstream" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          grep -Fqx 'github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=' "$mit_lzo_candidate/go.sum"
+          ! grep -Fq 'github.com/rasky/go-lzo' "$mit_lzo_candidate/go.mod"
+
           git -C "$stable" fetch --quiet --depth=1 origin 9e23508270fed96e346fd4f68447e90401669131
           git -C "$stable" fetch --quiet --depth=1 https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.29
           stable_upstream="$(git -C "$stable" rev-parse 'FETCH_HEAD^{commit}')"
@@ -222,14 +235,14 @@ jobs:
             printf 'Candidate patch-origin base recorded in source.json: %s\n' "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patchSource"]["base"])' "$candidate/candidates/v1.19.33-20261022/source.json")"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Fresh builds and license inventories for both source lines
+      - name: Fresh builds and license inventories for all source lines
         run: |
           set -euo pipefail
           temp="$RUNNER_TEMP/issue7-license-audit"
           mkdir -p "$temp"
           cleanup() {
             chmod -R u+w "$temp" 2>/dev/null || true
-            rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/audit-definition" || true
+            rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/source-1.19.33-mit-lzo" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/audit-definition" || true
           }
           trap cleanup EXIT
 
@@ -253,6 +266,7 @@ jobs:
             local id="$1" go="$2" expected_sha="$3" version="$4" build_time="$5" source_dir="$6"
             local gopath="$temp/$id/gopath" modcache="$temp/$id/modcache" gocache="$temp/$id/gocache"
             local gobin="$temp/$id/bin" licenses="$temp/$id/licenses" binary="$temp/$id/verge-mihomo.exe"
+            local module_graph="$temp/$id/module-graph.txt"
             mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"
             export GOTOOLCHAIN=local GOENV=off GOWORK=off GOTELEMETRY=off
             export CGO_ENABLED=0 GOAMD64=v1 GOPATH="$gopath" GOMODCACHE="$modcache" GOCACHE="$gocache" GOBIN="$gobin"
@@ -268,6 +282,14 @@ jobs:
             } | tee -a "$GITHUB_STEP_SUMMARY"
 
             cd "$source_dir"
+            "$go" list -m all > "$module_graph"
+            if [[ "$id" == candidate-1.19.33-mit-lzo ]]; then
+              grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$module_graph"
+              if grep -q '^github.com/rasky/go-lzo ' "$module_graph"; then
+                printf 'Forbidden GPL-only go-lzo module remains in the candidate graph.\n' >&2
+                exit 1
+              fi
+            fi
             if [[ "$id" == accepted-1.19.29 ]]; then
               "$go" test -p=2 -tags=with_gvisor -count=1 -timeout=120s ./transport/openvpn ./adapter/outbound
             else
@@ -288,13 +310,17 @@ jobs:
             actual_sha="$(sha256sum "$binary" | awk '{print $1}')"
             {
               printf '\nFreshly built binary SHA256: %s\n' "$actual_sha"
-              printf 'Published asset reference SHA256: %s\n\n' "$expected_sha"
+              if [[ -n "$expected_sha" ]]; then
+                printf 'Published asset reference SHA256: %s\n\n' "$expected_sha"
+              else
+                printf 'No published reference asset; candidate SHA256 is recorded only: %s\n\n' "$actual_sha"
+              fi
               printf '### go version -m\n\n'
               GOOS=windows GOARCH=amd64 GOAMD64=v1 "$go" version -m "$binary"
               printf '\n### Module requirements from go.mod\n\n'
               cat go.mod
               printf '\n### Resolved module graph, including replacements\n\n'
-              "$go" list -m all
+              cat "$module_graph"
             } | tee -a "$GITHUB_STEP_SUMMARY"
 
             GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
@@ -302,6 +328,10 @@ jobs:
             local report_status=0
             GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
               "$gobin/go-licenses" report . > "$temp/$id/go-licenses-report.csv" 2> "$temp/$id/go-licenses-report.stderr" || report_status=$?
+            if [[ "$id" == candidate-1.19.33-mit-lzo ]] && ! awk -F, '$1 == "github.com/anchore/go-lzo" && $3 == "MIT" { found = 1 } END { exit !found }' "$temp/$id/go-licenses-report.csv"; then
+              printf 'The candidate dependency inventory did not classify github.com/anchore/go-lzo as MIT.\n' >&2
+              exit 1
+            fi
             local report_incomplete=0
             if (( report_status != 0 )) \
               || grep -qi "no license found" "$temp/$id/go-licenses-report.stderr" \
@@ -355,7 +385,7 @@ jobs:
 
             "$go" mod verify
             test -z "$(git -C "$source_dir" status --porcelain)"
-            if [[ "$actual_sha" != "$expected_sha" ]]; then
+            if [[ -n "$expected_sha" && "$actual_sha" != "$expected_sha" ]]; then
               printf 'Reproduced SHA mismatch for %s.\n' "$id" | tee -a "$GITHUB_STEP_SUMMARY"
               mismatches=1
             fi
@@ -367,8 +397,10 @@ jobs:
           audit_variant candidate-1.19.33-rc.2 "$go12610" \
             6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7 \
             1.19.33-STCVRC-candidate-20261022 2026-10-22T00:00:00Z "$RUNNER_TEMP/source-1.19.33"
+          audit_variant candidate-1.19.33-mit-lzo "$go12610" "" \
+            1.19.33-STCVRC-candidate-mit-lzo-20261109 2026-11-09T00:00:00Z "$RUNNER_TEMP/source-1.19.33-mit-lzo"
           test "$mismatches" -eq 0
-          printf "\nBoth published reference digests matched fresh-source builds.\n" >> "$GITHUB_STEP_SUMMARY"
+          printf "\nPublished release digests matched fresh-source builds; unpublished candidate SHA256 was recorded only.\n" >> "$GITHUB_STEP_SUMMARY"
           if (( license_findings != 0 )); then
             printf "Automated license classification is incomplete; manual license review is required. This is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
           else
