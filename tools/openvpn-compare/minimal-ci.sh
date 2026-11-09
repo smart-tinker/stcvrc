@@ -50,7 +50,7 @@ for variant in full minimal upstream; do
       go mod download github.com/anchore/go-lzo@v0.1.1
       module_dir="$(go list -m -f '{{.Dir}}' github.com/anchore/go-lzo)"
       test "$(head -n 1 "$module_dir/LICENSE")" = "MIT License"
-      test "$(sha256sum "$module_dir/LICENSE" | cut -d' ' -f1)" = \
+      test "$(git hash-object "$module_dir/LICENSE")" = \
         56e580e89c7978e3ae946cc6c09db105895f112a
       printf 'LZO decoder: github.com/anchore/go-lzo v0.1.1 (MIT)\n' >> "$GITHUB_STEP_SUMMARY"
       timeout 90s go test -count=1 -mod=readonly \
