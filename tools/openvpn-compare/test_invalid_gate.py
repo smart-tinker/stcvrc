@@ -7,6 +7,7 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 REPORT = HERE / "report.py"
+SCRIPT = HERE / "ablation-ci.sh"
 VARIANTS = ("upstream", "stcvrc", "minus", "only")
 SCENARIOS = ("idle", "idle-local", "idle-lzo", "rekey", "deadline")
 
@@ -73,6 +74,13 @@ def run_report(root):
 
 
 class InvalidEvidenceGateTests(unittest.TestCase):
+    def test_go_test_stderr_does_not_corrupt_jsonl_evidence(self):
+        script = SCRIPT.read_text()
+        self.assertNotIn('> "$work/url-$variant.jsonl" 2>&1', script)
+        self.assertNotIn('> "$work/push-$variant.jsonl" 2>&1', script)
+        self.assertIn('> "$work/url-$variant.jsonl" 2> "$work/url-$variant.stderr"', script)
+        self.assertIn('> "$work/push-$variant.jsonl" 2> "$work/push-$variant.stderr"', script)
+
     def test_valid_behavioral_failures_are_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
