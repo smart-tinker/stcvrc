@@ -37,12 +37,15 @@ class EvidenceTests(unittest.TestCase):
 
     def test_lzo_data_requires_a_compressed_frame_and_exact_payload(self):
         evidence = dict(
-            baseline=True, direct_blocked=True, live=True, inactivity=0,
+            control_ready=True, direct_blocked=True, live=True, inactivity=0,
             response_status=200, payload_matches=True, compressed_frames=1,
+            no_direct_bypass=True,
         )
         self.assertEqual(assess('lzo-data', evidence), 'PASS')
         for field, value in [('payload_matches', False), ('compressed_frames', 0),
-                             ('response_status', 502), ('live', False), ('inactivity', 1)]:
+                             ('response_status', 502), ('no_direct_bypass', False),
+                             ('live', False), ('inactivity', 1)]:
             self.assertEqual(assess('lzo-data', dict(evidence, **{field:value})), 'FAIL')
+        self.assertEqual(assess('lzo-data', dict(evidence, control_ready=False)), 'INVALID')
 
 if __name__ == '__main__': unittest.main()

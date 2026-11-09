@@ -16,7 +16,10 @@ import time
 
 
 def assess(scenario, evidence):
-    if not evidence.get('baseline') or not evidence.get('direct_blocked'):
+    if scenario == 'lzo-data':
+        if not evidence.get('control_ready') or not evidence.get('direct_blocked'):
+            return 'INVALID'
+    elif not evidence.get('baseline') or not evidence.get('direct_blocked'):
         return 'INVALID'
     if scenario == 'recovery' and (not evidence.get('server_lost') or
                                    not evidence.get('server_restarted')):
@@ -25,6 +28,13 @@ def assess(scenario, evidence):
         return 'FAIL'
     if scenario == 'deadline':
         return 'PASS' if evidence.get('timeout_observed') else 'FAIL'
+    if scenario == 'lzo-data':
+        return 'PASS' if (
+            evidence.get('response_status') == 200 and
+            evidence.get('payload_matches') and
+            evidence.get('compressed_frames', 0) > 0 and
+            evidence.get('no_direct_bypass')
+        ) else 'FAIL'
     if scenario == 'recovery':
         return 'PASS' if (
             evidence.get('outage_status') != 200 and
@@ -83,6 +93,12 @@ class Endpoint(http.server.BaseHTTPRequestHandler):
             self.send_error(403, 'direct path')
             return
         self.send_response(200)
+        if self.path == '/lzo-data':
+            body = b'A' * 8192
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         self.end_headers()
         try:
             if self.path == '/stream':
@@ -142,9 +158,9 @@ verb 4
                               'auth':'SHA256', 'ca':(work/'ca.crt').read_text(),
                               'cert':(work/'client.crt').read_text(), 'key':(work/'client.key').read_text(),
                               'udp':True}], 'rules':['MATCH,vpn']}
-        if scenario in ('idle-local', 'idle-lzo', 'deadline', 'recovery'):
+        if scenario in ('idle-local', 'idle-lzo', 'lzo-data', 'deadline', 'recovery'):
             config['proxies'][0].update(ping=1, **{'ping-restart':5})
-        if scenario == 'idle-lzo':
+        if scenario in ('idle-lzo', 'lzo-data'):
             config['proxies'][0]['comp-lzo'] = 'yes'
             with (work/'server.conf').open('a') as stream:
                 stream.write('allow-compression yes\ncomp-lzo yes\n')
@@ -170,6 +186,8 @@ verb 4
                 direct_hits_before_scenario = backend.direct_hits
                 server_log = work/'server.log'
                 with process([str(core), '-d', str(work/'home'), '-f',str(work/'core.json')], work/'core.log') as client:
+                    if scenario == 'lzo-data':
+                        evidence['control_ready'] = server.poll() is None and evidence['direct_blocked']
                     # Startup readiness only; never retry the measured scenario.
                     for _ in range(10):
                         if probe():
@@ -178,8 +196,23 @@ verb 4
                         if client.poll() is not None:
                             break
                         time.sleep(0.2)
-                    if evidence['baseline']:
-                        if scenario == 'deadline':
+                    if evidence['baseline'] or scenario == 'lzo-data':
+                        if scenario == 'lzo-data':
+                            evidence.update(response_status=0, payload_matches=False,
+                                            compressed_frames=0, no_direct_bypass=False)
+                            core_log = work/'core.log'
+                            frames_before = core_log.read_text(errors='replace').count('STCVRC_CI_LZO_COMPRESSED_FRAME') if core_log.exists() else 0
+                            try:
+                                conn, response = request(True, '/lzo-data')
+                                with contextlib.closing(conn):
+                                    evidence['response_status'] = response.status
+                                    evidence['payload_matches'] = response.read() == b'A' * 8192
+                            except (OSError, http.client.HTTPException):
+                                pass
+                            frames_after = core_log.read_text(errors='replace').count('STCVRC_CI_LZO_COMPRESSED_FRAME') if core_log.exists() else 0
+                            evidence['compressed_frames'] = max(0, frames_after - frames_before)
+                            evidence['no_direct_bypass'] = backend.direct_hits == direct_hits_before_scenario
+                        elif scenario == 'deadline':
                             conn, response = request(True, '/stream')
                             try:
                                 if response.status != 200:
@@ -285,7 +318,7 @@ verb 4
                         if not (work/name).exists():
                             continue
                         lines = (work/name).read_text(errors='replace').splitlines()
-                        selected = [line for line in lines if any(word in line.lower() for word in
+                        selected = [line for line in lines if 'STCVRC_CI_LZO_COMPRESSED_FRAME' in line or any(word in line.lower() for word in
                                     ('error', 'warn', 'soft reset', 'inactivity', 'handshake complete', 'push_reply', 'control channel:', 'data channel:'))]
                         print(json.dumps({'log':name, 'events':selected[-35:]}), flush=True)
             finally:
@@ -296,7 +329,7 @@ verb 4
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--core', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','rekey','deadline','recovery'), required=True)
+    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','lzo-data','rekey','deadline','recovery'), required=True)
     parser.add_argument('--namespace-parent', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()

@@ -24,7 +24,7 @@ export PATH="$work/go/bin:$PATH"
 python3 -m unittest discover -s "$HERE" -p 'test_*.py' -v
 go version
 openvpn --version
-scenarios=(idle idle-local idle-lzo rekey deadline recovery)
+scenarios=(idle idle-local idle-lzo lzo-data rekey deadline recovery)
 for variant in upstream full minimal; do
   if [[ "$variant" == upstream ]]; then
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
@@ -43,6 +43,19 @@ for variant in upstream full minimal; do
     git -C "$work/$variant" add -A
     git -C "$work/$variant" diff --cached --stat
     git -C "$work/$variant" diff --cached | sha256sum
+  fi
+  if [[ "$variant" != "upstream" ]]; then
+    python3 - "$work/$variant/transport/openvpn/lzo.go" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+needle = chr(9) + "case lzoCompressLZO:" + chr(10)
+if source.count(needle) != 1:
+    raise SystemExit('INVALID: expected one LZO decoder branch')
+path.write_text(source.replace(needle, needle + chr(9) * 2 + 'println("STCVRC_CI_LZO_COMPRESSED_FRAME")' + chr(10)))
+PY
   fi
   export GOCACHE="$work/gocache-$variant"
   (
@@ -74,7 +87,7 @@ from lab import assess
 
 work = Path(sys.argv[1])
 variants = ("upstream", "full", "minimal")
-scenarios = ("idle", "idle-local", "idle-lzo", "rekey", "deadline", "recovery")
+scenarios = ("idle", "idle-local", "idle-lzo", "lzo-data", "rekey", "deadline", "recovery")
 results = {}
 for variant in variants:
     expected_sha = (work / f"{variant}.sha256").read_text().split()[0]
@@ -84,7 +97,8 @@ for variant in variants:
     for scenario in scenarios:
         path = work / f"{variant}-{scenario}.json"
         data = json.loads(path.read_text())
-        if data.get("scenario") != scenario or data.get("baseline") is not True or data.get("direct_blocked") is not True:
+        control_ok = data.get("control_ready") is True if scenario == "lzo-data" else data.get("baseline") is True
+        if data.get("scenario") != scenario or not control_ok or data.get("direct_blocked") is not True:
             raise SystemExit(f"INVALID controls/evidence: {path.name}")
         if data.get("core_sha256") != expected_sha:
             raise SystemExit(f"INVALID source/binary binding: {path.name}")
@@ -102,5 +116,5 @@ print("| Scenario | Upstream | Full .33 | Minimal .33 |")
 print("|---|---|---|---|")
 for scenario in scenarios:
     print("| " + scenario + " | " + " | ".join(results[v][scenario]["verdict"] for v in variants) + " |")
-print("\nFull .33 and the counter-only minimal .33 passed all six isolated Linux scenarios; upstream is the control.")
+print("\nFull .33 and the counter-only minimal .33 passed all seven isolated Linux scenarios; upstream is the control.")
 PY
