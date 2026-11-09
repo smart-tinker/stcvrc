@@ -4,6 +4,8 @@ import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
 WORKFLOW = (HERE.parents[1] / ".github/workflows/stcvrc-network-lab.yml").read_text()
+WORKFLOWS = {path.name: path.read_text() for path in
+             (HERE.parents[1] / ".github/workflows").glob("*.y*ml")}
 SCRIPT = (HERE / "ci.sh").read_text()
 
 
@@ -17,12 +19,21 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", WORKFLOW)
 
     def test_no_privileged_or_paid_automation_paths(self):
-        for forbidden in ("pull_request_target", "workflow_run:", "schedule:", "push:",
+        self.assertEqual(set(WORKFLOWS), {"test.yml", "stcvrc-network-lab.yml"})
+        for workflow in WORKFLOWS.values():
+            self.assertIn("push:\n    branches: [main]", workflow)
+            self.assertIn("pull_request:\n    branches: [main]", workflow)
+            self.assertIn("permissions:\n  contents: read", workflow)
+            self.assertIn("!github.event.repository.private", workflow)
+            self.assertIn("!github.event.pull_request.draft", workflow)
+            self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+            self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
+        for forbidden in ("pull_request_target", "workflow_run:", "schedule:", "tags:",
                           "uses:", "secrets.", "GITHUB_TOKEN", "GH_TOKEN", "write-all",
                           "upload-artifact", "download-artifact", "actions/cache", "sudo ",
-                          "--privileged", "self-hosted", "docker "):
+                          "--privileged", "self-hosted", "docker ", "--force", "/dispatches"):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, WORKFLOW + SCRIPT)
+                self.assertNotIn(forbidden, "\n".join(WORKFLOWS.values()) + SCRIPT)
 
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))

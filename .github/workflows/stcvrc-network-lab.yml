@@ -1,11 +1,16 @@
 name: STCVRC network lab
 
 "on":
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/**
+      - tools/network-lab/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
-      - .github/workflows/stcvrc-network-lab.yml
+      - .github/workflows/**
       - tools/network-lab/**
   workflow_dispatch: {}
 
@@ -21,7 +26,7 @@ jobs:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
-      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name != 'pull_request' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft))
     runs-on: ubuntu-24.04
@@ -50,7 +55,7 @@ jobs:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
-      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name != 'pull_request' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft))
     runs-on: windows-2022
