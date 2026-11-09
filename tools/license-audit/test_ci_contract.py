@@ -44,18 +44,29 @@ class DistributionAuditContractTests(unittest.TestCase):
     def test_ci_audits_manifest_without_release_binary_artifacts_or_cache(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("license-audit:", workflow, "license audit job is missing")
-        job = workflow.split("\n  license-audit:\n", 1)[1].split("\n  ", 1)[0]
+        self.assertIn("permissions:\n  contents: read", workflow)
+        job_lines = []
+        in_job = False
+        for line in workflow.splitlines():
+            if line == "  license-audit:":
+                in_job = True
+                continue
+            if in_job and line.startswith("  ") and not line.startswith("    "):
+                break
+            if in_job:
+                job_lines.append(line)
+        job = "\n".join(job_lines)
         for required in (
             "runs-on: ubuntu-24.04",
-            "contents: read",
             "github.com/google/go-licenses/v2@v2.0.1",
-            "go-licenses report .",
-            "go-licenses save .",
+            "report .",
+            "save . --save_path=",
             "with_gvisor",
             "7b93ba0e1439e7f27629743bed550d99e7f9c9a4",
             "d888dfad5e785217778bb7515c931840d5307dd4",
         ):
             self.assertIn(required, job)
+        self.assertIn("go-licenses", job)
         for forbidden in ("actions/upload-artifact", "actions/cache", "secrets.", "releases/download"):
             self.assertNotIn(forbidden, job.lower())
         self.assertIn("tools/license-audit/**", workflow)

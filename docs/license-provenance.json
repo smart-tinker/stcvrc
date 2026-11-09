@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "scope": "core-binaries-only",
+  "exclusions": [
+    "Clash Verge Rev UI and installer (not redistributed by STCVRC)",
+    "profiles, credentials, certificates, and deployment state"
+  ],
+  "variants": [
+    {
+      "id": "accepted-1.19.29",
+      "release_tag": "v1.19.29-stcvrc.1",
+      "release_url": "https://github.com/smart-tinker/stcvrc/releases/tag/v1.19.29-stcvrc.1",
+      "asset": "verge-mihomo.exe",
+      "asset_sha256": "71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b",
+      "release_assets": [
+        {
+          "name": "SHA256SUMS.txt",
+          "sha256": "713c97afdbd9a8af315059ca4f9e4f87b8b2aea83ed28a3383f361877fd04293"
+        },
+        {
+          "name": "STCVRC-v1.19.29-stcvrc.1-manifest.json",
+          "sha256": "4584bad3e14caa4edbfe06862dd8b925eaa06192fd7082b546666b43137721fd"
+        },
+        {
+          "name": "verge-mihomo.exe",
+          "sha256": "71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b"
+        }
+      ],
+      "source_commit": "7b93ba0e1439e7f27629743bed550d99e7f9c9a4",
+      "code_commit": "9e23508270fed96e346fd4f68447e90401669131",
+      "upstream_tag": "v1.19.29",
+      "upstream_commit": "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+      "downstream_delta_files": [
+        "adapter/adapter.go",
+        "adapter/outbound/openvpn.go",
+        "config/config.go",
+        "hub/executor/executor.go",
+        "transport/openvpn/client.go",
+        "transport/openvpn/config.go",
+        "transport/openvpn/config_test.go",
+        "transport/openvpn/control.go",
+        "transport/openvpn/control_test.go",
+        "transport/openvpn/data.go",
+        "transport/openvpn/data_ciphers_test.go",
+        "transport/openvpn/data_test.go",
+        "transport/openvpn/keymethod.go",
+        "transport/openvpn/keymethod_test.go",
+        "transport/openvpn/packet.go",
+        "transport/openvpn/packet_test.go",
+        "transport/openvpn/push.go",
+        "transport/openvpn/tlsauth.go",
+        "transport/openvpn/tlsauth_test.go",
+        "transport/openvpn/tlscrypt.go",
+        "adapter/api_compat_test.go",
+        "adapter/outbound/openvpn_test.go",
+        "transport/openvpn/client_test.go",
+        "transport/openvpn/push_test.go"
+      ],
+      "go_version": "1.26.5",
+      "go_sha256": "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053",
+      "build": {
+        "source": "fresh-checkout",
+        "host": "linux/amd64",
+        "target": "windows/amd64",
+        "goamd64": "v1",
+        "cgo_enabled": 0,
+        "tags": [
+          "with_gvisor"
+        ],
+        "version": "1.19.29-STCVRC-openvpn-rekey-9e235082",
+        "build_time": "2026-07-20T00:00:00Z",
+        "flags": [
+          "-mod=readonly",
+          "-tags=with_gvisor",
+          "-trimpath",
+          "-buildvcs=false",
+          "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.29-STCVRC-openvpn-rekey-9e235082 -X github.com/metacubex/mihomo/constant.BuildTime=2026-07-20T00:00:00Z"
+        ]
+      }
+    },
+    {
+      "id": "candidate-1.19.33-rc.2",
+      "release_tag": "stcvrc-1.19.33-rc.2",
+      "release_url": "https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.2",
+      "asset": "verge-mihomo.exe",
+      "asset_sha256": "6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7",
+      "release_assets": [
+        {
+          "name": "build-info.txt",
+          "sha256": "a10d476b34f479bd2503dbed36f0e52de473a845c79eee941c951c0a9c0bb848"
+        },
+        {
+          "name": "build-manifest.json",
+          "sha256": "ce37dcae993281e7f2ada9e6d833fc6dd1b4611fce72d30da6eeee475378d8e5"
+        },
+        {
+          "name": "SHA256SUMS",
+          "sha256": "48fe7f4ab7ad9652dea4687ce5e5b1a790dbe05c61fb762475f0c0c800cc000f"
+        },
+        {
+          "name": "source.json",
+          "sha256": "aea8f72bc25ff2656f7c978a8b4783c4cd0cffb1e0ff95821e1704f7abb8281c"
+        },
+        {
+          "name": "verge-mihomo.exe",
+          "sha256": "6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7"
+        }
+      ],
+      "source_commit": "d888dfad5e785217778bb7515c931840d5307dd4",
+      "upstream_tag": "v1.19.33",
+      "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+      "patch_source_claim": {
+        "commit": "9ccecd85017ec196975239a3afeef886cf991588",
+        "base": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+        "patch_sha256": "f36370decc59e77fa28a5b577ce45eefdc77d4ca9727a09a3dfae1c5cbb4a372",
+        "status": "unverified; claimed base differs from tagged v1.19.33 upstream"
+      },
+      "patch_files": [
+        "adapter/outbound/openvpn.go",
+        "adapter/outbound/openvpn_keepalive_test.go",
+        "adapter/outboundgroup/urltest.go",
+        "adapter/outboundgroup/urltest_test.go",
+        "transport/openvpn/client.go",
+        "transport/openvpn/control.go",
+        "transport/openvpn/keepalive.go",
+        "transport/openvpn/keepalive_diagnostics_test.go",
+        "transport/openvpn/keepalive_lzo_test.go",
+        "transport/openvpn/keepalive_test.go",
+        "transport/openvpn/push.go",
+        "transport/openvpn/push_keepalive_test.go",
+        "transport/openvpn/push_retry_test.go",
+        "transport/openvpn/rekey_test.go"
+      ],
+      "go_version": "1.26.10",
+      "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+      "build": {
+        "source": "fresh-checkout",
+        "host": "linux/amd64",
+        "target": "windows/amd64",
+        "goamd64": "v1",
+        "cgo_enabled": 0,
+        "tags": [
+          "with_gvisor"
+        ],
+        "version": "1.19.33-STCVRC-candidate-20261022",
+        "build_time": "2026-10-22T00:00:00Z",
+        "flags": [
+          "-mod=readonly",
+          "-p=2",
+          "-tags=with_gvisor",
+          "-trimpath",
+          "-buildvcs=false",
+          "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-candidate-20261022 -X github.com/metacubex/mihomo/constant.BuildTime=2026-10-22T00:00:00Z"
+        ]
+      }
+    }
+  ]
+}
