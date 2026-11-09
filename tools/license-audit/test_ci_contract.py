@@ -113,7 +113,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             report_pipeline_end - report_start,
             "license finding state must be set after the piped summary group",
         )
-        self.assertIn("Unknown", report_section, "unclassified license rows must require manual review")
+        self.assertIn('tolower($3) == "unknown"', report_section, "unclassified license rows must require manual review")
 
 
 if __name__ == "__main__":
