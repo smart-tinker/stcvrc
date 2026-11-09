@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+work="$(mktemp -d "$RUNNER_TEMP/openvpn-compare.XXXXXXXX")"
+cleanup() {
+  status=$?
+  trap - EXIT
+  if [[ -x "$work/go/bin/go" ]]; then
+    "$work/go/bin/go" clean -modcache || status=1
+  fi
+  rm -rf -- "$work" || status=1
+  exit "$status"
+}
+trap cleanup EXIT
+export GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1
+export GOPATH="$work/gopath" GOCACHE="$work/gocache"
+mkdir "$work/tmp"
+export TMPDIR="$work/tmp" GOTMPDIR="$work/tmp"
+curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+  https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$work/go.tar.gz"
+printf '%s  %s\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 "$work/go.tar.gz" | sha256sum --check --status
+tar -xzf "$work/go.tar.gz" -C "$work"
+export PATH="$work/go/bin:$PATH"
+python3 -m unittest discover -s "$HERE" -p 'test_*.py' -v
+go version
+openvpn --version
+for variant in upstream stcvrc; do
+  if [[ "$variant" == upstream ]]; then
+    sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+    repo=https://github.com/MetaCubeX/mihomo.git
+  else
+    sha=d888dfad5e785217778bb7515c931840d5307dd4
+    repo=https://github.com/smart-tinker/stcvrc.git
+  fi
+  git init --quiet "$work/$variant"
+  git -C "$work/$variant" fetch --quiet --depth=1 "$repo" "$sha"
+  git -C "$work/$variant" checkout --quiet --detach FETCH_HEAD
+  test "$(git -C "$work/$variant" rev-parse HEAD)" = "$sha"
+  printf '%s source %s\n' "$variant" "$sha"
+  (cd "$work/$variant"; timeout 600s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -o "$work/$variant-core" .; go mod verify)
+  sha256sum "$work/$variant-core"
+done
+# Same existing behavioral test, without altering production files in either tree.
+cp "$work/stcvrc/adapter/outboundgroup/urltest_test.go" "$work/upstream/adapter/outboundgroup/urltest_test.go"
+for variant in upstream stcvrc; do
+  set +e
+  (cd "$work/$variant"; timeout 180s go test -json -p=2 -mod=readonly -run '^TestURLTest(Tolerance|SelectionLifecycle)$' ./adapter/outboundgroup) > "$work/url-$variant.jsonl" 2>&1
+  status=$?
+  set -e
+  if (( status > 1 )); then cat "$work/url-$variant.jsonl"; exit "$status"; fi
+  printf '%s\n' "$status" > "$work/url-$variant.status"
+  cat "$work/url-$variant.jsonl"
+  for scenario in idle rekey; do
+    sudo timeout 150s unshare --net -- python3 "$HERE/lab.py" \
+      --namespace-parent "$(readlink /proc/self/ns/net)" --core "$work/$variant-core" \
+      --scenario "$scenario" --output "$work/$variant-$scenario.json"
+  done
+done
+python3 "$HERE/report.py" "$work" | tee -a "$GITHUB_STEP_SUMMARY"

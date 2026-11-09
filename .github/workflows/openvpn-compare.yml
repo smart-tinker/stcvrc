@@ -1,0 +1,47 @@
+name: OpenVPN source comparison
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+    paths:
+      - tools/openvpn-compare/**
+      - .github/workflows/openvpn-compare.yml
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Read exact reviewed harness source
+        env:
+          FIXTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$FIXTURE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init --quiet fixture
+          git -C fixture fetch --quiet --depth=1 https://github.com/smart-tinker/stcvrc.git "$FIXTURE_SHA"
+          git -C fixture checkout --quiet --detach FETCH_HEAD
+          test "$(git -C fixture rev-parse HEAD)" = "$FIXTURE_SHA"
+          printf 'Harness SHA: %s\n' "$FIXTURE_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install distro OpenVPN server on disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends openvpn
+          dpkg-query -W openvpn openssl iproute2
+          test -c /dev/net/tun
+      - name: Fresh builds and isolated differential scenarios
+        shell: bash
+        run: bash fixture/tools/openvpn-compare/ci.sh

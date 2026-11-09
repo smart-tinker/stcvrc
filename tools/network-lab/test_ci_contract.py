@@ -19,8 +19,15 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", WORKFLOW)
 
     def test_no_privileged_or_paid_automation_paths(self):
-        self.assertEqual(set(WORKFLOWS), {"test.yml", "stcvrc-network-lab.yml"})
-        for workflow in WORKFLOWS.values():
+        self.assertEqual(set(WORKFLOWS), {"test.yml", "stcvrc-network-lab.yml", "openvpn-compare.yml"})
+        for name, workflow in WORKFLOWS.items():
+            if name == "openvpn-compare.yml":
+                self.assertIn("runs-on: ubuntu-24.04", workflow)
+                self.assertIn("permissions:\n  contents: read", workflow)
+                self.assertIn("timeout-minutes: 25", workflow)
+                self.assertIn("!github.event.repository.private", workflow)
+                self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+                continue
             self.assertIn("push:\n    branches: [main]", workflow)
             self.assertIn("pull_request:\n    branches: [main]", workflow)
             self.assertIn("permissions:\n  contents: read", workflow)
@@ -30,10 +37,16 @@ class CIContractTests(unittest.TestCase):
             self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
         for forbidden in ("pull_request_target", "workflow_run:", "schedule:", "tags:",
                           "uses:", "secrets.", "GITHUB_TOKEN", "GH_TOKEN", "write-all",
-                          "upload-artifact", "download-artifact", "actions/cache", "sudo ",
+                          "upload-artifact", "download-artifact", "actions/cache",
                           "--privileged", "self-hosted", "docker ", "--force", "/dispatches"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, "\n".join(WORKFLOWS.values()) + SCRIPT)
+
+    def test_elevation_is_only_in_disposable_comparison(self):
+        for name, workflow in WORKFLOWS.items():
+            if name != "openvpn-compare.yml":
+                self.assertNotIn("sudo ", workflow)
+        self.assertNotIn("sudo ", SCRIPT)
 
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
