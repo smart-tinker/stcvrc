@@ -44,8 +44,7 @@ for variant in upstream full minimal; do
     git -C "$work/$variant" diff --cached --stat
     git -C "$work/$variant" diff --cached | sha256sum
   fi
-  if [[ "$variant" != "upstream" ]]; then
-    python3 - "$work/$variant/transport/openvpn/lzo.go" <<'PY'
+  python3 - "$work/$variant/transport/openvpn/lzo.go" <<'PY'
 from pathlib import Path
 import sys
 
@@ -56,7 +55,6 @@ if source.count(needle) != 1:
     raise SystemExit('INVALID: expected one LZO decoder branch')
 path.write_text(source.replace(needle, needle + chr(9) * 2 + 'println("STCVRC_CI_LZO_COMPRESSED_FRAME")' + chr(10)))
 PY
-  fi
   export GOCACHE="$work/gocache-$variant"
   (
     cd "$work/$variant"

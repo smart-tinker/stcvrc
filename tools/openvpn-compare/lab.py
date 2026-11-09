@@ -29,6 +29,8 @@ def assess(scenario, evidence):
     if scenario == 'deadline':
         return 'PASS' if evidence.get('timeout_observed') else 'FAIL'
     if scenario == 'lzo-data':
+        if evidence.get('compressed_frames', 0) <= 0:
+            return 'INVALID'
         return 'PASS' if (
             evidence.get('response_status') == 200 and
             evidence.get('payload_matches') and
