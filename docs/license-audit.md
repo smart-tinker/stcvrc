@@ -32,6 +32,34 @@ For each source line CI records:
 
 The dependency source and notice collection exists only in the disposable runner; Actions artifacts are disabled. The run summary/log retains the report rows and license-file hashes for review. This inventory is evidence for human review, not an automated GPL or legal-compliance conclusion. Non-Go embedded content, any Unknown or ambiguous license result, redistribution obligations, copyright notices and source-offer requirements still require explicit review before claiming compliance or closing issue #7.
 
-## Current evidence
+## Manual review status (2026-11-09)
 
-The provenance contract tests first failed as expected on the test-only commit. The complete license job result and dependency inventory will be linked here after the run.
+### CI evidence
+
+- [Source and license run 42653348965](https://github.com/smart-tinker/stcvrc/actions/runs/42653348965) passed on `007c28ed49edbab66e39179411803940d97e5ab3`: source tests passed, and the current PR source compiled for Linux and Windows.
+- Its `license-audit` job freshly built the accepted .29 and candidate .33 Windows/amd64 cores from the pinned source trees. The resulting SHA256 values matched the public release references: `71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b` and `6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7`. `go mod verify` passed for both.
+- [Network run 42653349028](https://github.com/smart-tinker/stcvrc/actions/runs/42653349028) passed on the same head in Linux and Windows jobs. It exercised the pinned candidate; it is not a license conclusion.
+- Both runs have zero Actions artifacts. The audit uses isolated runner-temporary Go caches only; it does not use Actions cache or previously built STCVRC binaries.
+
+### Manual source-license checks
+
+The pinned source LICENSE files for these MetaCubeX fork modules are identical Git blobs (`3e3e29e359d205307555aa41f19fb2a8415de885`) whose text declares GNU GPL version 3 or later. This resolves the scanner's `Unknown` label for these license files, but does not by itself establish that every required notice is shipped:
+
+- [fswatch v0.1.1](https://github.com/MetaCubeX/fswatch/blob/v0.1.1/LICENSE)
+- [sing-mux v0.3.10](https://github.com/MetaCubeX/sing-mux/blob/v0.3.10/LICENSE), [v0.3.12](https://github.com/MetaCubeX/sing-mux/blob/v0.3.12/LICENSE)
+- [sing-quic stable pin](https://github.com/MetaCubeX/sing-quic/blob/68e10a6afdc3/LICENSE), [candidate pin](https://github.com/MetaCubeX/sing-quic/blob/1c242664697a/LICENSE)
+- [sing-shadowsocks v0.2.12](https://github.com/MetaCubeX/sing-shadowsocks/blob/v0.2.12/LICENSE), [v0.2.13](https://github.com/MetaCubeX/sing-shadowsocks/blob/v0.2.13/LICENSE)
+- [sing-shadowsocks2 v0.2.7](https://github.com/MetaCubeX/sing-shadowsocks2/blob/v0.2.7/LICENSE), [v0.2.8](https://github.com/MetaCubeX/sing-shadowsocks2/blob/v0.2.8/LICENSE)
+- [sing-tun v0.4.21](https://github.com/MetaCubeX/sing-tun/blob/v0.4.21/LICENSE), [v0.4.28](https://github.com/MetaCubeX/sing-tun/blob/v0.4.28/LICENSE)
+- [sing-vmess v0.2.5](https://github.com/MetaCubeX/sing-vmess/blob/v0.2.5/LICENSE)
+- [sing v0.5.7](https://github.com/MetaCubeX/sing/blob/v0.5.7/LICENSE), [v0.5.8](https://github.com/MetaCubeX/sing/blob/v0.5.8/LICENSE)
+
+The remaining material gaps are:
+
+- `github.com/metacubex/chacha@v0.1.5`: the root module has no recognized LICENSE, and `chacha/chacha.go` points to a LICENSE file not present at the inspected module/package paths. The MIT files in neighboring `chachapoly1305` and `poly1305` subpackages do not establish the license for `chacha` itself.
+- `github.com/rasky/go-lzo` at `96a758eda86e` is classified by the inventory as `GPL-2.0`; the pinned [LICENSE.gpl](https://github.com/rasky/go-lzo/blob/96a758eda86e/LICENSE.gpl) is GPL version 2 text. The code-level grant and whether it permits later GPL versions have not been established from source headers.
+- `github.com/easytier/easytier/easytier-go` at `3d0c9c3ca5e2` carries [LGPL-3.0](https://github.com/EasyTier/EasyTier/blob/3d0c9c3ca5e2/easytier-go/LICENSE). Its use in the built executable and the applicable notice/source/relink materials still need human review.
+- `go-licenses save` collects dependency license texts only in the disposable runner directory; the workflow records their hashes and creates no artifact. The repository/release still needs a reviewed, publicly accessible notice set for the distributed binaries.
+- Candidate `source.json` records patch base `88dcbf7f` (.32), while the checked .33 upstream is `3f27ef39`. CI verifies the 14 .33 files and exact .33 source delta independently, but the declared patch-origin link remains unproven.
+
+Issue #7 remains open. No license violation or overall compliance conclusion is asserted.
