@@ -241,7 +241,7 @@ verb 4
                                                 evidence['recovery_status'] = response.status
                                                 if response.status == 200:
                                                     for i in range(evidence['expected_recovery_samples']):
-                                                        if response.readline() != (str(i)+'\\n').encode():
+                                                        if response.readline() != (str(i)+'\n').encode():
                                                             break
                                                         evidence['recovery_samples'] += 1
                                         except (OSError, http.client.HTTPException):
