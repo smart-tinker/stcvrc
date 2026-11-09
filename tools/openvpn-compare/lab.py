@@ -19,7 +19,7 @@ def assess(scenario, evidence):
         return 'INVALID'
     if not evidence.get('live') or evidence.get('inactivity', 0):
         return 'FAIL'
-    if scenario == 'idle':
+    if scenario.startswith('idle'):
         return 'PASS' if evidence.get('resumed') else 'FAIL'
     return 'PASS' if (evidence.get('rekeys', 0) >= 2 and evidence.get('epochs', 0) >= 2 and
                       evidence.get('post_epoch_samples', 0) >= 20 and
@@ -127,6 +127,12 @@ verb 4
                               'auth':'SHA256', 'ca':(work/'ca.crt').read_text(),
                               'cert':(work/'client.crt').read_text(), 'key':(work/'client.key').read_text(),
                               'udp':True}], 'rules':['MATCH,vpn']}
+        if scenario in ('idle-local', 'idle-lzo'):
+            config['proxies'][0].update(ping=1, **{'ping-restart':5})
+        if scenario == 'idle-lzo':
+            config['proxies'][0]['comp-lzo'] = 'yes'
+            with (work/'server.conf').open('a') as stream:
+                stream.write('allow-compression yes\ncomp-lzo yes\n')
         (work/'core.json').write_text(json.dumps(config))
         evidence = {'baseline':False, 'direct_blocked':False}
         with process(['openvpn','--config',str(work/'server.conf')], work/'server.log') as server:
@@ -155,7 +161,7 @@ verb 4
                             break
                         time.sleep(0.2)
                     if evidence['baseline']:
-                        if scenario == 'idle':
+                        if scenario.startswith('idle'):
                             time.sleep(14)
                             evidence['resumed'] = probe()
                         else:
@@ -195,7 +201,7 @@ verb 4
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--core', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('idle','rekey'), required=True)
+    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','rekey'), required=True)
     parser.add_argument('--namespace-parent', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()

@@ -11,9 +11,11 @@ Each runtime scenario executes in a fresh Linux network namespace. Only loopback
 | Delta | Evidence planned in this first experiment |
 |---|---|
 | Server-pushed keepalive / idle | Baseline HTTP, 14 seconds idle, no server inactivity timeout, resumed HTTP |
-| Soft rekey continuity | One 200-line stream over 40 seconds, exact ordered payload, >=2 server soft resets, live core/server |
+| Local keepalive control | Same idle case with explicit local ping values |
+| LZO keepalive framing | Same local keepalive values with negotiated LZO framing; disposable test traffic only |
+| Soft rekey continuity | One 200-line stream over 40 seconds, exact ordered payload, >=2 completed TLS epochs, at least 20 further samples, 3-second transition window, live core/server |
 | URLTest tolerance | Same `TestURLTestTolerance` and lifecycle tests run against both source trees |
-| Deferred PUSH_REQUEST retry | NOT TESTED by real server yet |
+| Deferred PUSH_REQUEST retry | Same test TLS server deliberately defers reply; real-server deferred authentication remains untested |
 | Failure teardown/reactivation | NOT TESTED yet |
 | LZO/control edge cases/token refresh | NOT TESTED yet |
 

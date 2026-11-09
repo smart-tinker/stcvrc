@@ -42,6 +42,7 @@ for variant in upstream stcvrc; do
 done
 # Same existing behavioral test, without altering production files in either tree.
 cp "$work/stcvrc/adapter/outboundgroup/urltest_test.go" "$work/upstream/adapter/outboundgroup/urltest_test.go"
+cp "$work/stcvrc/transport/openvpn/push_retry_test.go" "$work/upstream/transport/openvpn/push_retry_test.go"
 for variant in upstream stcvrc; do
   set +e
   (cd "$work/$variant"; timeout 180s go test -json -p=2 -mod=readonly -run '^TestURLTest(Tolerance|SelectionLifecycle)$' ./adapter/outboundgroup) > "$work/url-$variant.jsonl" 2>&1
@@ -50,10 +51,21 @@ for variant in upstream stcvrc; do
   if (( status > 1 )); then cat "$work/url-$variant.jsonl"; exit "$status"; fi
   printf '%s\n' "$status" > "$work/url-$variant.status"
   cat "$work/url-$variant.jsonl"
-  for scenario in idle rekey; do
+  set +e
+  (cd "$work/$variant"; timeout 60s go test -json -p=2 -mod=readonly -run '^TestInitialHandshakeRetriesDeferredPush$' ./transport/openvpn) > "$work/push-$variant.jsonl" 2>&1
+  status=$?
+  set -e
+  if (( status > 1 )); then cat "$work/push-$variant.jsonl"; exit "$status"; fi
+  printf '%s\n' "$status" > "$work/push-$variant.status"
+  cat "$work/push-$variant.jsonl"
+  for scenario in idle idle-local idle-lzo rekey; do
+    set +e
     sudo timeout 150s unshare --net -- python3 "$HERE/lab.py" \
       --namespace-parent "$(readlink /proc/self/ns/net)" --core "$work/$variant-core" \
       --scenario "$scenario" --output "$work/$variant-$scenario.json"
+    status=$?
+    set -e
+    if (( status != 0 && status != 2 )); then exit "$status"; fi
   done
 done
 python3 "$HERE/report.py" "$work" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -30,9 +30,11 @@ class ReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = pathlib.Path(d)
             for variant in ('upstream','stcvrc'):
-                for scenario in ('idle','rekey'):
+                for scenario in ('idle','idle-local','idle-lzo','rekey'):
                     (root/f'{variant}-{scenario}.json').write_text('{"verdict":"PASS"}')
                 (root/f'url-{variant}.status').write_text('0')
+                (root/f'push-{variant}.status').write_text('0')
+                (root/f'push-{variant}.jsonl').write_text(json.dumps({'Test':'TestInitialHandshakeRetriesDeferredPush','Action':'pass'})+'\n'+json.dumps({'Action':'pass'}))
             tests = [{'Test':name,'Action':'pass'} for name in
                      ('TestURLTestTolerance','TestURLTestSelectionLifecycle')]
             for events, status, expected in [(tests+[{'Action':'pass'}],0,'PASS'),
