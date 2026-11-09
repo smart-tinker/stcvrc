@@ -58,6 +58,7 @@ class DistributionAuditContractTests(unittest.TestCase):
         job = "\n".join(job_lines)
         for required in (
             "runs-on: ubuntu-24.04",
+            '"$dir/go/bin/go"',
             "AUDIT_COMMIT:",
             "git -C \"$audit_root\" fetch",
             "python3 - \"$RUNNER_TEMP/audit-definition\"",
