@@ -1,6 +1,6 @@
 module github.com/metacubex/mihomo
 
-go 1.20
+go 1.24.0
 
 require (
 	github.com/anchore/go-lzo v0.1.1
