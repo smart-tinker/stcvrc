@@ -53,13 +53,7 @@ func (c *Client) WaitPingRestart(ctx context.Context, timeout time.Duration) err
 			return net.ErrClosed
 		case <-timer.C:
 			if idle := c.SinceReceive(); idle >= timeout {
-				lastData := "never"
-				if timestamp := c.lastDataPacketNano.Load(); timestamp != 0 {
-					lastData = (time.Since(start) - time.Duration(timestamp)).Round(time.Second).String()
-				}
-				return fmt.Errorf("%w: no packet received for %s (last-send=%s, last-data-packet=%s, inbound-data-packets=%d, data-decrypt-errors=%d)",
-					ErrPingRestart, idle.Round(time.Second), c.SinceSend().Round(time.Second), lastData,
-					c.inboundDataPackets.Load(), c.dataDecryptErrors.Load())
+				return fmt.Errorf("%w: no packet received for %s", ErrPingRestart, idle.Round(time.Second))
 			} else {
 				timer.Reset(timeout - idle)
 			}
