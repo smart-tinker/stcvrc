@@ -221,7 +221,11 @@ jobs:
           set -euo pipefail
           temp="$RUNNER_TEMP/issue7-license-audit"
           mkdir -p "$temp"
-          trap 'rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/audit-definition"' EXIT
+          cleanup() {
+            chmod -R u+w "$temp" 2>/dev/null || true
+            rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/audit-definition" || true
+          }
+          trap cleanup EXIT
 
           install_go() {
             local version="$1" digest="$2" dir="$RUNNER_TEMP/toolchain-go$1"
@@ -237,12 +241,13 @@ jobs:
           go125="$(install_go 1.26.5 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053)"
           go12610="$(install_go 1.26.10 ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5)"
           mismatches=0
+          license_findings=0
 
           audit_variant() {
             local id="$1" go="$2" expected_sha="$3" version="$4" build_time="$5" source_dir="$6"
             local gopath="$temp/$id/gopath" modcache="$temp/$id/modcache" gocache="$temp/$id/gocache"
             local gobin="$temp/$id/bin" licenses="$temp/$id/licenses" binary="$temp/$id/verge-mihomo.exe"
-            mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"
+            mkdir -p "$gopath" "$modcache" "$gocache" "$gobin" "$licenses"
             export GOTOOLCHAIN=local GOENV=off GOWORK=off GOTELEMETRY=off
             export CGO_ENABLED=0 GOAMD64=v1 GOPATH="$gopath" GOMODCACHE="$modcache" GOCACHE="$gocache" GOBIN="$gobin"
             go_bin="$(dirname "$go")"
@@ -287,8 +292,15 @@ jobs:
               printf '\n### Package license report for windows/amd64 with_gvisor\n\n'
               GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
                 "$go" install github.com/google/go-licenses/v2@v2.0.1
+              local report_status=0
               GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
-                "$gobin/go-licenses" report .
+                "$gobin/go-licenses" report . > "$temp/$id/go-licenses-report.csv" 2> "$temp/$id/go-licenses-report.stderr" || report_status=$?
+              cat "$temp/$id/go-licenses-report.csv"
+              cat "$temp/$id/go-licenses-report.stderr" >&2
+              if (( report_status != 0 )) || grep -qi "no license found" "$temp/$id/go-licenses-report.stderr"; then
+                license_findings=1
+                printf "\nLicense report incomplete for %s (exit %s); manual license review is required.\n" "$id" "$report_status"
+              fi
               printf '\n### Repository-embedded license text file digests\n\n'
               find . -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'COPYRIGHT*' \) \
                 -not -path './.git/*' -print0 | sort -z | xargs -0 -r sha256sum
@@ -308,8 +320,15 @@ jobs:
           PYEMBED
             } | tee -a "$GITHUB_STEP_SUMMARY"
 
+            local save_status=0
             GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
-              "$gobin/go-licenses" save . --save_path="$licenses"
+              "$gobin/go-licenses" save . --save_path="$licenses" > "$temp/$id/go-licenses-save.stdout" 2> "$temp/$id/go-licenses-save.stderr" || save_status=$?
+            cat "$temp/$id/go-licenses-save.stdout"
+            cat "$temp/$id/go-licenses-save.stderr" >&2
+            if (( save_status != 0 )) || grep -qi "no license found" "$temp/$id/go-licenses-save.stderr"; then
+              license_findings=1
+              printf "License file collection incomplete for %s (exit %s); manual license review is required.\n" "$id" "$save_status" >> "$GITHUB_STEP_SUMMARY"
+            fi
             {
               printf '\n### Collected dependency license/notice file digests\n\n'
               find "$licenses" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'COPYRIGHT*' \) \
@@ -331,4 +350,9 @@ jobs:
             6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7 \
             1.19.33-STCVRC-candidate-20261022 2026-10-22T00:00:00Z "$RUNNER_TEMP/source-1.19.33"
           test "$mismatches" -eq 0
-          printf '\nBoth published reference digests matched fresh-source builds. This inventory is evidence for review, not an automated legal-compliance decision.\n' >> "$GITHUB_STEP_SUMMARY"
+          printf "\nBoth published reference digests matched fresh-source builds.\n" >> "$GITHUB_STEP_SUMMARY"
+          if (( license_findings != 0 )); then
+            printf "Automated license classification is incomplete; manual license review is required. This is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf "Automated license classification produced no missing-license findings; this is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
+          fi
