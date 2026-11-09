@@ -66,6 +66,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             "license_findings=0",
             "report_status=0",
             "save_status=0",
+            'test ! -e "$licenses"',
             "go-licenses-report.stderr",
             "go-licenses-save.stderr",
             "chmod -R u+w",
