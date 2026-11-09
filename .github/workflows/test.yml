@@ -231,7 +231,7 @@ jobs:
             printf '%s  %s\n' "$digest" "$dir/go.tar.gz" | sha256sum --check --status
             tar -xzf "$dir/go.tar.gz" -C "$dir"
             rm "$dir/go.tar.gz"
-            printf '%s\n' "$dir/go"
+            printf '%s\n' "$dir/go/bin/go"
           }
 
           go125="$(install_go 1.26.5 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053)"
