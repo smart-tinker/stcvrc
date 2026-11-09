@@ -8,7 +8,7 @@ import unittest
 HERE = Path(__file__).resolve().parent
 REPORT = HERE / "report.py"
 VARIANTS = ("upstream", "stcvrc", "minus", "only")
-SCENARIOS = ("idle", "idle-local", "idle-lzo", "rekey", "deadline")
+SCENARIOS = ("idle", "idle-local", "idle-lzo", "rekey", "deadline", "recovery")
 
 
 def write_fixture(root):
@@ -25,6 +25,10 @@ def write_fixture(root):
                 evidence["resumed"] = not failed_behavior
             elif scenario == "deadline":
                 evidence.update(stream_before_stop=True, timeout_observed=True)
+            elif scenario == "recovery":
+                evidence.update(server_lost=True, outage_status=502, no_direct_bypass=True,
+                                server_restarted=True, new_handshake=True, recovered=True,
+                                recovery_samples=10, expected_recovery_samples=10)
             else:
                 evidence.update(samples=200, expected=200, rekeys=2, epochs=2,
                                 post_epoch_samples=20)
@@ -136,7 +140,7 @@ class InvalidEvidenceGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for defect in ("missing", "malformed", "baseline", "direct_blocked",
-                           "target_test", "candidate_suite"):
+                           "target_test", "candidate_suite", "recovery_field"):
                 with self.subTest(defect=defect):
                     write_fixture(root)
                     path = root / "minus-deadline.json"
@@ -148,6 +152,11 @@ class InvalidEvidenceGateTests(unittest.TestCase):
                         (root / "url-only.jsonl").write_text('{"Action":"pass"}\n')
                     elif defect == "candidate_suite":
                         (root / "all-stcvrc.status").write_text("1")
+                    elif defect == "recovery_field":
+                        path = root / "stcvrc-recovery.json"
+                        evidence = json.loads(path.read_text())
+                        del evidence["new_handshake"]
+                        path.write_text(json.dumps(evidence))
                     else:
                         evidence = json.loads(path.read_text())
                         evidence[defect] = False

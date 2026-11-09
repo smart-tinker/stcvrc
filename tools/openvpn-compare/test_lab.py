@@ -18,4 +18,21 @@ class EvidenceTests(unittest.TestCase):
         evidence['inactivity'] = 0
         self.assertEqual(assess('idle', evidence), 'PASS')
 
+    def test_recovery_requires_closed_outage_and_new_working_tunnel(self):
+        evidence = dict(
+            baseline=True, direct_blocked=True, live=True, inactivity=0,
+            server_lost=True, outage_status=502, no_direct_bypass=True,
+            server_restarted=True, new_handshake=True, recovered=True,
+            recovery_samples=10, expected_recovery_samples=10,
+        )
+        self.assertEqual(assess('recovery', evidence), 'PASS')
+        for field, value in [
+            ('outage_status', 200), ('no_direct_bypass', False),
+            ('new_handshake', False), ('recovered', False),
+            ('recovery_samples', 9),
+        ]:
+            self.assertEqual(assess('recovery', dict(evidence, **{field:value})), 'FAIL')
+        for field in ('server_lost', 'server_restarted'):
+            self.assertEqual(assess('recovery', dict(evidence, **{field:False})), 'INVALID')
+
 if __name__ == '__main__': unittest.main()
