@@ -28,5 +28,5 @@ print("|---|---|---|")
 print("| result | " + " | ".join(suites[v] for v in ("stcvrc", "minus")) + " |")
 print("\nThe only-patch variant is evaluated by its scheduled runtime and targeted URL/PUSH tests; its full package suite is not run because that suite also includes tests for omitted patches.")
 print("\nA green run means every scheduled observation and control is valid. Behavioral FAIL is retained as a result; "
-      "it does not fail the comparison by itself. Real-server deferred auth, server-loss recovery, token refresh "
-      "and Windows/TUN remain NOT TESTED.")
+      "it does not fail the comparison by itself. The restart scenario is a disposable local-server test, "
+      "not corporate-server recovery acceptance. Real-server deferred auth, token refresh and Windows/TUN remain NOT TESTED.")

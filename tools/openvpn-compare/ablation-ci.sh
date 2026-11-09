@@ -24,8 +24,8 @@ export PATH="$work/go/bin:$PATH"
 python3 -m unittest discover -s "$HERE" -p 'test_*.py' -v
 go version
 openvpn --version
-scenarios=(idle idle-local idle-lzo rekey deadline)
-if [[ "$PATCH" == scheduler ]]; then scenarios=(deadline); fi
+scenarios=(idle idle-local idle-lzo rekey deadline recovery)
+if [[ "$PATCH" == scheduler ]]; then scenarios=(deadline recovery); fi
 for variant in upstream stcvrc minus only; do
   if [[ "$variant" == upstream ]]; then
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8

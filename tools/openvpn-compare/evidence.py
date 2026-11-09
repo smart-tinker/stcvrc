@@ -5,7 +5,7 @@ from pathlib import Path
 from lab import assess
 
 VARIANTS = ("upstream", "stcvrc", "minus", "only")
-KNOWN_SCENARIOS = {"idle", "idle-local", "idle-lzo", "rekey", "deadline"}
+KNOWN_SCENARIOS = {"idle", "idle-local", "idle-lzo", "rekey", "deadline", "recovery"}
 TESTS = {
     "url": ("TestURLTestTolerance", "TestURLTestSelectionLifecycle"),
     "push": ("TestInitialHandshakeRetriesDeferredPush",),
@@ -82,6 +82,12 @@ def _valid_runtime(work, variant, scenario, errors):
         fields["resumed"] = bool
     elif scenario == "deadline":
         fields.update(stream_before_stop=bool, timeout_observed=bool)
+    elif scenario == "recovery":
+        fields.update(
+            server_lost=bool, outage_status=(int, float), no_direct_bypass=bool,
+            server_restarted=bool, new_handshake=bool, recovered=bool,
+            recovery_samples=(int, float), expected_recovery_samples=(int, float),
+        )
     elif scenario == "rekey":
         fields.update(samples=(int, float), expected=(int, float),
                       rekeys=(int, float), epochs=(int, float),

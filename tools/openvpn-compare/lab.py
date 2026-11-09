@@ -18,10 +18,21 @@ import time
 def assess(scenario, evidence):
     if not evidence.get('baseline') or not evidence.get('direct_blocked'):
         return 'INVALID'
+    if scenario == 'recovery' and (not evidence.get('server_lost') or
+                                   not evidence.get('server_restarted')):
+        return 'INVALID'
     if not evidence.get('live') or evidence.get('inactivity', 0):
         return 'FAIL'
     if scenario == 'deadline':
         return 'PASS' if evidence.get('timeout_observed') else 'FAIL'
+    if scenario == 'recovery':
+        return 'PASS' if (
+            evidence.get('outage_status') != 200 and
+            evidence.get('no_direct_bypass') and
+            evidence.get('new_handshake') and
+            evidence.get('recovered') and
+            evidence.get('recovery_samples', 0) == evidence.get('expected_recovery_samples', -1) > 0
+        ) else 'FAIL'
     if scenario.startswith('idle'):
         return 'PASS' if evidence.get('resumed') else 'FAIL'
     return 'PASS' if (evidence.get('rekeys', 0) >= 2 and evidence.get('epochs', 0) >= 2 and
@@ -68,6 +79,7 @@ class Endpoint(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Direct traffic uses the server's own .1 address; only VPN clients get .2+.
         if not re.fullmatch(r'10\.77\.0\.(?:[2-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])', self.client_address[0]):
+            self.server.direct_hits += 1
             self.send_error(403, 'direct path')
             return
         self.send_response(200)
@@ -130,7 +142,7 @@ verb 4
                               'auth':'SHA256', 'ca':(work/'ca.crt').read_text(),
                               'cert':(work/'client.crt').read_text(), 'key':(work/'client.key').read_text(),
                               'udp':True}], 'rules':['MATCH,vpn']}
-        if scenario in ('idle-local', 'idle-lzo', 'deadline'):
+        if scenario in ('idle-local', 'idle-lzo', 'deadline', 'recovery'):
             config['proxies'][0].update(ping=1, **{'ping-restart':5})
         if scenario == 'idle-lzo':
             config['proxies'][0]['comp-lzo'] = 'yes'
@@ -148,12 +160,15 @@ verb 4
             else:
                 raise RuntimeError('OpenVPN server did not initialize')
             backend = http.server.ThreadingHTTPServer(('0.0.0.0',18080), Endpoint)
+            backend.direct_hits = 0
             thread = threading.Thread(target=backend.serve_forever, daemon=True)
             thread.start()
             try:
                 conn, response = request(False)
                 evidence['direct_blocked'] = response.status == 403
                 response.read(); conn.close()
+                direct_hits_before_scenario = backend.direct_hits
+                server_log = work/'server.log'
                 with process([str(core), '-d', str(work/'home'), '-f',str(work/'core.json')], work/'core.log') as client:
                     # Startup readiness only; never retry the measured scenario.
                     for _ in range(10):
@@ -188,6 +203,56 @@ verb 4
                                     os.kill(server.pid, signal.SIGCONT)
                             finally:
                                 conn.close()
+                        elif scenario == 'recovery':
+                            evidence.update(
+                                server_lost=False, outage_status=0, no_direct_bypass=False,
+                                server_restarted=False, new_handshake=False, recovered=False,
+                                recovery_status=0, recovery_samples=0, expected_recovery_samples=10,
+                            )
+                            server.terminate()
+                            try:
+                                server.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                server.kill()
+                                server.wait(timeout=5)
+                            evidence['server_lost'] = server.poll() is not None
+                            if evidence['server_lost']:
+                                try:
+                                    conn, response = request(True)
+                                    evidence['outage_status'] = response.status
+                                    response.read()
+                                    conn.close()
+                                except (OSError, http.client.HTTPException):
+                                    pass
+                                evidence['no_direct_bypass'] = backend.direct_hits == direct_hits_before_scenario
+                                server_log = work/'restarted-server.log'
+                                with process(['openvpn','--config',str(work/'server.conf')], server_log) as restored:
+                                    for _ in range(50):
+                                        if 'Initialization Sequence Completed' in server_log.read_text():
+                                            evidence['server_restarted'] = True
+                                            break
+                                        if restored.poll() is not None:
+                                            break
+                                        time.sleep(0.1)
+                                    if evidence['server_restarted']:
+                                        try:
+                                            conn, response = request(True, '/stream')
+                                            with contextlib.closing(conn):
+                                                evidence['recovery_status'] = response.status
+                                                if response.status == 200:
+                                                    for i in range(evidence['expected_recovery_samples']):
+                                                        if response.readline() != (str(i)+'\\n').encode():
+                                                            break
+                                                        evidence['recovery_samples'] += 1
+                                        except (OSError, http.client.HTTPException):
+                                            pass
+                                        restarted_logs = server_log.read_text(errors='replace')
+                                        evidence['new_handshake'] = 'Control Channel: TLSv' in restarted_logs
+                                        evidence['recovered'] = (
+                                            evidence['recovery_status'] == 200 and
+                                            evidence['recovery_samples'] == evidence['expected_recovery_samples']
+                                        )
+                                        evidence['live'] = client.poll() is None and restored.poll() is None
                         elif scenario.startswith('idle'):
                             time.sleep(14)
                             evidence['resumed'] = probe()
@@ -206,16 +271,19 @@ verb 4
                                                 evidence['post_epoch_samples'] += 1
                             except (OSError, http.client.HTTPException):
                                 pass
-                    logs = (work/'server.log').read_text()
+                    logs = server_log.read_text()
                     evidence['epochs'] = max(0, logs.count('Control Channel: TLSv') - 1)
                     evidence['rekeys'] = len(re.findall(r'TLS: soft reset', logs))
                     evidence['inactivity'] = len(re.findall(r'Inactivity timeout', logs))
-                    evidence['live'] = client.poll() is None and server.poll() is None
+                    if scenario != 'recovery':
+                        evidence['live'] = client.poll() is None and server.poll() is None
                     evidence['verdict'] = assess(scenario, evidence)
                     evidence['scenario'] = scenario
                     evidence['core_sha256'] = hashlib.sha256(core.read_bytes()).hexdigest()
                     # Only disposable test identities are present in these logs.
-                    for name in ('server.log', 'core.log'):
+                    for name in ('server.log', 'restarted-server.log', 'core.log'):
+                        if not (work/name).exists():
+                            continue
                         lines = (work/name).read_text(errors='replace').splitlines()
                         selected = [line for line in lines if any(word in line.lower() for word in
                                     ('error', 'warn', 'soft reset', 'inactivity', 'handshake complete', 'push_reply', 'control channel:', 'data channel:'))]
@@ -228,7 +296,7 @@ verb 4
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--core', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','rekey','deadline'), required=True)
+    parser.add_argument('--scenario', choices=('idle','idle-local','idle-lzo','rekey','deadline','recovery'), required=True)
     parser.add_argument('--namespace-parent', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()

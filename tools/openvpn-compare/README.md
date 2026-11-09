@@ -16,7 +16,7 @@ Each runtime scenario executes in a fresh Linux network namespace. Only loopback
 | Soft rekey continuity | One 200-line stream over 40 seconds, exact ordered payload, >=2 completed TLS epochs, at least 20 further samples, 3-second transition window, live core/server |
 | URLTest tolerance | Same `TestURLTestTolerance` and lifecycle tests run against both source trees |
 | Deferred PUSH_REQUEST retry | Same test TLS server deliberately defers reply; real-server deferred authentication remains untested |
-| Failure teardown/reactivation | NOT TESTED yet |
+| Failure teardown/reactivation | Stop the disposable server, require a failed-closed request with no direct endpoint hit, restart it, require a new handshake and a 10-sample HTTP stream |
 | LZO/control edge cases/token refresh | NOT TESTED yet |
 
-A setup/initial-connect failure or direct bypass is INVALID, not an upstream defect. Scenario FAIL is printed without suppressing the comparison with the other core. A green comparison job only means the experiment completed with valid observations; read the scenario table. Logs carry stream sample counts, rekeys, inactivity counts and binary hashes. The test does not prove Windows/TUN/GUI/user acceptance. Upstream already contains server-initiated rekey support.
+A setup/initial-connect failure or direct bypass is INVALID, not an upstream defect. Scenario FAIL is printed without suppressing the comparison with the other core. The recovery case restarts a disposable local server; it does not establish corporate-server or Windows recovery acceptance. A green comparison job only means the experiment completed with valid observations; read the scenario table. Logs carry stream sample counts, rekeys, inactivity counts and binary hashes. The test does not prove Windows/TUN/GUI/user acceptance. Upstream already contains server-initiated rekey support.
