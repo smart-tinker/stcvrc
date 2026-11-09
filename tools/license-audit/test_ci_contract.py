@@ -95,3 +95,27 @@ class DistributionAuditContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_license_audit_docs_trigger_source_checks(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json"):
+            self.assertGreaterEqual(
+                workflow.count(f"      - {path}"),
+                2,
+                f"{path} edits must trigger both push and pull_request checks",
+            )
+
+    def test_incomplete_and_unknown_report_status_survives_summary_pipeline(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        report_start = workflow.index("            local report_status=0")
+        report_pipeline_end = workflow.index('            } | tee -a "$GITHUB_STEP_SUMMARY"', report_start)
+        save_start = workflow.index("            local save_status=0", report_pipeline_end)
+        report_section = workflow[report_start:save_start]
+        finding = report_section.index("license_findings=1")
+        self.assertGreater(
+            finding,
+            report_pipeline_end - report_start,
+            "license finding state must be set after the piped summary group",
+        )
+        self.assertIn("Unknown", report_section, "unclassified license rows must require manual review")
