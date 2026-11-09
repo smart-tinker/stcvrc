@@ -177,6 +177,20 @@ def _valid_full_suite(work, variant, errors):
             errors.append(f"{stem}: missing or duplicate terminal result for {suffix}")
             valid = False
     outcomes = [actions[0] for actions in terminals.values() if len(actions) == 1]
+    failed_packages = {
+        package for package, actions in terminals.items() if actions == ["fail"]
+    }
+    failed_test_packages = {
+        event["Package"] for event in events
+        if event.get("Action") == "fail" and event.get("Test")
+        and isinstance(event.get("Package"), str)
+    }
+    unexplained_failures = failed_packages - failed_test_packages
+    if unexplained_failures:
+        errors.append(
+            f"{stem}: failed package has no failed test result: "
+            f"{sorted(unexplained_failures)}")
+        valid = False
     if status == 0 and outcomes and any(value != "pass" for value in outcomes):
         errors.append(f"{stem}: passing exit status contains failed package")
         valid = False
