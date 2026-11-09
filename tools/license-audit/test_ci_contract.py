@@ -116,5 +116,32 @@ class DistributionAuditContractTests(unittest.TestCase):
         self.assertIn('tolower($3) == "unknown"', report_section, "unclassified license rows must require manual review")
 
 
+    def test_unpublished_mit_lzo_candidate_pins_exact_source_and_build(self):
+        manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
+        self.assertEqual(candidate["distribution_status"], "unpublished-candidate")
+        self.assertEqual(candidate["source_commit"], "76b7ec3ff9854d32cb3964403c065928ecdc9dd6")
+        self.assertEqual(candidate["upstream_commit"], "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8")
+        self.assertEqual(candidate["go_version"], "1.26.10")
+        self.assertEqual(candidate["go_sha256"], "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5")
+        self.assertEqual(candidate["build"]["source"], "fresh-checkout")
+        self.assertEqual(candidate["build"]["target"], "windows/amd64")
+        self.assertEqual(candidate["build"]["version"], "1.19.33-STCVRC-candidate-mit-lzo-20261109")
+        self.assertEqual(candidate["build"]["build_time"], "2026-11-09T00:00:00Z")
+        self.assertIsNone(candidate["asset_sha256"])
+        self.assertIsNone(candidate["release_tag"])
+
+    def test_license_ci_builds_the_exact_unpublished_mit_lzo_source(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        for required in (
+            "candidate-1.19.33-mit-lzo",
+            "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
+            "github.com/anchore/go-lzo v0.1.1",
+            "github.com/rasky/go-lzo",
+            "No published reference asset; candidate SHA256 is recorded only",
+        ):
+            self.assertIn(required, workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
