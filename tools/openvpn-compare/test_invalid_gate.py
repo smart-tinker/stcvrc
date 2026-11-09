@@ -92,7 +92,7 @@ class InvalidEvidenceGateTests(unittest.TestCase):
             self.assertFalse((root / "all-only.jsonl").exists())
             result = run_report(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("only-patch full suite is not run", result.stdout)
+            self.assertIn("full package suite is not run", result.stdout)
 
     def test_package_build_failure_without_failed_test_is_invalid(self):
         with tempfile.TemporaryDirectory() as directory:
