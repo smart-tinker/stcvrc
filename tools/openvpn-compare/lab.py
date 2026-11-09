@@ -124,8 +124,8 @@ verb 4
                   'tun':{'enable':False}, 'dns':{'enable':False},
                   'proxies':[{'name':'vpn', 'type':'openvpn', 'server':'127.0.0.1',
                               'port':1194, 'proto':'udp', 'cipher':'AES-256-GCM',
-                              'auth':'SHA256', 'ca':str(work/'ca.crt'),
-                              'cert':str(work/'client.crt'), 'key':str(work/'client.key'),
+                              'auth':'SHA256', 'ca':(work/'ca.crt').read_text(),
+                              'cert':(work/'client.crt').read_text(), 'key':(work/'client.key').read_text(),
                               'udp':True}], 'rules':['MATCH,vpn']}
         (work/'core.json').write_text(json.dumps(config))
         evidence = {'baseline':False, 'direct_blocked':False}
