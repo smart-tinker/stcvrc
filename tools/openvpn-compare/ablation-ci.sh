@@ -72,8 +72,10 @@ for variant in upstream stcvrc minus only; do
     (cd "$work/$variant"; timeout 180s go test -json -count=1 -p=2 -mod=readonly -tags=with_gvisor ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup) > "$work/all-$variant.jsonl" 2>&1
     suite_status=$?
     set -e
+    printf '%s\n' "$suite_status" > "$work/all-$variant.status"
     cat "$work/all-$variant.jsonl"
     printf '\nFull suite %s: %s\n' "$variant" "$suite_status" >> "$GITHUB_STEP_SUMMARY"
+    if (( suite_status > 1 )); then exit "$suite_status"; fi
   fi
   for scenario in "${scenarios[@]}"; do
     set +e
@@ -95,4 +97,4 @@ for variant in upstream stcvrc minus only; do
     cat "$work/$group-$variant.status" | tee -a "$GITHUB_STEP_SUMMARY"
   done
 done
-if [[ "$PATCH" != scheduler ]]; then python3 "$HERE/report.py" "$work" | tee -a "$GITHUB_STEP_SUMMARY"; fi
+python3 "$HERE/report.py" "$work" "${scenarios[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

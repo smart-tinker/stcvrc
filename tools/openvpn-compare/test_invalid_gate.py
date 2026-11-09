@@ -16,16 +16,15 @@ def write_fixture(root):
         for scenario in SCENARIOS:
             failed_behavior = variant == "upstream" and scenario in ("idle", "idle-lzo")
             evidence = {
-                "baseline": True,
-                "direct_blocked": True,
-                "live": True,
+                "baseline": True, "direct_blocked": True, "live": True,
                 "inactivity": 1 if failed_behavior else 0,
                 "verdict": "FAIL" if failed_behavior else "PASS",
+                "scenario": scenario, "core_sha256": "a" * 64,
             }
             if scenario.startswith("idle"):
                 evidence["resumed"] = not failed_behavior
             elif scenario == "deadline":
-                evidence["timeout_observed"] = True
+                evidence.update(stream_before_stop=True, timeout_observed=True)
             else:
                 evidence.update(samples=200, expected=200, rekeys=2, epochs=2,
                                 post_epoch_samples=20)
@@ -47,6 +46,24 @@ def write_fixture(root):
         (root / f"push-{variant}.jsonl").write_text(
             "\n".join(json.dumps(event) for event in push_events) + "\n")
 
+        if variant != "upstream":
+            outcomes = ["pass", "pass", "pass"]
+            if variant == "minus":
+                outcomes[0] = "fail"
+            elif variant == "only":
+                outcomes[1] = "fail"
+            packages = (
+                "github.com/metacubex/mihomo/transport/openvpn",
+                "github.com/metacubex/mihomo/adapter/outbound",
+                "github.com/metacubex/mihomo/adapter/outboundgroup",
+            )
+            suite_events = [{"Action": action, "Package": package}
+                            for package, action in zip(packages, outcomes)]
+            (root / f"all-{variant}.status").write_text(
+                "1" if "fail" in outcomes else "0")
+            (root / f"all-{variant}.jsonl").write_text(
+                "\n".join(json.dumps(event) for event in suite_events) + "\n")
+
 
 def run_report(root):
     return subprocess.run(
@@ -62,6 +79,7 @@ class InvalidEvidenceGateTests(unittest.TestCase):
             write_fixture(root)
             result = run_report(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("| idle | FAIL |", result.stdout)
 
     def test_invalid_in_any_variant_or_scenario_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,7 +99,8 @@ class InvalidEvidenceGateTests(unittest.TestCase):
     def test_missing_malformed_or_uncontrolled_evidence_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for defect in ("missing", "malformed", "baseline", "direct_blocked"):
+            for defect in ("missing", "malformed", "baseline", "direct_blocked",
+                           "target_test", "candidate_suite"):
                 with self.subTest(defect=defect):
                     write_fixture(root)
                     path = root / "minus-deadline.json"
@@ -89,6 +108,10 @@ class InvalidEvidenceGateTests(unittest.TestCase):
                         path.unlink()
                     elif defect == "malformed":
                         path.write_text("{")
+                    elif defect == "target_test":
+                        (root / "url-only.jsonl").write_text('{"Action":"pass"}\n')
+                    elif defect == "candidate_suite":
+                        (root / "all-stcvrc.status").write_text("1")
                     else:
                         evidence = json.loads(path.read_text())
                         evidence[defect] = False
