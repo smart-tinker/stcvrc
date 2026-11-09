@@ -58,6 +58,9 @@ class DistributionAuditContractTests(unittest.TestCase):
         job = "\n".join(job_lines)
         for required in (
             "runs-on: ubuntu-24.04",
+            "AUDIT_COMMIT:",
+            "git -C \"$audit_root\" fetch",
+            "root = Path(sys.argv[1])",
             "github.com/google/go-licenses/v2@v2.0.1",
             "report .",
             "save . --save_path=",
