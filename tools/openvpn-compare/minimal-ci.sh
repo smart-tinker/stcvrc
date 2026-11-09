@@ -57,7 +57,7 @@ for variant in upstream full minimal; do
       --scenario "$scenario" --output "$work/$variant-$scenario.json"
   done
 done
-python3 - "$work" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+PYTHONPATH="$HERE" python3 - "$work" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
 import hashlib
 import json
 import re
