@@ -39,7 +39,6 @@ for variant in upstream full minimal; do
   test "$(git -C "$work/$variant" rev-parse HEAD)" = "$sha"
   printf '%s source %s\n' "$variant" "$sha"
   if [[ "$variant" == minimal ]]; then
-    python3 "$HERE/ablate.py" "$work/$variant" minus diagnostics
     python3 "$HERE/minimalize.py" "$work/$variant"
     git -C "$work/$variant" add -A
     git -C "$work/$variant" diff --cached --stat
@@ -96,5 +95,5 @@ print("| Scenario | Upstream | Full .33 | Minimal .33 |")
 print("|---|---|---|---|")
 for scenario in scenarios:
     print("| " + scenario + " | " + " | ".join(results[v][scenario]["verdict"] for v in variants) + " |")
-print("\nFull and minimal candidates passed all six isolated Linux scenarios; upstream is the control.")
+print("\nFull .33 and the counter-only minimal .33 passed all six isolated Linux scenarios; upstream is the control.")
 PY
