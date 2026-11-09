@@ -40,7 +40,7 @@ func TestLzo1xDecompressRejectsOversizedPacket(t *testing.T) {
 	const decodedSize = maxIPv6PacketSize + 1
 
 	// LZO's extended literal length encodes 3 + 257*255 + 15 + 23 bytes.
-	stream := []byte{0x00, 0x00}
+	stream := []byte{0x00}
 	stream = append(stream, bytes.Repeat([]byte{0x00}, 257)...)
 	stream = append(stream, 23)
 	stream = append(stream, bytes.Repeat([]byte{'x'}, decodedSize)...)
