@@ -78,8 +78,10 @@ class InvalidEvidenceGateTests(unittest.TestCase):
         script = SCRIPT.read_text()
         self.assertNotIn('> "$work/url-$variant.jsonl" 2>&1', script)
         self.assertNotIn('> "$work/push-$variant.jsonl" 2>&1', script)
+        self.assertNotIn('> "$work/all-$variant.jsonl" 2>&1', script)
         self.assertIn('> "$work/url-$variant.jsonl" 2> "$work/url-$variant.stderr"', script)
         self.assertIn('> "$work/push-$variant.jsonl" 2> "$work/push-$variant.stderr"', script)
+        self.assertIn('> "$work/all-$variant.jsonl" 2> "$work/all-$variant.stderr"', script)
 
     def test_valid_behavioral_failures_are_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
