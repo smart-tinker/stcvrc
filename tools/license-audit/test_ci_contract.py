@@ -66,6 +66,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             "license_findings=0",
             "report_status=0",
             "save_status=0",
+            'mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"',
             'test ! -e "$licenses"',
             "go-licenses-report.stderr",
             "go-licenses-save.stderr",
@@ -80,6 +81,8 @@ class DistributionAuditContractTests(unittest.TestCase):
         ):
             self.assertIn(required, job)
         self.assertIn("go-licenses", job)
+        self.assertNotIn('mkdir -p "$gopath" "$modcache" "$gocache" "$gobin" "$licenses"', job)
+        self.assertLess(job.index('test ! -e "$licenses"'), job.index('"$gobin/go-licenses" save'))
         for forbidden in ("actions/upload-artifact", "actions/cache", "secrets.", "releases/download"):
             self.assertNotIn(forbidden, job.lower())
         self.assertIn("tools/license-audit/**", workflow)

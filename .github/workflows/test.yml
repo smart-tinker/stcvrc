@@ -247,7 +247,7 @@ jobs:
             local id="$1" go="$2" expected_sha="$3" version="$4" build_time="$5" source_dir="$6"
             local gopath="$temp/$id/gopath" modcache="$temp/$id/modcache" gocache="$temp/$id/gocache"
             local gobin="$temp/$id/bin" licenses="$temp/$id/licenses" binary="$temp/$id/verge-mihomo.exe"
-            mkdir -p "$gopath" "$modcache" "$gocache" "$gobin" "$licenses"
+            mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"
             export GOTOOLCHAIN=local GOENV=off GOWORK=off GOTELEMETRY=off
             export CGO_ENABLED=0 GOAMD64=v1 GOPATH="$gopath" GOMODCACHE="$modcache" GOCACHE="$gocache" GOBIN="$gobin"
             go_bin="$(dirname "$go")"
@@ -321,6 +321,7 @@ jobs:
             } | tee -a "$GITHUB_STEP_SUMMARY"
 
             local save_status=0
+            test ! -e "$licenses"
             GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
               "$gobin/go-licenses" save . --save_path="$licenses" > "$temp/$id/go-licenses-save.stdout" 2> "$temp/$id/go-licenses-save.stderr" || save_status=$?
             cat "$temp/$id/go-licenses-save.stdout"
