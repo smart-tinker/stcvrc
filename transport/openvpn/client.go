@@ -108,10 +108,6 @@ type Client struct {
 
 	lastSendNano    atomic.Int64
 	lastReceiveNano atomic.Int64
-	// Read-loop diagnostics, not a wire capture or an application-success count.
-	lastDataPacketNano atomic.Int64
-	inboundDataPackets atomic.Uint64
-	dataDecryptErrors  atomic.Uint64
 }
 
 func NewClient(config *ClientConfig, io PacketIO) (*Client, error) {
@@ -820,11 +816,8 @@ func (c *Client) ReadIPPacket(ctx context.Context) ([]byte, error) {
 			}
 			return nil, err
 		}
-		c.lastDataPacketNano.Store(int64(time.Since(start)))
-		c.inboundDataPackets.Add(1)
 		plain, err := c.decryptDataPacket(packet)
 		if err != nil {
-			c.dataDecryptErrors.Add(1)
 			continue
 		}
 		c.markReceive()
