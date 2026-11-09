@@ -1,15 +1,16 @@
 package openvpn
 
 import (
-	"bytes"
 	"errors"
 
-	"github.com/rasky/go-lzo"
+	"github.com/anchore/go-lzo"
 )
 
 const (
 	lzoCompressNone = 0xFA // not compressed
 	lzoCompressLZO  = 0x66 // LZO compressed
+
+	maxOpenVPNIPPacketSize = 65575
 )
 
 var ErrLZODecompress = errors.New("lzo decompression failed")
@@ -29,12 +30,29 @@ func lzo1xDecompressSafe(src []byte) ([]byte, error) {
 		return nil, nil
 	case lzoCompressLZO:
 		if len(src) > 1 {
-			r := bytes.NewReader(src[1:])
-			out, err := lzo.Decompress1X(r, len(src)-1, 0)
-			if err != nil {
-				return nil, ErrLZODecompress
+			payload := src[1:]
+			size := len(payload)
+			if size < 1500 {
+				size = 1500
 			}
-			return out, nil
+			if size > maxOpenVPNIPPacketSize {
+				size = maxOpenVPNIPPacketSize
+			}
+			for {
+				out := make([]byte, size)
+				n, err := lzo.Decompress(payload, out)
+				if err == nil {
+					return out[:n], nil
+				}
+				if !errors.Is(err, lzo.ErrOutputOverrun) || size == maxOpenVPNIPPacketSize {
+					return nil, ErrLZODecompress
+				}
+				if size > maxOpenVPNIPPacketSize/2 {
+					size = maxOpenVPNIPPacketSize
+				} else {
+					size *= 2
+				}
+			}
 		}
 		return nil, nil
 	default:
