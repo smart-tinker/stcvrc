@@ -42,7 +42,7 @@ for variant in full minimal upstream; do
     (
       cd "$work/$variant"
       export GOCACHE="$work/gocache-lzo-regression"
-      grep -Eq '^[[:space:]]*github\.com/anchore/go-lzo v0\.1\.1
+      grep -Eq '^[[:space:]]*github[.]com/anchore/go-lzo v0[.]1[.]1$' go.mod
       ! grep -Fq 'github.com/rasky/go-lzo ' go.mod
       ! grep -Fq 'github.com/rasky/go-lzo ' go.sum
       go list -m all > "$work/full-modules.txt"
