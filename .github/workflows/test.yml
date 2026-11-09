@@ -232,7 +232,8 @@ jobs:
             mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"
             export GOTOOLCHAIN=local GOENV=off GOWORK=off GOTELEMETRY=off
             export CGO_ENABLED=0 GOAMD64=v1 GOPATH="$gopath" GOMODCACHE="$modcache" GOCACHE="$gocache" GOBIN="$gobin"
-            export PATH="$(dirname "$go"):$gobin:$PATH"
+            go_bin="$(dirname "$go")"
+            export PATH="$go_bin:$gobin:$PATH"
             export GOFLAGS=-mod=readonly
             unset GOOS GOARCH GOMAXPROCS
 
