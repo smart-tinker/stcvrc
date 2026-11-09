@@ -35,4 +35,14 @@ class EvidenceTests(unittest.TestCase):
         for field in ('server_lost', 'server_restarted'):
             self.assertEqual(assess('recovery', dict(evidence, **{field:False})), 'INVALID')
 
+    def test_lzo_data_requires_a_compressed_frame_and_exact_payload(self):
+        evidence = dict(
+            baseline=True, direct_blocked=True, live=True, inactivity=0,
+            response_status=200, payload_matches=True, compressed_frames=1,
+        )
+        self.assertEqual(assess('lzo-data', evidence), 'PASS')
+        for field, value in [('payload_matches', False), ('compressed_frames', 0),
+                             ('response_status', 502), ('live', False), ('inactivity', 1)]:
+            self.assertEqual(assess('lzo-data', dict(evidence, **{field:value})), 'FAIL')
+
 if __name__ == '__main__': unittest.main()
