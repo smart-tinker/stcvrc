@@ -30,7 +30,7 @@ for variant in full minimal upstream; do
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
     repo=https://github.com/MetaCubeX/mihomo.git
   else
-    sha=bc52b7a74acd92b01371777ff58419d0a8ffa1f7
+    sha=400f18b4991f5f38c5418b0f3e4562c8dc3ea1d9
     repo=https://github.com/smart-tinker/stcvrc.git
   fi
   git init --quiet "$work/$variant"
@@ -42,6 +42,17 @@ for variant in full minimal upstream; do
     (
       cd "$work/$variant"
       export GOCACHE="$work/gocache-lzo-regression"
+      grep -Fqx 'github.com/anchore/go-lzo v0.1.1' go.mod
+      ! grep -Fq 'github.com/rasky/go-lzo ' go.mod
+      ! grep -Fq 'github.com/rasky/go-lzo ' go.sum
+      go list -m all > "$work/full-modules.txt"
+      ! grep -Fq 'github.com/rasky/go-lzo ' "$work/full-modules.txt"
+      go mod download github.com/anchore/go-lzo@v0.1.1
+      module_dir="$(go list -m -f '{{.Dir}}' github.com/anchore/go-lzo)"
+      test "$(head -n 1 "$module_dir/LICENSE")" = "MIT License"
+      test "$(sha256sum "$module_dir/LICENSE" | cut -d' ' -f1)" = \
+        56e580e89c7978e3ae946cc6c09db105895f112a
+      printf 'LZO decoder: github.com/anchore/go-lzo v0.1.1 (MIT)\n' >> "$GITHUB_STEP_SUMMARY"
       timeout 90s go test -count=1 -mod=readonly \
         -run '^TestLzo1xDecompressRejectsOversizedPacket$' ./transport/openvpn
     )
