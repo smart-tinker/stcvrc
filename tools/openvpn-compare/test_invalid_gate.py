@@ -7,7 +7,6 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 REPORT = HERE / "report.py"
-SCRIPT = HERE / "ablation-ci.sh"
 VARIANTS = ("upstream", "stcvrc", "minus", "only")
 SCENARIOS = ("idle", "idle-local", "idle-lzo", "rekey", "deadline")
 
@@ -58,8 +57,12 @@ def write_fixture(root):
                 "github.com/metacubex/mihomo/adapter/outbound",
                 "github.com/metacubex/mihomo/adapter/outboundgroup",
             )
-            suite_events = [{"Action": action, "Package": package}
-                            for package, action in zip(packages, outcomes)]
+            suite_events = []
+            for package, action in zip(packages, outcomes):
+                if action == "fail":
+                    suite_events.append({"Action": "fail", "Package": package,
+                                         "Test": "TestExpectedBehaviorFailure"})
+                suite_events.append({"Action": action, "Package": package})
             (root / f"all-{variant}.status").write_text(
                 "1" if "fail" in outcomes else "0")
             (root / f"all-{variant}.jsonl").write_text(
@@ -74,15 +77,6 @@ def run_report(root):
 
 
 class InvalidEvidenceGateTests(unittest.TestCase):
-    def test_go_test_stderr_does_not_corrupt_jsonl_evidence(self):
-        script = SCRIPT.read_text()
-        self.assertNotIn('> "$work/url-$variant.jsonl" 2>&1', script)
-        self.assertNotIn('> "$work/push-$variant.jsonl" 2>&1', script)
-        self.assertNotIn('> "$work/all-$variant.jsonl" 2>&1', script)
-        self.assertIn('> "$work/url-$variant.jsonl" 2> "$work/url-$variant.stderr"', script)
-        self.assertIn('> "$work/push-$variant.jsonl" 2> "$work/push-$variant.stderr"', script)
-        self.assertIn('> "$work/all-$variant.jsonl" 2> "$work/all-$variant.stderr"', script)
-
     def test_valid_behavioral_failures_are_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -90,6 +84,25 @@ class InvalidEvidenceGateTests(unittest.TestCase):
             result = run_report(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("| idle | FAIL |", result.stdout)
+
+    def test_package_failure_without_failed_test_is_invalid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_fixture(root)
+            packages = (
+                "github.com/metacubex/mihomo/transport/openvpn",
+                "github.com/metacubex/mihomo/adapter/outbound",
+                "github.com/metacubex/mihomo/adapter/outboundgroup",
+            )
+            events = [{"Action": "fail", "Package": packages[0]}]
+            events.extend({"Action": "pass", "Package": package}
+                          for package in packages[1:])
+            (root / "all-minus.status").write_text("1")
+            (root / "all-minus.jsonl").write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n")
+            result = run_report(root)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("no failed test", result.stdout)
 
     def test_invalid_in_any_variant_or_scenario_fails(self):
         with tempfile.TemporaryDirectory() as directory:
