@@ -1,0 +1,118 @@
+{
+  "url": [
+    {
+      "file": "adapter/outboundgroup/urltest.go",
+      "old": "\n\t\tfast := proxies[0]\n\t\tminDelay := fast.LastDelayForTestUrl(u.testUrl)\n\t\tfastNotExist := true\n\n\t\tfor _, proxy := range proxies[1:] {\n\t\t\tif u.fastNode != nil && proxy.Name() == u.fastNode.Name() {",
+      "new": "\n\t\tfast := proxies[0]\n\t\tminDelay := fast.LastDelayForTestUrl(u.testUrl)\n\t\tfastNotExist := u.fastNode == nil || proxies[0].Name() != u.fastNode.Name()\n\n\t\tfor _, proxy := range proxies[1:] {\n\t\t\tif u.fastNode != nil && proxy.Name() == u.fastNode.Name() {"
+    }
+  ],
+  "pushed": [
+    {
+      "file": "adapter/outbound/openvpn.go",
+      "old": "\t\t\tIPv6: openVPNPrefixesHas6(push.Prefixes),\n\t\t})\n\t}\n\to.startPacketLoops()\n\treturn o.tunDevice, o.resolver, nil\n}\n",
+      "new": "\t\t\tIPv6: openVPNPrefixesHas6(push.Prefixes),\n\t\t})\n\t}\n\to.startPacketLoops(push)\n\treturn o.tunDevice, o.resolver, nil\n}\n"
+    },
+    {
+      "file": "adapter/outbound/openvpn.go",
+      "old": "\t}\n}\n\nfunc (o *OpenVPN) startPacketLoops() {\n\trunCtx, runCancel := context.WithCancel(o.runCtx)\n\tclient := o.client\n\ttunDevice := o.tunDevice\n\tpingInterval, pingRestart := o.config.PingInterval, o.config.PingRestart\n\tvar stopOnce sync.Once\n\tstop := func() {\n\t\tstopOnce.Do(func() {",
+      "new": "\t}\n}\n\nfunc (o *OpenVPN) startPacketLoops(push *ovpn.PushReply) {\n\trunCtx, runCancel := context.WithCancel(o.runCtx)\n\tclient := o.client\n\ttunDevice := o.tunDevice\n\tpingInterval, pingRestart := push.Keepalive(o.config.PingInterval, o.config.PingRestart)\n\tvar stopOnce sync.Once\n\tstop := func() {\n\t\tstopOnce.Do(func() {"
+    },
+    {
+      "file": "transport/openvpn/push.go",
+      "old": "\t\t\treply.Redirect = true\n\t\tcase \"block-ipv6\":\n\t\t\treply.BlockIPv6 = true\n\t\tcase \"data-ciphers\", \"ncp-ciphers\":\n\t\t\tif len(fields) >= 2 {\n\t\t\t\tfor _, c := range strings.Split(fields[1], \":\") {",
+      "new": "\t\t\treply.Redirect = true\n\t\tcase \"block-ipv6\":\n\t\t\treply.BlockIPv6 = true\n\t\tcase \"ping\", \"ping-restart\":\n\t\t\tif len(fields) != 2 {\n\t\t\t\treturn nil, fmt.Errorf(\"invalid pushed %s\", fields[0])\n\t\t\t}\n\t\t\tseconds, err := strconv.ParseInt(fields[1], 10, 64)\n\t\t\tif err != nil || seconds < 0 || seconds > int64((time.Duration(1<<63-1))/time.Second) {\n\t\t\t\treturn nil, fmt.Errorf(\"invalid pushed %s duration\", fields[0])\n\t\t\t}\n\t\t\tduration := time.Duration(seconds) * time.Second\n\t\t\tif fields[0] == \"ping\" {\n\t\t\t\treply.PingInterval, reply.hasPingInterval = duration, true\n\t\t\t} else {\n\t\t\t\treply.PingRestart, reply.hasPingRestart = duration, true\n\t\t\t}\n\t\tcase \"data-ciphers\", \"ncp-ciphers\":\n\t\t\tif len(fields) >= 2 {\n\t\t\t\tfor _, c := range strings.Split(fields[1], \":\") {"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\tif next.Cipher == \"\" {\n\t\tnext.Cipher = prev.Cipher\n\t}\n\tif !next.Redirect {\n\t\tnext.Redirect = prev.Redirect\n\t}",
+      "new": "\tif next.Cipher == \"\" {\n\t\tnext.Cipher = prev.Cipher\n\t}\n\tif !next.hasPingInterval {\n\t\tnext.PingInterval, next.hasPingInterval = prev.PingInterval, prev.hasPingInterval\n\t}\n\tif !next.hasPingRestart {\n\t\tnext.PingRestart, next.hasPingRestart = prev.PingRestart, prev.hasPingRestart\n\t}\n\tif !next.Redirect {\n\t\tnext.Redirect = prev.Redirect\n\t}"
+    }
+  ],
+  "scheduler": [
+    {
+      "file": "adapter/outbound/openvpn.go",
+      "old": "\t\t}\n\t}()\n\n\tif pingInterval > 0 {\n\t\tgo func() {\n\t\t\tdefer stop()\n\t\t\tticker := time.NewTicker(pingInterval)\n\t\t\tdefer ticker.Stop()\n\t\t\tfor runCtx.Err() == nil {\n\t\t\t\tselect {\n\t\t\t\tcase <-ticker.C:\n\t\t\t\t\tif sinceSend := client.SinceSend(); sinceSend >= pingInterval {\n\t\t\t\t\t\tif err := client.WritePing(runCtx); err != nil {\n\t\t\t\t\t\t\tif !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {\n\t\t\t\t\t\t\t\tlog.Warnln(\"[OpenVPN](%s) error writing ping packet: %v\", o.name, err)\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\treturn\n\t\t\t\t\t\t}\n\t\t\t\t\t\tlog.Debugln(\"[OpenVPN](%s) sent ping packet after %s idle\", o.name, sinceSend.Round(time.Second))\n\t\t\t\t\t}\n\t\t\t\tcase <-runCtx.Done():\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}\n\t\t}()\n\t}\n\n\tif pingRestart > 0 {\n\t\tgo func() {\n\t\t\tdefer stop()\n\t\t\tticker := time.NewTicker(pingRestart)\n\t\t\tdefer ticker.Stop()\n\t\t\tfor runCtx.Err() == nil {\n\t\t\t\tselect {\n\t\t\t\tcase <-ticker.C:\n\t\t\t\t\tif sinceReceive := client.SinceReceive(); sinceReceive >= pingRestart {\n\t\t\t\t\t\tlog.Warnln(\n\t\t\t\t\t\t\t\"[OpenVPN](%s) ping-restart timeout: no packet received for %s\",\n\t\t\t\t\t\t\to.name,\n\t\t\t\t\t\t\tsinceReceive.Round(time.Second),\n\t\t\t\t\t\t)\n\t\t\t\t\t\treturn\n\t\t\t\t\t}\n\t\t\t\tcase <-runCtx.Done():\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}\n\t\t}()\n\t}",
+      "new": "\t\t}\n\t}()\n\n\tif pingInterval > 0 {\n\t\tgo func() {\n\t\t\tdefer stop()\n\t\t\tif err := client.SendKeepalives(runCtx, pingInterval); !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {\n\t\t\t\tlog.Warnln(\"[OpenVPN](%s) error writing ping packet: %v\", o.name, err)\n\t\t\t}\n\t\t}()\n\t}\n\n\tif pingRestart > 0 {\n\t\tgo func() {\n\t\t\tdefer stop()\n\t\t\tif err := client.WaitPingRestart(runCtx, pingRestart); !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {\n\t\t\t\tlog.Warnln(\"[OpenVPN](%s) %v\", o.name, err)\n\t\t\t}\n\t\t}()\n\t}"
+    }
+  ],
+  "control": [
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\t}\n\tclient.markSend()\n\tclient.markReceive()\n\tgo client.flushControlACKs()\n\treturn client, nil\n}",
+      "new": "\t}\n\tclient.markSend()\n\tclient.markReceive()\n\tcontrol.onSend = client.markSend\n\tcontrol.onReceive = client.markReceive\n\tgo client.flushControlACKs()\n\treturn client, nil\n}"
+    }
+  ],
+  "lzo-send": [
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "}\n\nfunc (c *Client) WritePing(ctx context.Context) error {\n\treturn c.writeDataPacket(ctx, openVPNPingPacket, false)\n}\n\nfunc (c *Client) writeDataPacket(ctx context.Context, packet []byte, compress bool) error {",
+      "new": "}\n\nfunc (c *Client) WritePing(ctx context.Context) error {\n\treturn c.writeDataPacket(ctx, openVPNPingPacket, true)\n}\n\nfunc (c *Client) writeDataPacket(ctx context.Context, packet []byte, compress bool) error {"
+    }
+  ],
+  "lzo-receive": [
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\t\tif IsPingPacket(plain) {\n\t\t\tcontinue\n\t\t}\n\t\tif c.config.CompLZO == CompLzoYes && len(plain) > 0 {\n\t\t\treturn lzo1xDecompressSafe(plain)\n\t\t}",
+      "new": "\t\t// Compression framing applies to keepalives as well as IP packets.\n\t\tif c.config.CompLZO == CompLzoYes && len(plain) > 0 {\n\t\t\tplain, err = lzo1xDecompressSafe(plain)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n\t\tif IsPingPacket(plain) {\n\t\t\tcontinue\n\t\t}"
+    }
+  ],
+  "retry": [
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\treturn c.readPushReplyFrom(ctx, c.tlsConn.Load())\n}\n\nfunc (c *Client) readPushReplyFrom(ctx context.Context, conn pushReadConn) (*PushReply, error) {\n\tbuf := append([]byte(nil), c.leftoverTLS...)\n\tc.leftoverTLS = nil\n\tif len(buf) > maxTLSControlBuffer {",
+      "new": "\treturn c.readPushReplyFrom(ctx, c.tlsConn.Load())\n}\n\nfunc (c *Client) readPushReplyFrom(ctx context.Context, conn pushExchangeConn) (*PushReply, error) {\n\tbuf := append([]byte(nil), c.leftoverTLS...)\n\tc.leftoverTLS = nil\n\tif len(buf) > maxTLSControlBuffer {"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\ttmp := make([]byte, 4096)\n\tvar readErr error\n\tvar continuationDeadline time.Time\n\tfor {\n\t\tif err := controlMessageError(buf); err != nil {\n\t\t\treturn nil, err",
+      "new": "\ttmp := make([]byte, 4096)\n\tvar readErr error\n\tvar continuationDeadline time.Time\n\tvar protocolDeadline time.Time\n\tnextRequest := time.Now().Add(ControlRetransmitDelay)\n\tdefer func() { _ = conn.SetReadDeadline(protocolDeadline) }()\n\tfor {\n\t\tif err := controlMessageError(buf); err != nil {\n\t\t\treturn nil, err"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\t\t\t\tcontinuationDeadline = c.rekeyWaitDeadline(time.Now())\n\t\t\t}\n\t\t}\n\t\tif readErr != nil {\n\t\t\treturn nil, fmt.Errorf(\"read push reply: %w\", readErr)\n\t\t}\n\t\tdeadline := c.authPendingDeadline()\n\t\tif !continuationDeadline.IsZero() && (deadline.IsZero() || continuationDeadline.Before(deadline)) {\n\t\t\tdeadline = continuationDeadline\n\t\t}\n\t\tif !deadline.IsZero() {\n\t\t\t_ = conn.SetDeadline(deadline)\n\t\t}\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tn, err := conn.Read(tmp)\n\t\tif n > 0 {\n\t\t\tbuf, readErr = appendTLSControl(buf, tmp[:n])",
+      "new": "\t\t\t\tcontinuationDeadline = c.rekeyWaitDeadline(time.Now())\n\t\t\t}\n\t\t}\n\t\tdeadline := c.authPendingDeadline()\n\t\tif !continuationDeadline.IsZero() && (deadline.IsZero() || continuationDeadline.Before(deadline)) {\n\t\t\tdeadline = continuationDeadline\n\t\t}\n\t\tif !deadline.IsZero() {\n\t\t\t_ = conn.SetDeadline(deadline)\n\t\t}\n\t\tprotocolDeadline = deadline\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tif readErr != nil {\n\t\t\tvar timeout net.Error\n\t\t\tnow := time.Now()\n\t\t\tif !continuationDeadline.IsZero() || !errors.As(readErr, &timeout) || !timeout.Timeout() ||\n\t\t\t\tnow.Before(nextRequest) || (!deadline.IsZero() && !now.Before(deadline)) {\n\t\t\t\treturn nil, fmt.Errorf(\"read push reply: %w\", readErr)\n\t\t\t}\n\t\t\t// An ACK only confirms delivery, not completed server authentication.\n\t\t\t// Repeat the application request until the first PUSH_REPLY segment.\n\t\t\tif _, err := conn.Write([]byte(PushRequest + \"\\x00\")); err != nil {\n\t\t\t\treturn nil, fmt.Errorf(\"retry push request: %w\", err)\n\t\t\t}\n\t\t\tnextRequest = time.Now().Add(ControlRetransmitDelay)\n\t\t}\n\t\tif continuationDeadline.IsZero() && (deadline.IsZero() || nextRequest.Before(deadline)) {\n\t\t\t_ = conn.SetReadDeadline(nextRequest)\n\t\t}\n\t\tn, err := conn.Read(tmp)\n\t\tif n > 0 {\n\t\t\tbuf, readErr = appendTLSControl(buf, tmp[:n])"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\tSetReadDeadline(t time.Time) error\n}\n\n// readTokenPushReply tries to consume a token-only PUSH_REPLY (an\n// auth-token renewal pushed by send_push_reply_auth_token) from the TLS\n// stream, without stalling a rekey. leftover holds bytes already read past",
+      "new": "\tSetReadDeadline(t time.Time) error\n}\n\ntype pushExchangeConn interface {\n\tpushReadConn\n\tWrite(p []byte) (int, error)\n}\n\n// readTokenPushReply tries to consume a token-only PUSH_REPLY (an\n// auth-token renewal pushed by send_push_reply_auth_token) from the TLS\n// stream, without stalling a rekey. leftover holds bytes already read past"
+    }
+  ],
+  "diagnostics": [
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\t\treturn nil, fmt.Errorf(\"send hard reset: %w\", err)\n\t}\n\tif err := c.waitServerReset(ctx); err != nil {\n\t\treturn nil, err\n\t}\n\thandshakeCtx, cancelHandshake := context.WithCancelCause(ctx)\n\tdefer cancelHandshake(nil)",
+      "new": "\t\treturn nil, fmt.Errorf(\"send hard reset: %w\", err)\n\t}\n\tif err := c.waitServerReset(ctx); err != nil {\n\t\treturn nil, fmt.Errorf(\"wait server reset: %w\", err)\n\t}\n\thandshakeCtx, cancelHandshake := context.WithCancelCause(ctx)\n\tdefer cancelHandshake(nil)"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\tvar err error\n\tinterrupt, err = c.startTLSEpoch(handshakeCtx)\n\tif err != nil {\n\t\treturn nil, operationContextError(handshakeCtx, err)\n\t}\n\n\tpush, err := c.doKeyExchange(handshakeCtx)\n\tif err != nil {\n\t\treturn nil, operationContextError(handshakeCtx, err)\n\t}\n\tif retransmitStop != nil {\n\t\tretransmitStop()",
+      "new": "\tvar err error\n\tinterrupt, err = c.startTLSEpoch(handshakeCtx)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"control TLS: %w\", operationContextError(handshakeCtx, err))\n\t}\n\n\tpush, err := c.doKeyExchange(handshakeCtx)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"key exchange: %w\", operationContextError(handshakeCtx, err))\n\t}\n\tif retransmitStop != nil {\n\t\tretransmitStop()"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\nfunc operationContextError(ctx context.Context, fallback error) error {\n\tif cause := context.Cause(ctx); cause != nil {\n\t\treturn cause\n\t}\n\treturn fallback\n}",
+      "new": "\nfunc operationContextError(ctx context.Context, fallback error) error {\n\tif cause := context.Cause(ctx); cause != nil {\n\t\tif errors.Is(fallback, cause) {\n\t\t\treturn fallback\n\t\t}\n\t\treturn fmt.Errorf(\"%v: %w\", fallback, cause)\n\t}\n\treturn fallback\n}"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\t}\n\ttmp := make([]byte, 4096)\n\tvar readErr error\n\tfor {\n\t\t// Only treat the record as complete when all four strings are\n\t\t// present. A standard record fragmented across TLS reads must not",
+      "new": "\t}\n\ttmp := make([]byte, 4096)\n\tvar readErr error\n\tframingError := func(err error) error {\n\t\t_, end, optionsErr := readOpenVPNString(buf, 5+keySourceRandomSize*2)\n\t\ttrailing := 0\n\t\tif optionsErr == nil {\n\t\t\ttrailing = len(buf) - end\n\t\t}\n\t\treturn fmt.Errorf(\"read key method 2 server record (bytes=%d options-complete=%t trailing-bytes=%d): %w\", len(buf), optionsErr == nil, trailing, err)\n\t}\n\tfor {\n\t\t// Only treat the record as complete when all four strings are\n\t\t// present. A standard record fragmented across TLS reads must not"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "\t\t\treturn nil, parseErr\n\t\t}\n\t\tif readErr != nil {\n\t\t\treturn nil, fmt.Errorf(\"read key method 2 server record: %w\", readErr)\n\t\t}\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tn, err := conn.Read(tmp)\n\t\tif n > 0 {",
+      "new": "\t\t\treturn nil, parseErr\n\t\t}\n\t\tif readErr != nil {\n\t\t\treturn nil, framingError(readErr)\n\t\t}\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, framingError(err)\n\t\t}\n\t\tn, err := conn.Read(tmp)\n\t\tif n > 0 {"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "",
+      "new": "\t\tc.lastDataPacketNano.Store(int64(time.Since(start)))\n\t\tc.inboundDataPackets.Add(1)\n"
+    },
+    {
+      "file": "transport/openvpn/client.go",
+      "old": "",
+      "new": "\t\t\tc.dataDecryptErrors.Add(1)\n"
+    }
+  ]
+}

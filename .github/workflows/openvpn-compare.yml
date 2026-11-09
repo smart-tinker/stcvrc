@@ -1,4 +1,4 @@
-name: OpenVPN source comparison
+name: Individual patch ablation
 "on":
   pull_request:
     branches: [main]
@@ -20,7 +20,14 @@ jobs:
       (github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        patch: [url, pushed, scheduler, control, lzo-send, lzo-receive, retry, diagnostics]
+    env:
+      PATCH: ${{ matrix.patch }}
     steps:
       - name: Read exact reviewed harness source
         env:
@@ -44,4 +51,4 @@ jobs:
           test -c /dev/net/tun
       - name: Fresh builds and isolated differential scenarios
         shell: bash
-        run: bash fixture/tools/openvpn-compare/ci.sh
+        run: bash fixture/tools/openvpn-compare/ablation-ci.sh
