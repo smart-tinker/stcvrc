@@ -92,11 +92,6 @@ class DistributionAuditContractTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("docs/license-audit.md", readme)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_license_audit_docs_trigger_source_checks(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json"):
@@ -119,3 +114,7 @@ if __name__ == "__main__":
             "license finding state must be set after the piped summary group",
         )
         self.assertIn("Unknown", report_section, "unclassified license rows must require manual review")
+
+
+if __name__ == "__main__":
+    unittest.main()
