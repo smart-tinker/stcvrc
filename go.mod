@@ -3,6 +3,7 @@ module github.com/metacubex/mihomo
 go 1.20
 
 require (
+	github.com/anchore/go-lzo v0.1.1
 	github.com/bahlo/generic-list-go v0.2.0
 	github.com/coreos/go-iptables v0.8.0
 	github.com/dlclark/regexp2 v1.12.0
@@ -52,7 +53,6 @@ require (
 	github.com/metacubex/zerotier-go v0.0.0-20260813124750-13fa6f45da5f
 	github.com/mroth/weightedrand/v2 v2.1.0
 	github.com/openacid/low v0.1.21
-	github.com/rasky/go-lzo v0.0.0-20200203143853-96a758eda86e
 	github.com/samber/lo v1.53.0
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.12.1
