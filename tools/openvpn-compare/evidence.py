@@ -222,6 +222,6 @@ def validate_experiment(work, scenarios):
         for group, required in TESTS.items():
             tests.setdefault(group, {})[variant] = _valid_test_run(
                 work, group, variant, required, errors)
-        if variant != "upstream":
+        if variant in ("stcvrc", "minus"):
             suites[variant] = _valid_full_suite(work, variant, errors)
     return errors, runtime, tests, suites

@@ -69,7 +69,7 @@ for variant in upstream stcvrc minus only; do
   cat "$work/push-$variant.stderr" >&2
   printf '%s\n' "$status" > "$work/push-$variant.status"
   cat "$work/push-$variant.jsonl"
-  if [[ "$variant" != upstream ]]; then
+  if [[ "$variant" == stcvrc || "$variant" == minus ]]; then
     set +e
     (cd "$work/$variant"; timeout 180s go test -json -count=1 -p=2 -mod=readonly -tags=with_gvisor ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup) > "$work/all-$variant.jsonl" 2> "$work/all-$variant.stderr"
     suite_status=$?

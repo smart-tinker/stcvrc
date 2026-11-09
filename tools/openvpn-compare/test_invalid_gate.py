@@ -92,8 +92,9 @@ class InvalidEvidenceGateTests(unittest.TestCase):
             self.assertFalse((root / "all-only.jsonl").exists())
             result = run_report(root)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("only-patch full suite is not run", result.stdout)
 
-    def test_package_failure_without_failed_test_is_invalid(self):
+    def test_package_build_failure_without_failed_test_is_invalid(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_fixture(root)
@@ -102,7 +103,11 @@ class InvalidEvidenceGateTests(unittest.TestCase):
                 "github.com/metacubex/mihomo/adapter/outbound",
                 "github.com/metacubex/mihomo/adapter/outboundgroup",
             )
-            events = [{"Action": "fail", "Package": packages[0]}]
+            build_package = packages[0] + " [github.com/metacubex/mihomo/transport/openvpn.test]"
+            events = [
+                {"ImportPath": build_package, "Action": "build-fail"},
+                {"Action": "fail", "Package": packages[0], "FailedBuild": build_package},
+            ]
             events.extend({"Action": "pass", "Package": package}
                           for package in packages[1:])
             (root / "all-minus.status").write_text("1")
@@ -110,7 +115,7 @@ class InvalidEvidenceGateTests(unittest.TestCase):
                 "\n".join(json.dumps(event) for event in events) + "\n")
             result = run_report(root)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("no failed test", result.stdout)
+            self.assertIn("failed package has no failed test result", result.stdout)
 
     def test_invalid_in_any_variant_or_scenario_fails(self):
         with tempfile.TemporaryDirectory() as directory:
