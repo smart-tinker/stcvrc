@@ -54,28 +54,31 @@ for variant in upstream stcvrc minus only; do
   cp "$work/stcvrc/adapter/outboundgroup/urltest_test.go" "$work/$variant/adapter/outboundgroup/urltest_test.go" 2>/dev/null || test "$variant" = stcvrc
   cp "$work/stcvrc/transport/openvpn/push_retry_test.go" "$work/$variant/transport/openvpn/push_retry_test.go" 2>/dev/null || test "$variant" = stcvrc
   set +e
-  (cd "$work/$variant"; timeout 180s go test -json -p=2 -mod=readonly -run '^TestURLTest(Tolerance|SelectionLifecycle)$' ./adapter/outboundgroup) > "$work/url-$variant.jsonl" 2>&1
+  (cd "$work/$variant"; timeout 180s go test -json -p=2 -mod=readonly -run '^TestURLTest(Tolerance|SelectionLifecycle)$' ./adapter/outboundgroup) > "$work/url-$variant.jsonl" 2> "$work/url-$variant.stderr"
   status=$?
   set -e
-  if (( status > 1 )); then cat "$work/url-$variant.jsonl"; exit "$status"; fi
+  if (( status > 1 )); then cat "$work/url-$variant.jsonl" "$work/url-$variant.stderr" >&2; exit "$status"; fi
+  cat "$work/url-$variant.stderr" >&2
   printf '%s\n' "$status" > "$work/url-$variant.status"
   cat "$work/url-$variant.jsonl"
   set +e
-  (cd "$work/$variant"; timeout 60s go test -json -p=2 -mod=readonly -run '^TestInitialHandshakeRetriesDeferredPush$' ./transport/openvpn) > "$work/push-$variant.jsonl" 2>&1
+  (cd "$work/$variant"; timeout 60s go test -json -p=2 -mod=readonly -run '^TestInitialHandshakeRetriesDeferredPush$' ./transport/openvpn) > "$work/push-$variant.jsonl" 2> "$work/push-$variant.stderr"
   status=$?
   set -e
-  if (( status > 1 )); then cat "$work/push-$variant.jsonl"; exit "$status"; fi
+  if (( status > 1 )); then cat "$work/push-$variant.jsonl" "$work/push-$variant.stderr" >&2; exit "$status"; fi
+  cat "$work/push-$variant.stderr" >&2
   printf '%s\n' "$status" > "$work/push-$variant.status"
   cat "$work/push-$variant.jsonl"
   if [[ "$variant" != upstream ]]; then
     set +e
-    (cd "$work/$variant"; timeout 180s go test -json -count=1 -p=2 -mod=readonly -tags=with_gvisor ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup) > "$work/all-$variant.jsonl" 2>&1
+    (cd "$work/$variant"; timeout 180s go test -json -count=1 -p=2 -mod=readonly -tags=with_gvisor ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup) > "$work/all-$variant.jsonl" 2> "$work/all-$variant.stderr"
     suite_status=$?
     set -e
+    if (( suite_status > 1 )); then cat "$work/all-$variant.jsonl" "$work/all-$variant.stderr" >&2; exit "$suite_status"; fi
+    cat "$work/all-$variant.stderr" >&2
     printf '%s\n' "$suite_status" > "$work/all-$variant.status"
     cat "$work/all-$variant.jsonl"
     printf '\nFull suite %s: %s\n' "$variant" "$suite_status" >> "$GITHUB_STEP_SUMMARY"
-    if (( suite_status > 1 )); then exit "$suite_status"; fi
   fi
   for scenario in "${scenarios[@]}"; do
     set +e
