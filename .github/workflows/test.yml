@@ -168,7 +168,10 @@ jobs:
           mit_lzo_upstream="$(git -C "$mit_lzo_candidate" rev-parse 'FETCH_HEAD^{commit}')"
           test "$mit_lzo_upstream" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           grep -Fqx 'github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=' "$mit_lzo_candidate/go.sum"
-          ! grep -Fq 'github.com/rasky/go-lzo' "$mit_lzo_candidate/go.mod"
+          if grep -Fq 'github.com/rasky/go-lzo' "$mit_lzo_candidate/go.mod"; then
+            printf 'GPL-only go-lzo module remains in candidate go.mod.\n' >&2
+            exit 1
+          fi
 
           git -C "$stable" fetch --quiet --depth=1 origin 9e23508270fed96e346fd4f68447e90401669131
           git -C "$stable" fetch --quiet --depth=1 https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.29
