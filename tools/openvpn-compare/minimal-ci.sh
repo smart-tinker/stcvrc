@@ -25,7 +25,7 @@ python3 -m unittest discover -s "$HERE" -p 'test_*.py' -v
 go version
 openvpn --version
 scenarios=(idle idle-local idle-lzo lzo-data rekey deadline recovery)
-for variant in upstream full minimal; do
+for variant in full minimal upstream; do
   if [[ "$variant" == upstream ]]; then
     sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
     repo=https://github.com/MetaCubeX/mihomo.git
@@ -38,6 +38,14 @@ for variant in upstream full minimal; do
   git -C "$work/$variant" checkout --quiet --detach FETCH_HEAD
   test "$(git -C "$work/$variant" rev-parse HEAD)" = "$sha"
   printf '%s source %s\n' "$variant" "$sha"
+  if [[ "$variant" == "full" ]]; then
+    (
+      cd "$work/$variant"
+      export GOCACHE="$work/gocache-lzo-regression"
+      timeout 90s go test -count=1 -mod=readonly \
+        -run '^TestLzo1xDecompressRejectsOversizedPacket$' ./transport/openvpn
+    )
+  fi
   if [[ "$variant" == minimal ]]; then
     python3 "$HERE/minimalize.py" "$work/$variant"
     git -C "$work/$variant" add -A
