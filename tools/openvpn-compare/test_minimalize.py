@@ -103,5 +103,14 @@ class MinimalSourceTests(unittest.TestCase):
             self.assertEqual((root / "transport/openvpn/client.go").read_text(), before)
 
 
+    def test_ci_pins_and_compares_the_exact_minimal_candidate(self):
+        script = Path(__file__).with_name("minimal-ci.sh").read_text()
+        self.assertIn("sha=c38b5ba746ffcf6113222f72275b2cd4542a9bc8", script)
+        self.assertIn("sha=76b7ec3ff9854d32cb3964403c065928ecdc9dd6", script)
+        self.assertIn('python3 "$HERE/minimalize.py" "$work/full"', script)
+        self.assertIn('diff -ru --exclude=.git "$work/full" "$work/minimal"', script)
+        self.assertNotIn('python3 "$HERE/minimalize.py" "$work/minimal"', script)
+
+
 if __name__ == "__main__":
     unittest.main()
