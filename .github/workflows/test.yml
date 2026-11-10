@@ -8,12 +8,14 @@ name: STCVRC source checks
       - go.mod
       - go.sum
       - component/ca/ca-certificates.crt
+      - .github/workflows/**
       - README.md
       - docs/license-audit.md
       - docs/license-provenance.json
-      - .github/workflows/**
-      - tools/network-lab/**
       - tools/license-audit/**
+      - docs/openvpn-profile-contract.md
+      - docs/openvpn-profile-examples/**
+      - tools/network-lab/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
@@ -22,12 +24,14 @@ name: STCVRC source checks
       - go.mod
       - go.sum
       - component/ca/ca-certificates.crt
+      - .github/workflows/**
       - README.md
       - docs/license-audit.md
       - docs/license-provenance.json
-      - .github/workflows/**
-      - tools/network-lab/**
       - tools/license-audit/**
+      - docs/openvpn-profile-contract.md
+      - docs/openvpn-profile-examples/**
+      - tools/network-lab/**
   workflow_dispatch: {}
 
 permissions:
@@ -108,6 +112,100 @@ jobs:
           timeout 90s go mod verify
           test -z "$(git status --porcelain)"
           printf '\nCurrent-source tests and Linux/Windows compilation passed. These are CI builds, not release artifacts.\n' >> "$GITHUB_STEP_SUMMARY"
+
+  profile-contract:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOAMD64: v1
+    steps:
+      - name: Install checksum-pinned Go
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/profile-ci-tools"
+          cd "$RUNNER_TEMP/profile-ci-tools"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+          tar -xzf go.tar.gz
+          printf '%s\n' "$RUNNER_TEMP/profile-ci-tools/go/bin" >> "$GITHUB_PATH"
+
+      - name: Build exact source revisions and parse synthetic profiles
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          V29_SOURCE_SHA: 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
+          V33_SOURCE_SHA: 76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          docs_source="$RUNNER_TEMP/profile-docs"
+          git init --quiet "$docs_source"
+          git -C "$docs_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$docs_source" fetch --quiet --depth=1 origin "$SOURCE_SHA"
+          git -C "$docs_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$docs_source" rev-parse HEAD)" = "$SOURCE_SHA"
+
+          build_and_check() {
+            local name="$1" pinned_sha="$2"
+            local source_dir="$RUNNER_TEMP/profile-$name/source"
+            local binary="$RUNNER_TEMP/profile-$name/mihomo"
+            local profile_dir="$docs_source/docs/openvpn-profile-examples"
+            mkdir -p "$(dirname "$source_dir")"
+            git init --quiet "$source_dir"
+            git -C "$source_dir" remote add origin https://github.com/smart-tinker/stcvrc.git
+            git -C "$source_dir" fetch --quiet --depth=1 origin "$pinned_sha"
+            git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "$pinned_sha"
+
+            export GOPATH="$RUNNER_TEMP/go-$name"
+            export GOCACHE="$RUNNER_TEMP/go-build-$name"
+            export GOMODCACHE="$RUNNER_TEMP/go-mod-$name"
+            mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+            cd "$source_dir"
+            go version
+            timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -o "$binary" .
+            timeout 90s go mod verify
+
+            local log="$RUNNER_TEMP/profile-$name/parse.log"
+            mkdir -p "$(dirname "$log")"
+            "$binary" -d "$RUNNER_TEMP/profile-$name/home-valid" -f "$profile_dir/valid.yaml" -t >"$log" 2>&1 || { cat "$log"; return 1; }
+            grep -Fq 'test is successful' "$log" || { cat "$log"; return 1; }
+
+            if "$binary" -d "$RUNNER_TEMP/profile-$name/home-dev" -f "$profile_dir/unsupported-dev.yaml" -t >"$log" 2>&1; then
+              echo "unsupported dev=tap was accepted by $name" >&2
+              cat "$log"
+              return 1
+            fi
+            grep -Fq 'unsupported openvpn dev' "$log" || { cat "$log"; return 1; }
+
+            if "$binary" -d "$RUNNER_TEMP/profile-$name/home-tls" -f "$profile_dir/conflicting-tls-wrappers.yaml" -t >"$log" 2>&1; then
+              echo "conflicting TLS wrappers were accepted by $name" >&2
+              cat "$log"
+              return 1
+            fi
+            grep -Fq 'mutually exclusive' "$log" || { cat "$log"; return 1; }
+
+            printf '%s source: %s\n' "$name" "$pinned_sha" >> "$GITHUB_STEP_SUMMARY"
+            printf '%s binary SHA256: %s\n' "$name" "$(sha256sum "$binary" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          build_and_check "1.19.29" "$V29_SOURCE_SHA"
+          build_and_check "1.19.33" "$V33_SOURCE_SHA"
+          printf '\nParser command: freshly built mihomo -d <temporary-home> -f docs/openvpn-profile-examples/<fixture>.yaml -t\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'The three fixtures were checked against both source pins; no endpoint connection was attempted.\n' >> "$GITHUB_STEP_SUMMARY"
 
   license-audit:
     needs: source
