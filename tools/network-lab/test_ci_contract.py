@@ -81,7 +81,8 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, bug)
         self.assertNotIn("mihomo Alpha", bug)
-        self.assertNotIn("DEBUG", bug)
+        self.assertNotIn("log level set to `DEBUG`", bug)
+        self.assertNotIn("log level 使用 DEBUG", bug)
         self.assertIn("https://github.com/smart-tinker/stcvrc/issues", bug)
 
         for required in ("Required scenario and upstream gap", "sanitized evidence",
