@@ -96,5 +96,20 @@ class CIContractTests(unittest.TestCase):
         self.assertLess(check, create, "preflight must run before creating the synthetic profile")
 
 
+    def test_install_smoke_traces_forbidden_process_starts(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        for required in (
+            "Register-CimIndicationEvent",
+            "Win32_ProcessStartTrace",
+            "clash-verge.exe",
+            "clash-verge-service.exe",
+            "verge-mihomo.exe",
+            "verge-mihomo-alpha.exe",
+            "Forbidden CVR process started during install smoke:",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, script)
+
+
 if __name__ == "__main__":
     unittest.main()
