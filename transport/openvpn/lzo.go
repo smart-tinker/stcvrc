@@ -47,7 +47,6 @@ func lzo1xDecompressSafe(src []byte) ([]byte, error) {
 				if !errors.Is(err, lzo.ErrOutputOverrun) || size == maxOpenVPNIPPacketSize {
 					return nil, ErrLZODecompress
 				}
-				return nil, ErrLZODecompress
 				if size > maxOpenVPNIPPacketSize/2 {
 					size = maxOpenVPNIPPacketSize
 				} else {
