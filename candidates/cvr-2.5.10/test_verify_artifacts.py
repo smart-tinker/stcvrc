@@ -293,7 +293,7 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
         self.assertIn('$coreVersionOutput = & $stockCore -v 2>&1', block)
         self.assertIn('if ($coreExit -ne 0)', block)
-        self.assertIn(r'Mihomo Meta 1\\.19\\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64', block)
+        self.assertIn(r'Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64', block)
         self.assertIn('Native core process smoke passed', block)
         self.assertLess(block.index('if ($stagedHash -ne $manifest.core.sha256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
 
