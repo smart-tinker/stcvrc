@@ -81,7 +81,7 @@
     }
   ],
   "core": {
-    "sourceCommit": "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
+    "sourceCommit": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
     "upstreamCommit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
     "version": "1.19.33-STCVRC-candidate-mit-lzo-20261109",
     "buildTime": "2026-11-09T00:00:00Z",

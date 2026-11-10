@@ -254,7 +254,7 @@ class CandidateSourceContractTests(unittest.TestCase):
     def test_core_is_pinned_to_fresh_mit_lzo_candidate(self):
         manifest = json.loads((SCRIPT.with_name('inputs.json')).read_text(encoding='utf-8'))
         core = manifest['core']
-        self.assertEqual(core['sourceCommit'], '76b7ec3ff9854d32cb3964403c065928ecdc9dd6')
+        self.assertEqual(core['sourceCommit'], '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93')
         self.assertEqual(core['upstreamCommit'], '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8')
         self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261109')
         self.assertEqual(core['buildTime'], '2026-11-09T00:00:00Z')

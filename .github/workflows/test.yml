@@ -142,7 +142,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           V29_SOURCE_SHA: 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
-          V33_SOURCE_SHA: 76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+          V33_SOURCE_SHA: 92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -302,7 +302,7 @@ jobs:
       - name: Build fresh MIT-LZO source and verify the official installer pair
         run: |
           set -euo pipefail
-          source_sha=76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
           upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           core_source="$RUNNER_TEMP/cvr-mit-lzo-source"
           go_dir="$RUNNER_TEMP/toolchain-go1.26.10"
@@ -344,6 +344,8 @@ jobs:
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
+          printf 'Fresh candidate source: %s\\nFresh Windows/amd64 SHA256: %s\\nMeasured size: %s bytes\\n' \\
+            "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
           test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
             "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
@@ -418,7 +420,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'candidate git init failed' }
           git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
           if ($LASTEXITCODE -ne 0) { throw 'candidate git remote failed' }
-          $sourceSha = '76b7ec3ff9854d32cb3964403c065928ecdc9dd6'
+          $sourceSha = '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93'
           git -C $source fetch --quiet --depth=1 --no-tags origin $sourceSha
           if ($LASTEXITCODE -ne 0) { throw 'candidate source fetch failed' }
           git -C $source checkout --quiet --detach FETCH_HEAD
@@ -569,7 +571,7 @@ jobs:
       - name: Build the pinned MIT-LZO core from exact source
         run: |
           set -euo pipefail
-          source_sha=76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
           upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           core_source="$RUNNER_TEMP/rc-core-source"
           go_dir="$RUNNER_TEMP/rc-go1.26.10"
