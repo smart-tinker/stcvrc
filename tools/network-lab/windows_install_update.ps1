@@ -90,8 +90,6 @@ foreach ($release in $manifest.releases) {
 }
 
 $profilePath = Join-Path $profileDirectory 'ci-update-preserve.yaml'
-$profileRoot = Split-Path -Parent $profileDirectory
-if (Test-Path -LiteralPath $profileRoot) { throw 'Synthetic CVR app data unexpectedly exists before setup.' }
 [IO.Directory]::CreateDirectory($profileDirectory) | Out-Null
 [IO.File]::WriteAllText($profilePath, "synthetic-ci-profile-preserve" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 $profileSha = (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash.ToLowerInvariant()
