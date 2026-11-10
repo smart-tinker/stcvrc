@@ -73,7 +73,12 @@ printf '%s  %s\n' "$CORE_SHA256" "$work/core" | sha256sum --check --status
 timeout 90s "$work/go/bin/go" mod verify
 test -z "$(git status --porcelain)"
 "$work/core" -v
-"$work/xray" version
+version_output="$("$work/xray" version)"
+printf '%s\n' "$version_output"
+if ! grep -Eq '^Xray 26\\.10\\.30 \\(' <<<"$version_output"; then
+  printf 'Expected Xray 26.10.30\n' >&2
+  exit 1
+fi
 
 timeout 90s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$CORE_SHA256" \
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/failover.json"
