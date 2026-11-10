@@ -466,7 +466,7 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'cvr-installer-payloads'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nNo installer or extracted application executable is launched."
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nInstallers, GUI, service helpers and stock cores are not run. The SHA-verified fresh core is invoked with -v only; native installation remains untested."
           foreach ($release in $manifest.releases) {
             $asset = $release.assets.installer
             if ([IO.Path]::GetFileName([string]$asset.name) -ne $asset.name -or $asset.file -ne $asset.name) { throw 'Unsafe installer filename' }
@@ -504,7 +504,14 @@ jobs:
               Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $stockCore -Force
               $stagedHash = (Get-FileHash -LiteralPath $stockCore -Algorithm SHA256).Hash.ToLowerInvariant()
               if ($stagedHash -ne $manifest.core.sha256) { throw 'Fresh custom core did not replace the extracted stock core bytes' }
-              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nFresh custom core staged in extracted 2.5.10 payload: SHA256 ``$stagedHash``. Installer and extracted executables were not run; native installation remains untested."
+              $coreVersionOutput = & $stockCore -v 2>&1
+              $coreExit = $LASTEXITCODE
+              $coreVersionOutput = $coreVersionOutput -join "`n"
+              if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
+              if ($coreVersionOutput -notmatch '^Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64 with go1\.26\.10 2026-11-09T00:00:00Z') {
+                throw 'Fresh custom core -v reported an unexpected version'
+              }
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate. Installers, GUI, service helper and stock cores were not run; native installation remains untested."
             }
           }
 
