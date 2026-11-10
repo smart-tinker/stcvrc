@@ -53,29 +53,6 @@ func TestLzo1xDecompressGrowsOutputForCompressedRun(t *testing.T) {
 	}
 }
 
-func TestLzo1xDecompressGrowsOutputBuffer(t *testing.T) {
-	const matches = 682
-	const decodedSize = 4 + matches*3
-
-	// Distance-one M2 matches expand four literals to 2,050 bytes in a 1,372-byte stream.
-	stream := []byte{21, 'a', 'a', 'a', 'a'}
-	for range matches {
-		stream = append(stream, 0x40, 0x00)
-	}
-	stream = append(stream, 0x11, 0x00, 0x00)
-	packet := append([]byte{lzoCompressLZO}, stream...)
-
-	decompressed, err := lzo1xDecompressSafe(packet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(decompressed) != decodedSize {
-		t.Fatalf("decompressed size = %d, want %d", len(decompressed), decodedSize)
-	}
-	if !bytes.Equal(decompressed, bytes.Repeat([]byte{'a'}, decodedSize)) {
-		t.Fatal("decompressed output differs from the expected repeated bytes")
-	}
-}
 
 func TestLzo1xDecompressRejectsOversizedPacket(t *testing.T) {
 	const decodedSize = maxOpenVPNIPPacketSize + 1
