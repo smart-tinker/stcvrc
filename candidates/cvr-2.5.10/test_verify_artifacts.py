@@ -282,8 +282,8 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         self.assertIn('Get-FileHash', block)
         self.assertIn('2.5.8', block)
         self.assertIn('2.5.10', block)
-        self.assertNotRegex(block, r'(?im)^\\s*Start-Process\\b')
-        self.assertNotRegex(block, r'(?im)^\\s*&\\s*\\$installer\\b')
+        self.assertNotRegex(block, r'(?im)^\s*Start-Process\b')
+        self.assertNotRegex(block, r'(?im)^\s*&\s*\$installer\b')
         self.assertNotIn('actions/upload-artifact', block)
         self.assertNotIn('actions/cache', block)
 
