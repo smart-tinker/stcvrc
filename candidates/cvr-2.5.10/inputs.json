@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "repository": "clash-verge-rev/clash-verge-rev",
+  "publicKeyBase64": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQyOEMyRjBCQkVGOUJEREYKUldUZnZmbStDeStNMHU5Mmo1N24xQXZwSVRYbXA2NUpzZE5oVzlqeS9Bc0t6RVV4MmtwVjBZaHgK",
+  "releases": [
+    {
+      "version": "2.5.8",
+      "tag": "v2.5.8",
+      "releaseId": 407425134,
+      "sourceCommit": "4337bd85758d54d7b9044b2da3c9ac1176eae1f3",
+      "metadataFile": "cvr-v2.5.8-release.json",
+      "config": {
+        "file": "tauri-v2.5.8.conf.json",
+        "sha256": "4f2f064b423ea035f02f4ad9d61dc3b80f4bdc7c3e688693ddb311ebbf3bba3c",
+        "sourceURL": "https://raw.githubusercontent.com/clash-verge-rev/clash-verge-rev/4337bd85758d54d7b9044b2da3c9ac1176eae1f3/src-tauri/tauri.conf.json"
+      },
+      "assets": {
+        "installer": {
+          "file": "Clash.Verge_2.5.8_x64-setup.exe",
+          "id": 623673356,
+          "name": "Clash.Verge_2.5.8_x64-setup.exe",
+          "size": 60230483,
+          "sha256": "821c0f5957f84c8f7d14532044840e8280d708af24a6a143db360b49bd1e7302",
+          "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/Clash.Verge_2.5.8_x64-setup.exe"
+        },
+        "signature": {
+          "file": "Clash.Verge_2.5.8_x64-setup.exe.sig",
+          "id": 623673436,
+          "name": "Clash.Verge_2.5.8_x64-setup.exe.sig",
+          "size": 440,
+          "sha256": "e579671b6123c03215138e474f16f1a55f8749a90b19918e9d0c58076cf3cf4d",
+          "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/Clash.Verge_2.5.8_x64-setup.exe.sig"
+        },
+        "latest": {
+          "file": "latest-v2.5.8.json",
+          "id": 623673471,
+          "name": "latest.json",
+          "size": 6667,
+          "sha256": "61aa5b1d1573d427db7712c07c34cbae5334caa8850ac2ba7d863c46fb8f4e39",
+          "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/latest.json"
+        }
+      }
+    },
+    {
+      "version": "2.5.10",
+      "tag": "v2.5.10",
+      "releaseId": 432493733,
+      "sourceCommit": "c83f7ad529c7c9cb3d2d54a0955ef8c1b22a411b",
+      "metadataFile": "cvr-v2.5.10-release.json",
+      "config": {
+        "file": "tauri-v2.5.10.conf.json",
+        "sha256": "ed5970a200b5dcb7202a917b56b79f650d98fd24098ba1bee77f176a52b9d409",
+        "sourceURL": "https://raw.githubusercontent.com/clash-verge-rev/clash-verge-rev/c83f7ad529c7c9cb3d2d54a0955ef8c1b22a411b/src-tauri/tauri.conf.json"
+      },
+      "assets": {
+        "installer": {
+          "file": "Clash.Verge_2.5.10_x64-setup.exe",
+          "id": 705116233,
+          "name": "Clash.Verge_2.5.10_x64-setup.exe",
+          "size": 60045702,
+          "sha256": "929da9303b643b80ce309ab29f618e37a5562f515d1fa55ebf5b86c822504450",
+          "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/Clash.Verge_2.5.10_x64-setup.exe"
+        },
+        "signature": {
+          "file": "Clash.Verge_2.5.10_x64-setup.exe.sig",
+          "id": 705116334,
+          "name": "Clash.Verge_2.5.10_x64-setup.exe.sig",
+          "size": 444,
+          "sha256": "1efe0e5e147f32758020f4ae4390834c80510b2215c43b3c4cf5c6d564232ce8",
+          "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/Clash.Verge_2.5.10_x64-setup.exe.sig"
+        },
+        "latest": {
+          "file": "latest-v2.5.10.json",
+          "id": 705117827,
+          "name": "latest.json",
+          "size": 6712,
+          "sha256": "f1a55f966257d38fa45e54714abeef5ce8a83aaac7040fb4fa92691f4f216f92",
+          "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/latest.json"
+        }
+      }
+    }
+  ],
+  "core": {
+    "sourceCommit": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
+    "upstreamCommit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+    "version": "1.19.33-STCVRC-candidate-mit-lzo-20261109",
+    "buildTime": "2026-11-09T00:00:00Z",
+    "goVersion": "1.26.10",
+    "goArchiveSha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+    "target": "windows/amd64",
+    "tags": [
+      "with_gvisor"
+    ],
+    "sha256": "c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf"
+  }
+}
