@@ -1,0 +1,79 @@
+name: MIT-LZO candidate validation
+
+on:
+  push:
+    branches:
+      - candidate/mihomo-1.19.33-mit-lzo
+      - candidate/mihomo-1.19.33-20261022
+    paths:
+      - '.github/workflows/mit-lzo-candidate.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'transport/openvpn/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mit-lzo-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.repository == 'smart-tinker/stcvrc' && !github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOAMD64: v1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact pushed source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          source="$RUNNER_TEMP/source"
+          git init --quiet "$source"
+          git -C "$source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source" rev-parse HEAD)" = "$SOURCE_SHA"
+          printf 'Source commit: %s\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install checksum-pinned Go
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/ci-tools"
+          mkdir -p "$tools"
+          cd "$tools"
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+          tar -xzf go.tar.gz
+          printf '%s\n' "$tools/go/bin" >> "$GITHUB_PATH"
+
+      - name: Test OpenVPN and build fresh Linux/Windows cores
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/go-path"
+          export GOCACHE="$RUNNER_TEMP/go-build"
+          export GOMODCACHE="$RUNNER_TEMP/go-mod"
+          rm -rf "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+          mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+          cd "$RUNNER_TEMP/source"
+          go version
+          timeout 240s go test -p=2 -mod=readonly -count=1 -timeout=180s ./transport/openvpn
+          timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
+            -o "$RUNNER_TEMP/core-linux" .
+          GOOS=windows GOARCH=amd64 timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
+            -o "$RUNNER_TEMP/core-windows.exe" .
+          timeout 90s go mod verify
+          test -z "$(git status --porcelain)"
+          printf '\nOpenVPN tests, fresh Linux/Windows builds, and module verification passed. No Actions cache or artifact upload is configured; runner-local Go caches are discarded with the hosted runner.\n' >> "$GITHUB_STEP_SUMMARY"
