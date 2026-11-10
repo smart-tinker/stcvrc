@@ -20,6 +20,21 @@ class CIContractTests(unittest.TestCase):
 
     def test_no_privileged_or_paid_automation_paths(self):
         self.assertEqual(set(WORKFLOWS), {"test.yml", "stcvrc-network-lab.yml"})
+        release_workflow = WORKFLOWS["test.yml"]
+        release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
+        self.assertIn("github.event_name == 'workflow_dispatch'", release_job)
+        self.assertIn("github.repository == 'smart-tinker/stcvrc'", release_job)
+        self.assertIn("github.ref == 'refs/heads/codex/cvr-2.5.9-release-cycle-20261102'", release_job)
+        self.assertIn("runs-on: ubuntu-24.04", release_job)
+        self.assertIn("permissions:\n      contents: write", release_job)
+        self.assertIn("needs:\n      - source\n      - cvr-2-5-10-package", release_job)
+        self.assertEqual(release_job.count("GH_TOKEN: ${{ github.token }}"), 1)
+        self.assertEqual(release_workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
+        self.assertIn('gh api "repos/$repo/releases" --paginate', release_job)
+        self.assertIn("releases/assets/$asset_id", release_job)
+        self.assertNotIn("releases/tags/$tag", release_job)
+        self.assertIn("cmp --silent", release_job)
+        self.assertNotIn("GH_TOKEN:", release_workflow.split("\n  assemble-draft-rc:\n", 1)[0])
         for workflow in WORKFLOWS.values():
             self.assertIn("push:\n    branches: [main]", workflow)
             self.assertIn("pull_request:\n    branches: [main]", workflow)
@@ -29,7 +44,7 @@ class CIContractTests(unittest.TestCase):
             self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
             self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
         for forbidden in ("pull_request_target", "workflow_run:", "schedule:", "tags:",
-                          "uses:", "secrets.", "GITHUB_TOKEN", "GH_TOKEN", "write-all",
+                          "uses:", "secrets.", "GITHUB_TOKEN", "write-all",
                           "upload-artifact", "download-artifact", "actions/cache", "sudo ",
                           "--privileged", "self-hosted", "docker ", "--force", "/dispatches"):
             with self.subTest(forbidden=forbidden):
