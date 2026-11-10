@@ -290,9 +290,9 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
 
     def test_draft_rc_assembly_waits_for_windows_payload(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
-        assembly = workflow.split('  assemble-draft-rc:\\n', 1)[1]
-        needs = assembly.split('    needs:\\n', 1)[1].split('    runs-on:', 1)[0]
-        self.assertIn('      - cvr-windows-payload\\n', needs)
+        assembly = workflow.split('  assemble-draft-rc:\n', 1)[1]
+        needs = assembly.split('    needs:\n', 1)[1].split('    runs-on:', 1)[0]
+        self.assertIn('      - cvr-windows-payload\n', needs)
 
 
 if __name__ == '__main__':
