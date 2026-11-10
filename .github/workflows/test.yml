@@ -835,6 +835,7 @@ jobs:
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
           go version
           go mod tidy
+          git -C "$GITHUB_WORKSPACE/source" diff --exit-code -- test/go.mod test/go.sum
                     printf '%s\n' \
             'Known unresolved integration cases are excluded; see https://github.com/smart-tinker/stcvrc/issues/25.' \
             'This is not a full-suite pass.' \
