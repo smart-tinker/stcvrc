@@ -10,7 +10,9 @@ proxies:
     auth: SHA256
     username: docs-user
     password: not-a-credential
-    tls-auth: placeholder\n    tls-crypt: placeholder\n    ca: |
+    tls-auth: placeholder
+    tls-crypt: placeholder
+    ca: |
       -----BEGIN CERTIFICATE-----
       MIIBszCCAVmgAwIBAgIUQbG/Z7JQGg+Jb42bBYK6q8I4g5swCgYIKoZIzj0EAwIw
       EjEQMA4GA1UEAwwHbWlob21vMB4XDTI2MDUwMTAwMDAwMFoXDTM2MDQyOTAwMDAw
