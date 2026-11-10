@@ -10,6 +10,7 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - tools/network-lab/**
+      - candidates/cvr-2.5.9/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
@@ -20,6 +21,7 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - tools/network-lab/**
+      - candidates/cvr-2.5.9/**
   workflow_dispatch: {}
 
 permissions:
@@ -99,3 +101,155 @@ jobs:
           timeout 90s go mod verify
           test -z "$(git status --porcelain)"
           printf '\nCurrent-source tests and Linux/Windows compilation passed. These are CI builds, not release artifacts.\n' >> "$GITHUB_STEP_SUMMARY"
+
+  cvr-2-5-9-package:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch the exact pull request source
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pr_source="$RUNNER_TEMP/pr-source"
+          git init --quiet "$pr_source"
+          git -C "$pr_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$pr_source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$pr_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$pr_source" rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "PR source: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "PR_SOURCE=$pr_source" >> "$GITHUB_ENV"
+
+      - name: Install pinned workflow linter and Python crypto dependency
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/ci-tools"
+          mkdir -p "$tool"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            -o "$tool/actionlint.tar.gz"
+          printf '%s  %s\n' 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757 "$tool/actionlint.tar.gz" | sha256sum --check --status
+          tar -xzf "$tool/actionlint.tar.gz" -C "$tool" actionlint
+          echo "$tool" >> "$GITHUB_PATH"
+          if ! python3 -c 'import cryptography' >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y python3-cryptography
+          fi
+
+      - name: Validate workflows and verifier fixtures
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          actionlint -color "$PR_SOURCE/.github/workflows/test.yml"
+          python3 -B -m unittest discover -s "$PR_SOURCE/candidates/cvr-2.5.9" -p 'test_*.py' -v
+
+      - name: Download only pinned public CVR inputs
+        run: |
+          set -euo pipefail
+          manifest="$PR_SOURCE/candidates/cvr-2.5.9/inputs.json"
+          downloads="$RUNNER_TEMP/cvr-downloads.tsv"
+          input_dir="$RUNNER_TEMP/cvr-public-inputs"
+          mkdir -p "$input_dir"
+          python3 - "$manifest" "$downloads" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          from urllib.parse import urlparse
+
+          manifest_path, output_path = map(Path, sys.argv[1:])
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          repo = "clash-verge-rev/clash-verge-rev"
+          if manifest.get("repository") != repo:
+              raise SystemExit("unexpected upstream repository")
+          rows = []
+
+          def add(filename, url, host, path):
+              if not isinstance(filename, str) or Path(filename).name != filename or filename in ("", ".", ".."):
+                  raise SystemExit("unsafe pinned input filename")
+              parsed = urlparse(url)
+              if parsed.scheme != "https" or parsed.hostname != host or parsed.path != path or parsed.query or parsed.fragment:
+                  raise SystemExit("refusing non-pinned public input URL")
+              rows.append((filename, url))
+
+          for release in manifest["releases"]:
+              tag = release["tag"]
+              add(release["metadataFile"],
+                  f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
+                  "api.github.com", f"/repos/{repo}/releases/tags/{tag}")
+              commit = release["sourceCommit"]
+              config = release["config"]
+              add(config["file"], config["sourceURL"], "raw.githubusercontent.com",
+                  f"/{repo}/{commit}/src-tauri/tauri.conf.json")
+              for asset in release["assets"].values():
+                  add(asset["file"], asset["url"], "github.com",
+                      f"/{repo}/releases/download/{tag}/{asset['name']}")
+          output_path.write_text("".join(f"{name}\t{url}\n" for name, url in rows), encoding="utf-8")
+          PY
+          while IFS=$'\t' read -r name url; do
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+              --max-time 300 --max-filesize 67108864 --silent --show-error \
+              "$url" -o "$input_dir/$name"
+          done < "$downloads"
+
+      - name: Build fresh MIT-LZO source and verify the official installer pair
+        run: |
+          set -euo pipefail
+          source_sha=76b7ec3ff9854d32cb3964403c065928ecdc9dd6
+          upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          core_source="$RUNNER_TEMP/cvr-mit-lzo-source"
+          go_dir="$RUNNER_TEMP/toolchain-go1.26.10"
+          mkdir -p "$core_source" "$go_dir"
+          git -C "$core_source" init --quiet
+          git -C "$core_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$core_source" fetch --quiet --depth=1 --no-tags origin "$source_sha"
+          git -C "$core_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$core_source" rev-parse HEAD)" = "$source_sha"
+          git -C "$core_source" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          test "$(git -C "$core_source" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_sha"
+
+          curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
+          printf '%s  %s\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 "$go_dir/go.tar.gz" | sha256sum --check --status
+          tar -xzf "$go_dir/go.tar.gz" -C "$go_dir"
+          export PATH="$go_dir/go/bin:$PATH"
+          export GOENV=off GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off
+          export CGO_ENABLED=0 GOAMD64=v1 GOMAXPROCS=2
+          export GOPATH="$RUNNER_TEMP/cvr-gopath" GOMODCACHE="$RUNNER_TEMP/cvr-modcache" GOCACHE="$RUNNER_TEMP/cvr-gocache"
+          export GOFLAGS='-mod=readonly -p=2'
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          test "$(go version | awk '{print $3}')" = "go1.26.10"
+          cd "$core_source"
+          go list -m all > "$RUNNER_TEMP/cvr-modules.txt"
+          grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$RUNNER_TEMP/cvr-modules.txt"
+          if grep -q '^github.com/rasky/go-lzo ' "$RUNNER_TEMP/cvr-modules.txt"; then
+            printf 'GPL-only go-lzo module remains in the candidate module graph.\n' >&2
+            exit 1
+          fi
+          go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
+          go mod verify
+
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
+          build_time=2026-11-09T00:00:00Z
+          ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
+          binary="$RUNNER_TEMP/verge-mihomo-mit-lzo.exe"
+          GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
+            go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
+          binary_size="$(stat -c %s "$binary")"
+          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
+          printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
+            "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
+          test -z "$(git -C "$core_source" status --porcelain)"
+          python3 -B "$PR_SOURCE/candidates/cvr-2.5.9/verify-artifacts.py" \
+            --artifacts "$RUNNER_TEMP/cvr-public-inputs" --core "$binary" | tee -a "$GITHUB_STEP_SUMMARY"

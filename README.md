@@ -36,6 +36,12 @@ Verge Rev.
 The release contains the STCVRC core only. Obtain Clash Verge Rev from its
 [official v2.5.2 release](https://github.com/clash-verge-rev/clash-verge-rev/releases/tag/v2.5.2).
 
+## Compatibility candidate
+
+[CVR 2.5.9 preparation](candidates/cvr-2.5.9/README.md) verifies official update
+and recovery installers against a freshly built MIT-LZO STCVRC 1.19.33 core in
+GitHub Actions. Native acceptance and stable publication remain separate gates.
+
 ## Reproducible Windows build
 
 ```powershell
