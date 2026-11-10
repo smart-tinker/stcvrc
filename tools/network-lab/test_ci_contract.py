@@ -70,6 +70,32 @@ class CIContractTests(unittest.TestCase):
     def test_dependabot_changes_run_the_contract_check(self):
         self.assertEqual(WORKFLOWS["test.yml"].count(".github/dependabot.yml"), 2)
 
+    def test_templates_capture_downstream_evidence_and_privacy(self):
+        bug = (ROOT / ".github/ISSUE_TEMPLATE/bug_report.yml").read_text()
+        feature = (ROOT / ".github/ISSUE_TEMPLATE/feature_request.yml").read_text()
+        pr = (ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text()
+
+        for required in ("STCVRC version", "Source commit", "Binary SHA-256",
+                         "Expected result", "Observed result", "Redacted profile/config",
+                         "Do not include credentials"):
+            with self.subTest(required=required):
+                self.assertIn(required, bug)
+        self.assertNotIn("mihomo Alpha", bug)
+        self.assertNotIn("DEBUG", bug)
+        self.assertIn("https://github.com/smart-tinker/stcvrc/issues", bug)
+
+        for required in ("Required scenario and upstream gap", "sanitized evidence",
+                         "Definition of Done", "Upstream exit and stop conditions"):
+            with self.subTest(required=required):
+                self.assertIn(required, feature)
+        for required in ("Exact tested revision / evidence", "RED must fail",
+                         "Native Windows", "No secrets/private operational data"):
+            with self.subTest(required=required):
+                self.assertIn(required, pr)
+
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/ISSUE_TEMPLATE/**"), 2)
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/PULL_REQUEST_TEMPLATE.md"), 2)
+
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
         self.assertEqual(pins, {
