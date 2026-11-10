@@ -1,0 +1,31 @@
+mode: rule
+proxies:
+  - name: docs-openvpn
+    type: openvpn
+    server: vpn.example.invalid
+    port: 1194
+    proto: udp
+    dev: tun
+    cipher: AES-128-GCM
+    auth: SHA256
+    username: docs-user
+    password: not-a-credential
+    ca: |
+      -----BEGIN CERTIFICATE-----
+      MIIBszCCAVmgAwIBAgIUQbG/Z7JQGg+Jb42bBYK6q8I4g5swCgYIKoZIzj0EAwIw
+      EjEQMA4GA1UEAwwHbWlob21vMB4XDTI2MDUwMTAwMDAwMFoXDTM2MDQyOTAwMDAw
+      MFowEjEQMA4GA1UEAwwHbWlob21vMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE
+      hT8O8v9COiL0e7Gmab6r8jYxgB5xIvEtL10eF6QpJm+5ROK8f8yO8JHj2L2F6i1v
+      g7CNgMCoX9YnZ9wqOqNTMFEwHQYDVR0OBBYEFDuK1nBI7w+Kz8o9hD7UzpJkq1N2
+      MB8GA1UdIwQYMBaAFDuK1nBI7w+Kz8o9hD7UzpJkq1N2MA8GA1UdEwEB/wQFMAMB
+      Af8wCgYIKoZIzj0EAwIDSAAwRQIhAJ4mquCRw+W1M7RCNzUVpV9qPzR9qYpK4SAi
+      6pEh8FeaAiBKv+YbWBjjiWk0Yxch3v7y8W7S7e3pVtHh8x9n9+6w1Q==
+      -----END CERTIFICATE-----
+proxy-groups:
+  - name: docs-select
+    type: select
+    proxies:
+      - docs-openvpn
+      - DIRECT
+rules:
+  - MATCH,docs-select
