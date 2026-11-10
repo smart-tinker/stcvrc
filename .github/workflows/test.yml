@@ -415,6 +415,7 @@ jobs:
     needs:
       - source
       - cvr-2-5-10-package
+      - cvr-windows-payload
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
