@@ -238,6 +238,22 @@ class VerifierTests(unittest.TestCase):
         self.manifest['releases'][0]['metadataFile'] = '../private.json'
         self.assert_rejected()
 
+    def test_fresh_core_hash_without_precomputed_size_is_bound(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest['core'].pop('size')
+        receipt = self.module().verify(self.root, self.core, manifest)
+        self.assertEqual(receipt['core']['size'], self.core.stat().st_size)
+
+
+class CandidateSourceContractTests(unittest.TestCase):
+    def test_core_is_pinned_to_fresh_mit_lzo_candidate(self):
+        manifest = json.loads((SCRIPT.with_name('inputs.json')).read_text(encoding='utf-8'))
+        core = manifest['core']
+        self.assertEqual(core['sourceCommit'], '76b7ec3ff9854d32cb3964403c065928ecdc9dd6')
+        self.assertEqual(core['upstreamCommit'], '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8')
+        self.assertEqual(core['sha256'], 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf')
+        self.assertIsNone(core.get('size'))
+
 
 if __name__ == '__main__':
     unittest.main()
