@@ -113,9 +113,19 @@ function Get-InstalledCvrDirectory {
     if (-not $location) { throw 'CVR installer did not register its install location.' }
     $fullPath = [IO.Path]::GetFullPath($location).TrimEnd([char]92)
     if ($allowedInstallDirs -notcontains $fullPath) { throw "Unexpected CVR install location: $fullPath" }
-    if (-not (Test-Path -LiteralPath (Join-Path $fullPath 'clash-verge.exe') -PathType Leaf)) {
+    $guiPath = Join-Path $fullPath 'clash-verge.exe'
+    if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf)) {
         throw 'Installed Clash Verge executable is missing.'
     }
+    $expectedGuiSha = switch ($ExpectedVersion) {
+        '2.5.8' { [string]$env:CVR_258_GUI_SHA256 }
+        '2.5.10' { [string]$env:CVR_2510_GUI_SHA256 }
+        default { throw "Unsupported CVR GUI pin version: $ExpectedVersion." }
+    }
+    if ($expectedGuiSha -notmatch '^[0-9a-f]{64}$') { throw "Invalid pinned CVR GUI SHA256 for $ExpectedVersion." }
+    $expectedGuiSha = $expectedGuiSha.ToLowerInvariant()
+    $installedGuiSha = (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($installedGuiSha -ne $expectedGuiSha) { throw "Installed CVR GUI SHA256 mismatch after $ExpectedVersion." }
     return $fullPath
 }
 

@@ -491,6 +491,11 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) payload extraction failed" }
             $files = @(Get-ChildItem -LiteralPath $extract -Recurse -File)
             if ($files.Count -eq 0) { throw "CVR $($release.version) payload was empty" }
+            $guiFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge.exe' })
+            if ($guiFiles.Count -ne 1) { throw "CVR $($release.version) payload expected one clash-verge.exe, found $($guiFiles.Count)" }
+            $guiHash = (Get-FileHash -LiteralPath $guiFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($release.version -eq '2.5.8') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_GUI_SHA256=$guiHash" }
+            if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_GUI_SHA256=$guiHash" }
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n### CVR $($release.version)`n- Installer SHA256: $installerHash`n- Authenticode: $authenticode`n- Extracted files: $($files.Count)"
             if ($release.version -eq '2.5.10') {
               foreach ($name in @('clash-verge.exe','clash-verge-service-install.exe','verge-mihomo.exe','verge-mihomo-alpha.exe')) {
@@ -619,7 +624,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          tag=stcvrc-1.19.33-rc.3
+          tag=stcvrc-1.19.33-rc.4
           repo=smart-tinker/stcvrc
           manifest="$RUNNER_TEMP/RC-MANIFEST.json"
           notes="$RUNNER_TEMP/RC-NOTES.md"
@@ -640,7 +645,7 @@ jobs:
           if not re.fullmatch(r"[0-9a-f]{64}", sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha) or run_id < 1:
               raise SystemExit("Invalid RC identity or digest")
           manifest = {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "releaseTag": tag,
               "releaseState": "DRAFT_NOT_PUBLISHED",
               "inputManifestSha256": hashlib.sha256(input_bytes).hexdigest(),
@@ -648,10 +653,11 @@ jobs:
               "update": releases["2.5.10"],
               "core": dict(inputs["core"], sha256=sha, size=size),
               "acceptance": {
-                  "installerExecuted": False,
-                  "extractedPayloads": "NOT_VERIFIED",
-                  "authenticode": "NOT_VERIFIED",
-                  "nativeWindowsAcceptance": "NOT_RUN",
+                  "disposableWindowsInstallUpdateRecovery": "PASS",
+                  "authenticodeSignerAcceptance": "NOT_REVIEWED",
+                  "nativeGuiServiceTunDns": "NOT_RUN",
+                  "licenseAudit": "INCOMPLETE_ISSUE_7",
+                  "userAcceptance": "NOT_RUN",
                   "productionDeployment": "NOT_AUTHORIZED",
               },
               "workflowHeadSha": head_sha,
@@ -660,15 +666,18 @@ jobs:
           manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PY
           cat > "$notes" <<'EOF'
-          This is a draft, unpublished STCVRC 1.19.33 RC3 candidate.
+          This is a draft, unpublished STCVRC 1.19.33 RC4 candidate.
           It pins official CVR 2.5.8 recovery and CVR 2.5.10 update inputs.
           The Windows core is rebuilt from the pinned MIT-LZO source and identified by RC-MANIFEST.json.
-          Installer execution, trusted Authenticode acceptance, native startup/service/TUN/DNS, recovery, observation, and user acceptance are not verified.
+          A disposable Windows runner completed the pinned 2.5.8 install, 2.5.10 /UPDATE, and recovery to 2.5.8.
+          The synthetic profile marker, installed GUI payload hashes, and fresh custom core hashes were checked.
+          This does not validate trusted Authenticode signing, GUI/service/TUN/DNS startup, long observation, or user acceptance.
+          The license audit remains incomplete in issue #7. Stable publication and production deployment have not occurred.
           EOF
           release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           if [[ -z "$release_id" ]]; then
             gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
-              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC3 — CVR 2.5.10 candidate" --notes-file "$notes"
+              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC4 — CVR 2.5.10 candidate" --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
           [[ "$release_id" =~ ^[0-9]+$ ]]
@@ -676,8 +685,9 @@ jobs:
           test "$(gh api "$api" --jq .draft)" = true
           test "$(gh api "$api" --jq .prerelease)" = true
           test "$(gh api "$api" --jq .tag_name)" = "$tag"
-          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC3 — CVR 2.5.10 candidate"
+          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC4 — CVR 2.5.10 candidate"
           release_target="$(gh api "$api" --jq .target_commitish)"
+          test "$release_target" = "$HEAD_SHA"
           assets_api="$api/assets"
           asset_names="$(gh api "$assets_api" --paginate --jq '.[].name' | LC_ALL=C sort)"
           test "$asset_names" = "$(printf 'RC-MANIFEST.json\nverge-mihomo.exe')"
@@ -710,15 +720,16 @@ jobs:
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           expected_core = dict(inputs["core"], sha256=expected_sha, size=expected_size)
           expected_acceptance = {
-              "installerExecuted": False,
-              "extractedPayloads": "NOT_VERIFIED",
-              "authenticode": "NOT_VERIFIED",
-              "nativeWindowsAcceptance": "NOT_RUN",
+              "disposableWindowsInstallUpdateRecovery": "PASS",
+              "authenticodeSignerAcceptance": "NOT_REVIEWED",
+              "nativeGuiServiceTunDns": "NOT_RUN",
+              "licenseAudit": "INCOMPLETE_ISSUE_7",
+              "userAcceptance": "NOT_RUN",
               "productionDeployment": "NOT_AUTHORIZED",
           }
           if set(releases) != {"2.5.8", "2.5.10"}:
               raise SystemExit("Unexpected CVR release pair")
-          if manifest.get("schemaVersion") != 1 or manifest.get("releaseTag") != tag:
+          if manifest.get("schemaVersion") != 2 or manifest.get("releaseTag") != tag:
               raise SystemExit("RC manifest schema/tag mismatch")
           if manifest.get("releaseState") != "DRAFT_NOT_PUBLISHED":
               raise SystemExit("RC manifest does not describe a draft")
