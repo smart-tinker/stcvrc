@@ -84,10 +84,10 @@ core_sha256="$CORE_SHA256"
 printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
 test -z "$(git status --porcelain)"
 "$work/core" -v | grep -F "$VERSION"
-xray_version_output="$("$work/xray" version)"
-printf '%s\n' "$xray_version_output"
-if ! grep -Eq '^Xray 26\\.10\\.31 \\(' <<<"$xray_version_output"; then
-  printf 'Expected Xray 26.10.31\\n' >&2
+version_output="$("$work/xray" version)"
+printf '%s\n' "$version_output"
+if ! grep -Eq '^Xray 26\.10\.31 \(' <<<"$version_output"; then
+  printf 'Expected Xray 26.10.31\n' >&2
   exit 1
 fi
 
