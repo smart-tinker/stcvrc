@@ -271,5 +271,22 @@ class CandidateSourceContractTests(unittest.TestCase):
         self.assertEqual([release['version'] for release in manifest['releases']], ['2.5.8', '2.5.10'])
 
 
+class WindowsPayloadWorkflowContractTests(unittest.TestCase):
+    def test_windows_payload_job_is_pinned_and_never_executes_the_installer(self):
+        workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
+        self.assertIn('  cvr-windows-payload:\n', workflow)
+        block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
+        self.assertIn('runs-on: windows-2022', block)
+        self.assertIn('needs: cvr-2-5-10-package', block)
+        self.assertIn('7z.exe', block)
+        self.assertIn('Get-FileHash', block)
+        self.assertIn('2.5.8', block)
+        self.assertIn('2.5.10', block)
+        self.assertNotRegex(block, r'(?im)^\\s*Start-Process\\b')
+        self.assertNotRegex(block, r'(?im)^\\s*&\\s*\\$installer\\b')
+        self.assertNotIn('actions/upload-artifact', block)
+        self.assertNotIn('actions/cache', block)
+
+
 if __name__ == '__main__':
     unittest.main()
