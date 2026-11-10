@@ -8,6 +8,7 @@ WORKFLOW = (HERE.parents[1] / ".github/workflows/stcvrc-network-lab.yml").read_t
 WORKFLOWS = {path.name: path.read_text() for path in
              (HERE.parents[1] / ".github/workflows").glob("*.y*ml")}
 SCRIPT = (HERE / "ci.sh").read_text()
+WINDOWS = (HERE / "windows.py").read_text(encoding="utf-8")
 
 
 class CIContractTests(unittest.TestCase):
@@ -63,7 +64,6 @@ class CIContractTests(unittest.TestCase):
             "GO_SHA256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
             "XRAY_ZIP_SHA256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
             "XRAY_SHA256": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
-            "CORE_SHA256": "5c811c83dc2f8fae6dcb5933fde988f5d34bb3f87e6dbab6d130aeb30146809a",
         })
         self.assertIn('cd "$work/source"', SCRIPT)
         self.assertIn('-mod=readonly', SCRIPT)
@@ -161,7 +161,7 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, workflow + script)
 
 
-    def test_rc4_manifest_schema_version_is_read_back(self):
+    def test_rc5_manifest_schema_version_is_read_back(self):
         assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
         self.assertIn('"schemaVersion": 2,', assembly)
         self.assertIn('manifest.get("schemaVersion") != 2', assembly)
@@ -173,21 +173,30 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(manifest["core"]["sourceCommit"], source_sha)
         self.assertIn(f"readonly SOURCE_COMMIT={source_sha}", SCRIPT)
 
-        windows_script = (HERE / "windows.py").read_text()
-        self.assertIn("STCVRC_CORE_PATH", windows_script)
-        self.assertNotIn("stcvrc-1.19.33-rc.1", windows_script)
+        self.assertIn("STCVRC_CORE_PATH", WINDOWS)
+        self.assertIn("STCVRC_CORE_SHA256", WINDOWS)
+        self.assertNotIn("stcvrc-1.19.33-rc.1", WINDOWS)
+        self.assertNotIn("CORE_URL", WINDOWS)
+        self.assertIn("Fresh STCVRC build path and SHA are required", WINDOWS)
 
         source_workflow = WORKFLOWS["test.yml"]
-        job = source_workflow.split("\\n  cvr-windows-payload:\\n", 1)[1].split(
-            "\\n  assemble-draft-rc:\\n", 1
+        job = source_workflow.split(chr(10) + "  cvr-windows-payload:" + chr(10), 1)[1].split(
+            chr(10) + "  assemble-draft-rc:" + chr(10), 1
         )[0]
         self.assertIn("Fresh native Windows core build", job)
+        self.assertIn("$sourceSha = '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93'", job)
         self.assertIn("Test fresh Windows candidate over loopback", job)
         self.assertLess(job.index("Fresh native Windows core build"),
                         job.index("Test fresh Windows candidate over loopback"))
         self.assertIn("STCVRC_CORE_PATH", job)
         self.assertIn("python windows.py", job)
         self.assertNotIn("  windows-exe-lab:", WORKFLOW)
+        self.assertIn("readonly VERSION=1.19.33-STCVRC-candidate-mit-lzo-20261109", SCRIPT)
+        self.assertIn("readonly BUILD_TIME=2026-11-09T00:00:00Z", SCRIPT)
+        self.assertIn("github.com/anchore/go-lzo v0.1.1", SCRIPT)
+        self.assertIn("github.com/rasky/go-lzo", SCRIPT)
+        self.assertIn("core_sha256=", SCRIPT)
+        self.assertIn('--core-sha256 "$core_sha256"', SCRIPT)
 
 
 if __name__ == "__main__":

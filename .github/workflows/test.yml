@@ -456,6 +456,19 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.10, SHA256 $coreHash, $coreSize bytes."
 
+      - name: Test fresh Windows candidate over loopback
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:PATH += ';C:\Program Files\Git\usr\bin'
+          $env:STCVRC_CORE_PATH = $env:CUSTOM_CORE
+          $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $env:STCVRC_CORE_SHA256 = [string]$manifest.core.sha256
+          Set-Location (Join-Path $env:PR_SOURCE 'tools\network-lab')
+          python -m unittest discover -v -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows loopback fixture tests failed' }
+          python windows.py
       - name: Verify and extract pinned CVR installers without running them
         run: |
           $ErrorActionPreference = 'Stop'
