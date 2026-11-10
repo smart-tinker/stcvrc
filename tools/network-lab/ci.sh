@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly SOURCE_COMMIT=d888dfad5e785217778bb7515c931840d5307dd4
+readonly SOURCE_COMMIT=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
 readonly GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
 readonly XRAY_ZIP_SHA256=e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214
 readonly XRAY_SHA256=cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1
-readonly CORE_SHA256=5c811c83dc2f8fae6dcb5933fde988f5d34bb3f87e6dbab6d130aeb30146809a
+readonly CORE_SHA256=dce11f5ad306e80d4ac768daf744a88a412be06162ed228059b6b084842c2e56
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 
@@ -67,7 +67,7 @@ export GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
 cd "$work/source"
 "$work/go/bin/go" version
 timeout 600s "$work/go/bin/go" build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
-  -ldflags='-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-lab-d888dfad -X github.com/metacubex/mihomo/constant.BuildTime=2026-10-22T00:00:00Z' \
+  -ldflags='-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-candidate-mit-lzo-20261109 -X github.com/metacubex/mihomo/constant.BuildTime=2026-11-09T00:00:00Z' \
   -o "$work/core" .
 printf '%s  %s\n' "$CORE_SHA256" "$work/core" | sha256sum --check --status
 timeout 90s "$work/go/bin/go" mod verify

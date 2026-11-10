@@ -84,14 +84,15 @@ class WindowsInputsTests(unittest.TestCase):
                 self.assertEqual(ctypes.get_last_error(), 87)  # Process already disappeared.
             held_file.unlink()  # Windows refuses this while the child's handle is open.
 
-    def test_download_rejects_changed_release_bytes(self):
+    def test_download_rejects_changed_xray_archive_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
-            target = pathlib.Path(directory) / "core.exe"
-            response = io.BytesIO(b"changed release")
-            response.url = "https://example.invalid/core.exe"
+            target = pathlib.Path(directory) / "xray.zip"
+            response = io.BytesIO(b"changed archive")
+            response.url = "https://example.invalid/xray.zip"
+            expected = hashlib.sha256(b"expected archive").hexdigest()
             with mock.patch.object(windows.urllib.request, "urlopen", return_value=response):
                 with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
-                    windows.download(windows.CORE_URL, target, windows.CORE_SHA)
+                    windows.download("https://example.invalid/xray.zip", target, expected)
 
     def test_extracts_only_the_known_executable(self):
         with tempfile.TemporaryDirectory() as directory:

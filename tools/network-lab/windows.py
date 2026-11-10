@@ -1,4 +1,5 @@
-"""Check the published Windows core using disposable loopback endpoints."""
+"""Check a fresh source-built Windows core using disposable loopback endpoints."""
+import argparse
 import hashlib
 import json
 import os
@@ -12,8 +13,6 @@ import zipfile
 
 import lab
 
-CORE_URL = "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/verge-mihomo.exe"
-CORE_SHA = "6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7"
 XRAY_URL = "https://github.com/XTLS/Xray-core/releases/download/v26.10.31/Xray-windows-64.zip"
 XRAY_ZIP_SHA = "2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a"
 
@@ -58,36 +57,42 @@ def run_fixture(command, timeout=120):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--core", required=True)
+    parser.add_argument("--core-sha256", required=True)
+    args = parser.parse_args()
     if sys.platform != "win32":
         raise SystemExit("This check requires native Windows")
+    core = lab.checked_binary(args.core, args.core_sha256)
     openssl = shutil.which("openssl")
     if not openssl:
         raise SystemExit("OpenSSL is required; no installation or trust-store change is performed")
     here = pathlib.Path(__file__).resolve().parent
     with tempfile.TemporaryDirectory(prefix="stcvrc-windows-") as temporary:
         folder = pathlib.Path(temporary)
-        core, archive, xray = folder / "core.exe", folder / "xray.zip", folder / "xray.exe"
-        download(CORE_URL, core, CORE_SHA)
+        archive, xray = folder / "xray.zip", folder / "xray.exe"
         download(XRAY_URL, archive, XRAY_ZIP_SHA)
         xray_sha = extract_xray(archive, xray)
-        subprocess.run([str(core), "-v"], check=True, timeout=15)
+        subprocess.run([core, "-v"], check=True, timeout=15)
         subprocess.run([str(xray), "version"], check=True, timeout=15)
         results = []
         for extra in ([], ["--check-tls-rejection"]):
             stdout = run_fixture([
-                sys.executable, str(here / "lab.py"), "--core", str(core),
-                "--core-sha256", CORE_SHA, "--xray", str(xray),
+                sys.executable, str(here / "lab.py"), "--core", core,
+                "--core-sha256", args.core_sha256, "--xray", str(xray),
                 "--xray-sha256", xray_sha, "--openssl", openssl, *extra,
             ])
             results.append(json.loads(stdout))
-        evidence = {"core_sha256": CORE_SHA, "xray_zip_sha256": XRAY_ZIP_SHA,
+        evidence = {"core_sha256": args.core_sha256, "xray_zip_sha256": XRAY_ZIP_SHA,
                     "xray_sha256": xray_sha, "results": results}
         rendered = json.dumps(evidence, sort_keys=True)
         print(rendered)
         if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+            fence = chr(96) * 3
             with open(summary, "a", encoding="utf-8") as output:
-                output.write("## Published Windows EXE, loopback HTTP/TCP\n\n```json\n" + rendered +
-                             "\n```\n\nNo TUN, GUI/service, OpenVPN/rekey, UDP/DNS or user acceptance.\n")
+                output.write("## Fresh source-built Windows core, loopback HTTP/TCP\n\n" + fence +
+                             "json\n" + rendered + "\n" + fence +
+                             "\n\nNo TUN, GUI/service, OpenVPN/rekey, UDP/DNS or user acceptance.\n")
 
 
 if __name__ == "__main__":
