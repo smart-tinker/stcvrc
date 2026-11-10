@@ -199,5 +199,3 @@ jobs:
           build_and_check "1.19.33" "$V33_SOURCE_SHA"
           printf '\nParser command: freshly built mihomo -d <temporary-home> -f docs/openvpn-profile-examples/<fixture>.yaml -t\n' >> "$GITHUB_STEP_SUMMARY"
           printf 'The three fixtures were checked against both source pins; no endpoint connection was attempted.\n' >> "$GITHUB_STEP_SUMMARY"
-          rm -rf "$RUNNER_TEMP/go-1.19.29" "$RUNNER_TEMP/go-build-1.19.29" "$RUNNER_TEMP/go-mod-1.19.29" \
-                 "$RUNNER_TEMP/go-1.19.33" "$RUNNER_TEMP/go-build-1.19.33" "$RUNNER_TEMP/go-mod-1.19.33"
