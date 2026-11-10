@@ -175,5 +175,28 @@ class DistributionAuditContractTests(unittest.TestCase):
             self.assertIn(required, workflow)
 
 
+    def test_public_notices_include_pinned_mit_dependency_text(self):
+        path = ROOT / "docs" / "third-party-notices.md"
+        self.assertTrue(path.is_file(), "public third-party notice file is missing")
+        notices = path.read_text(encoding="utf-8")
+        for required in (
+            "github.com/metacubex/chacha v0.1.5",
+            "07294f500ca8384015f6cc21311de7b6f093607d",
+            "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE",
+            "Copyright (c) 2016 Andreas Auernhammer",
+            "Copyright (c) 2025 MetaCubex",
+            "github.com/anchore/go-lzo v0.1.1",
+            "Copyright (c) 2025 Anchore, Inc",
+            "Permission is hereby granted, free of charge",
+        ):
+            self.assertIn(required, notices)
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertGreaterEqual(
+            workflow.count("      - docs/third-party-notices.md"),
+            2,
+            "notice edits must trigger push and pull_request checks",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
