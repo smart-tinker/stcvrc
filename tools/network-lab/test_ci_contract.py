@@ -274,7 +274,12 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 30", job)
         self.assertIn("working-directory: source/test", job)
         self.assertIn("go mod tidy", job)
-        expected = "go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VlessXTLS|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)
+        skip = "^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VlessXTLS|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)"
+        expected = "go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='" + skip + chr(36) + "' ./..."
+        self.assertIn(expected, job)
+        self.assertIn("https://github.com/smart-tinker/stcvrc/issues/25", job)
+        self.assertIn("This is not a full-suite pass", job)
+        self.assertIn("go mod verify", job)
 
 if __name__ == "__main__":
     unittest.main()
