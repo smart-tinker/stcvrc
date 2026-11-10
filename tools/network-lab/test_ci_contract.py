@@ -160,5 +160,11 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, workflow + script)
 
 
+    def test_rc4_manifest_schema_version_is_read_back(self):
+        assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
+        self.assertIn('"schemaVersion": 2,', assembly)
+        self.assertIn('manifest.get("schemaVersion") != 2', assembly)
+
+
 if __name__ == "__main__":
     unittest.main()
