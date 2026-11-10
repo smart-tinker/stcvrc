@@ -33,7 +33,12 @@ concurrency:
 
 jobs:
   source:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -78,7 +83,7 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          actionlint -color .github/workflows/test.yml
+          actionlint -color
           python3 -m unittest discover -s tools/network-lab -p 'test_*.py' -v
 
       - name: Test current source and compile Linux and Windows cores
@@ -98,7 +103,12 @@ jobs:
           printf '\nCurrent-source tests and Linux/Windows compilation passed. These are CI builds, not release artifacts.\n' >> "$GITHUB_STEP_SUMMARY"
 
   cvr-2-5-9-package:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
