@@ -211,10 +211,15 @@ SOFTWARE.""",
 
         chacha_section = notices.split("## github.com/metacubex/chacha v0.1.5", 1)[1]
         self.assertIn("07294f500ca8384015f6cc21311de7b6f093607d", chacha_section)
-        self.assertIn("has no root LICENSE file", chacha_section)
-        self.assertIn("license terms remain unverified", chacha_section)
-        self.assertIn("This later file does not establish license terms for the pinned revision.", chacha_section)
-        self.assertNotIn("MIT License", chacha_section)
+        self.assertIn("7b981d42c3baca5a004e7b0ecfb9b67ee20e583a", chacha_section)
+        self.assertIn("parent is the exact pinned v0.1.5 commit", chacha_section)
+        self.assertIn("adds only the root `LICENSE` file", chacha_section)
+        self.assertIn("scanner still reports `Unknown` for v0.1.5", chacha_section)
+        self.assertIn("not a legal-compliance conclusion", chacha_section)
+        self.assertIn("https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a", chacha_section)
+        self.assertIn("Copyright (c) 2016 Andreas Auernhammer", chacha_section)
+        self.assertIn("Copyright (c) 2025 MetaCubex", chacha_section)
+        self.assertIn("Permission is hereby granted, free of charge, to any person obtaining a copy", chacha_section)
 
 
 if __name__ == "__main__":
