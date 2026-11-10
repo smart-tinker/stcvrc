@@ -79,6 +79,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             if in_job:
                 job_lines.append(line)
         job = "\n".join(job_lines)
+        self.assertNotRegex(job, r"(?m)^    permissions:", "license job must inherit workflow-level read-only permissions")
         for required in (
             "runs-on: ubuntu-24.04",
             '"$dir/go/bin/go"',
