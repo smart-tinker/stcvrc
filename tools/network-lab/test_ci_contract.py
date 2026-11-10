@@ -263,5 +263,18 @@ class CIContractTests(unittest.TestCase):
         self.assertIn('--core-sha256 "$core_sha256"', SCRIPT)
 
 
+    def test_test_module_dependency_changes_run_protocol_suite(self):
+        workflow = WORKFLOWS["test.yml"]
+        self.assertEqual(workflow.count("      - test/**"), 2,
+                         "test module changes must trigger on both push and pull_request")
+        self.assertIn("  test-module:\\n", workflow,
+                      "the test module needs its own fresh hosted-runner job")
+        job = workflow.split("\\n  test-module:\\n", 1)[1]
+        self.assertIn("runs-on: ubuntu-24.04", job)
+        self.assertIn("timeout-minutes: 30", job)
+        self.assertIn("working-directory: source/test", job)
+        self.assertIn("go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...", job)
+
+
 if __name__ == "__main__":
     unittest.main()
