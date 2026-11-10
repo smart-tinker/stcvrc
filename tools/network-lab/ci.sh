@@ -84,7 +84,12 @@ core_sha256="$CORE_SHA256"
 printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
 test -z "$(git status --porcelain)"
 "$work/core" -v | grep -F "$VERSION"
-"$work/xray" version
+version_output="$("$work/xray" version)"
+printf '%s\n' "$version_output"
+if ! grep -Eq '^Xray 26\.10\.31 \(' <<<"$version_output"; then
+  printf 'Expected Xray 26.10.31\n' >&2
+  exit 1
+fi
 
 timeout 90s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha256" \
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/failover.json"
