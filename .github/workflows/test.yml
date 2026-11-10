@@ -132,9 +132,9 @@ jobs:
           cd "$RUNNER_TEMP/profile-ci-tools"
           curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
             https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
-          printf '%s  go.tar.gz\\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
           tar -xzf go.tar.gz
-          printf '%s\\n' "$RUNNER_TEMP/profile-ci-tools/go/bin" >> "$GITHUB_PATH"
+          printf '%s\n' "$RUNNER_TEMP/profile-ci-tools/go/bin" >> "$GITHUB_PATH"
 
       - name: Build exact source revisions and parse synthetic profiles
         env:
@@ -191,13 +191,13 @@ jobs:
             fi
             grep -Fq 'mutually exclusive' "$log" || { cat "$log"; return 1; }
 
-            printf '%s source: %s\\n' "$name" "$source_sha" >> "$GITHUB_STEP_SUMMARY"
-            printf '%s binary SHA256: %s\\n' "$name" "$(sha256sum "$binary" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+            printf '%s source: %s\n' "$name" "$source_sha" >> "$GITHUB_STEP_SUMMARY"
+            printf '%s binary SHA256: %s\n' "$name" "$(sha256sum "$binary" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
           }
 
           build_and_check "1.19.29" "$V29_SOURCE_SHA"
           build_and_check "1.19.33" "$V33_SOURCE_SHA"
-          printf '\\nParser command: freshly built mihomo -d <temporary-home> -f docs/openvpn-profile-examples/<fixture>.yaml -t\\n' >> "$GITHUB_STEP_SUMMARY"
-          printf 'The three fixtures were checked against both source pins; no endpoint connection was attempted.\\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '\nParser command: freshly built mihomo -d <temporary-home> -f docs/openvpn-profile-examples/<fixture>.yaml -t\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'The three fixtures were checked against both source pins; no endpoint connection was attempted.\n' >> "$GITHUB_STEP_SUMMARY"
           rm -rf "$RUNNER_TEMP/go-1.19.29" "$RUNNER_TEMP/go-build-1.19.29" "$RUNNER_TEMP/go-mod-1.19.29" \
                  "$RUNNER_TEMP/go-1.19.33" "$RUNNER_TEMP/go-build-1.19.33" "$RUNNER_TEMP/go-mod-1.19.33"
