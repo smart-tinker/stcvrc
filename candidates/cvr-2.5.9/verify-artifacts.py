@@ -115,8 +115,12 @@ def verify(artifacts, core, manifest):
                          'trustedCommentVerified': True, 'windowsUpdaterEntriesMatch': True,
                          'negativeControlsPassed': ['changed_message', 'changed_trusted_comment', 'wrong_key_id']})
     core_sha, _ = hashes(core)
-    require(core.stat().st_size == manifest['core']['size'] and core_sha == manifest['core']['sha256'], 'custom core mismatch')
-    return {'schemaVersion': 1, 'releases': verified, 'core': manifest['core'],
+    core_size = core.stat().st_size
+    expected_core_size = manifest['core'].get('size')
+    require(expected_core_size is None or core_size == expected_core_size, 'custom core size mismatch')
+    require(core_sha == manifest['core']['sha256'], 'custom core SHA256 mismatch')
+    verified_core = dict(manifest['core'], size=core_size, sha256=core_sha)
+    return {'schemaVersion': 1, 'releases': verified, 'core': verified_core,
             'extractedPayloads': 'NOT_VERIFIED', 'nativeAcceptance': 'NOT_RUN',
             'authenticode': 'NOT_VERIFIED', 'artifactsExecuted': False, 'releasePublished': False}
 

@@ -241,8 +241,13 @@ class VerifierTests(unittest.TestCase):
     def test_fresh_core_hash_without_precomputed_size_is_bound(self):
         manifest = copy.deepcopy(self.manifest)
         manifest['core'].pop('size')
-        receipt = self.module().verify(self.root, self.core, manifest)
+        module = self.module()
+        receipt = module.verify(self.root, self.core, manifest)
         self.assertEqual(receipt['core']['size'], self.core.stat().st_size)
+        original = self.core.read_bytes()
+        self.core.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        with self.assertRaisesRegex(ValueError, 'custom core SHA256 mismatch'):
+            module.verify(self.root, self.core, manifest)
 
 
 class CandidateSourceContractTests(unittest.TestCase):
@@ -251,8 +256,14 @@ class CandidateSourceContractTests(unittest.TestCase):
         core = manifest['core']
         self.assertEqual(core['sourceCommit'], '76b7ec3ff9854d32cb3964403c065928ecdc9dd6')
         self.assertEqual(core['upstreamCommit'], '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8')
+        self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261109')
+        self.assertEqual(core['buildTime'], '2026-11-09T00:00:00Z')
+        self.assertEqual(core['goVersion'], '1.26.10')
+        self.assertEqual(core['goArchiveSha256'], 'ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5')
+        self.assertEqual(core['target'], 'windows/amd64')
+        self.assertEqual(core['tags'], ['with_gvisor'])
         self.assertEqual(core['sha256'], 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf')
-        self.assertIsNone(core.get('size'))
+        self.assertNotIn('size', core)
 
 
 if __name__ == '__main__':

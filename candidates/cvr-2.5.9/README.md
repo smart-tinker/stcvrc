@@ -1,13 +1,19 @@
 # CVR 2.5.9 compatibility candidate
 
 Refs [issue #3](https://github.com/smart-tinker/stcvrc/issues/3).
-This preparation pairs official CVR 2.5.9 with the **unchanged** STCVRC 1.19.33
-executable. It neither rebuilds the core nor changes the accepted release table.
-The recovery installer is official CVR 2.5.8.
+This preparation checks the official CVR 2.5.9 update and 2.5.8 recovery
+installers against a freshly built STCVRC 1.19.33 MIT-LZO Windows core from the
+exact source commit pinned in `inputs.json`. CI does not reuse a previously
+published core executable or change the accepted release table.
 
-## Offline artifact verification
+## CI and offline artifact verification
 
-Use Python 3.9+ with the existing `cryptography` package. The verifier reads local
+The existing GitHub Actions workflow downloads the pinned public CVR inputs and
+builds the custom core from its exact source commit on a standard Ubuntu runner.
+It verifies the build SHA and installer signatures without secrets, Actions
+cache or uploaded artifacts. The job uses ephemeral runner storage only.
+
+Use Python 3.9+ with the existing `cryptography` package for the offline verifier. The verifier reads local
 files only; it does not download, install or execute artifacts.
 
 Place these public inputs in one directory, for each `VERSION` in `2.5.8`, `2.5.9`:
@@ -45,14 +51,12 @@ the hashes or behavior of its embedded GUI, service, helper or stock core.
 | --- | --- |
 | CVR 2.5.9 | Official installer/source refs in `inputs.json` |
 | Recovery CVR 2.5.8 | Official installer/source refs in `inputs.json` |
-| Custom STCVRC core | Source `d888dfad5e785217778bb7515c931840d5307dd4`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8` |
-| Custom executable | 61,148,160 bytes, SHA256 `6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7` |
+| Custom STCVRC core | MIT-LZO source `76b7ec3ff9854d32cb3964403c065928ecdc9dd6`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8` |
+| Fresh Windows executable | SHA256 `c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf`; CI measures and records its size |
 
-The later immutable RC manifest records `packagingSourceCommit` for the clean,
-reviewed verifier/docs checkout separately from `coreSourceCommit` above. Main's
-1.19.29 source and `build-windows.ps1` do not produce this 1.19.33 executable.
-Bind that manifest to the verifier, inputs, receipt, extracted payloads and
-reviewed operator-package hashes before native acceptance. Any changed package
+The RC manifest must record the clean verifier/docs commit separately from
+`coreSourceCommit`. Bind it to the verifier, inputs, measured receipt,
+extracted payloads and reviewed operator-package hashes before native acceptance. Any changed package
 requires a new RC. Public RC assets require actual byte readback; stable requires
 applicable owner acceptance. RC, stable publication and installed state are
 separate results. Existing tags/assets must remain immutable.
@@ -91,6 +95,8 @@ DNS/routes. Follow with startup/reboot verification and the required qualified
 24-hour observation and owner acceptance. Gaps or unknown identity do not count
 as passing observation.
 
-These checks remain pending until their native evidence exists. Run required
-checks locally. GitHub Actions is unused in this cycle, including downstream
-dispatches; check actual workflow triggers before any publication.
+These checks remain pending until native evidence exists. GitHub Actions now
+runs the pinned fresh-source build and installer-integrity verification on
+standard public runners. It does not execute installers, change a Windows host,
+publish a release, or create Actions cache/artifacts. Native installation,
+recovery and owner acceptance remain separate gates.
