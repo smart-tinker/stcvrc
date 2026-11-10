@@ -50,6 +50,20 @@ class DistributionAuditContractTests(unittest.TestCase):
             self.assertEqual(item["build"]["tags"], ["with_gvisor"])
             self.assertEqual(item["build"]["cgo_enabled"], 0)
 
+    def test_unpublished_mit_lzo_candidate_records_two_identical_fresh_builds(self):
+        manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = next(item for item in manifest["variants"] if item["id"] == "candidate-1.19.33-mit-lzo")
+        self.assertEqual(
+            candidate["fresh_build_evidence"],
+            {
+                "sha256": "c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf",
+                "runs": [
+                    "https://github.com/smart-tinker/stcvrc/actions/runs/42723333952",
+                    "https://github.com/smart-tinker/stcvrc/actions/runs/42726584980",
+                ],
+            },
+        )
+
     def test_ci_audits_manifest_without_release_binary_artifacts_or_cache(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("license-audit:", workflow, "license audit job is missing")
