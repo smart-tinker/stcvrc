@@ -1,3 +1,4 @@
+import json
 import pathlib
 import re
 import unittest
@@ -11,7 +12,7 @@ SCRIPT = (HERE / "ci.sh").read_text()
 
 class CIContractTests(unittest.TestCase):
     def test_runner_and_review_gates(self):
-        self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04", "windows-2022"])
+        self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04"])
         self.assertIn("timeout-minutes: 20", WORKFLOW)
         self.assertIn("!github.event.repository.private", WORKFLOW)
         self.assertIn("!github.event.pull_request.draft", WORKFLOW)
@@ -58,7 +59,7 @@ class CIContractTests(unittest.TestCase):
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
         self.assertEqual(pins, {
-            "SOURCE_COMMIT": "d888dfad5e785217778bb7515c931840d5307dd4",
+            "SOURCE_COMMIT": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
             "GO_SHA256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
             "XRAY_ZIP_SHA256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
             "XRAY_SHA256": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
@@ -164,6 +165,29 @@ class CIContractTests(unittest.TestCase):
         assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
         self.assertIn('"schemaVersion": 2,', assembly)
         self.assertIn('manifest.get("schemaVersion") != 2', assembly)
+
+
+    def test_failover_labs_use_fresh_mit_lzo_source_on_linux_and_windows(self):
+        source_sha = "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93"
+        manifest = json.loads((HERE.parents[1] / "candidates/cvr-2.5.10/inputs.json").read_text())
+        self.assertEqual(manifest["core"]["sourceCommit"], source_sha)
+        self.assertIn(f"readonly SOURCE_COMMIT={source_sha}", SCRIPT)
+
+        windows_script = (HERE / "windows.py").read_text()
+        self.assertIn("STCVRC_CORE_PATH", windows_script)
+        self.assertNotIn("stcvrc-1.19.33-rc.1", windows_script)
+
+        source_workflow = WORKFLOWS["test.yml"]
+        job = source_workflow.split("\\n  cvr-windows-payload:\\n", 1)[1].split(
+            "\\n  assemble-draft-rc:\\n", 1
+        )[0]
+        self.assertIn("Fresh native Windows core build", job)
+        self.assertIn("Test fresh Windows candidate over loopback", job)
+        self.assertLess(job.index("Fresh native Windows core build"),
+                        job.index("Test fresh Windows candidate over loopback"))
+        self.assertIn("STCVRC_CORE_PATH", job)
+        self.assertIn("python windows.py", job)
+        self.assertNotIn("  windows-exe-lab:", WORKFLOW)
 
 
 if __name__ == "__main__":
