@@ -75,8 +75,8 @@ test -z "$(git status --porcelain)"
 "$work/core" -v
 version_output="$("$work/xray" version)"
 printf '%s\n' "$version_output"
-if ! grep -Eq '^Xray 26\\.10\\.30 \\(' <<<"$version_output"; then
-  printf 'Expected Xray 26.10.30\n' >&2
+if ! grep -Eq '^Xray 26\\.10\\.31 \\(' <<<"$version_output"; then
+  printf 'Expected Xray 26.10.31\n' >&2
   exit 1
 fi
 
