@@ -89,5 +89,12 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, script)
 
 
+    def test_synthetic_profile_clean_path_is_checked_before_creation(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        check = script.index("if (Test-Path -LiteralPath $profileRoot)")
+        create = script.index("[IO.Directory]::CreateDirectory($profileDirectory)")
+        self.assertLess(check, create, "preflight must run before creating the synthetic profile")
+
+
 if __name__ == "__main__":
     unittest.main()
