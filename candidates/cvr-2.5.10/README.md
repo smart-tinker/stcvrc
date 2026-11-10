@@ -52,7 +52,7 @@ the GUI, service, helper or stock core.
 | --- | --- |
 | CVR 2.5.10 | Official installer/source refs in `inputs.json` |
 | Recovery CVR 2.5.8 | Official installer/source refs in `inputs.json` |
-| Custom STCVRC core | MIT-LZO source `76b7ec3ff9854d32cb3964403c065928ecdc9dd6`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8` |
+| Custom STCVRC core | MIT-LZO source `92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8` |
 | Fresh Windows executable | SHA256 `c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf`; CI measures and records its size |
 
 The RC manifest must record the clean verifier/docs commit separately from
