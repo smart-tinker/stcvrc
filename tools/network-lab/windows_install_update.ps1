@@ -132,6 +132,8 @@ function Invoke-CvrInstaller {
     return $directory
 }
 
+$processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
+Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
@@ -158,6 +160,13 @@ if (-not (Test-Path -LiteralPath $stagedCore -PathType Leaf) -or
 }
 Assert-NoService
 Assert-NoCvrProcesses
+Start-Sleep -Milliseconds 250
+$processEvents = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue)
+$processNames = @($processEvents | ForEach-Object { [string]$_.SourceEventArgs.NewEvent.ProcessName })
+Unregister-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue
+$processEvents | Remove-Event -ErrorAction SilentlyContinue
+$forbiddenStarts = @($processNames | Where-Object { $_ -in @('clash-verge.exe', 'clash-verge-service.exe', 'verge-mihomo.exe', 'verge-mihomo-alpha.exe') } | Sort-Object -Unique)
+if ($forbiddenStarts.Count) { throw "Forbidden CVR process started during install smoke: $($forbiddenStarts -join ', ')" }
 
 Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value @(
     '## Bounded CVR Windows install/update smoke',

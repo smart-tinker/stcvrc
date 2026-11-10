@@ -513,7 +513,7 @@ jobs:
               if ($coreVersionOutput -notmatch '^Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64 with go1\.26\.10 2026-11-09T00:00:00Z') {
                 throw 'Fresh custom core -v reported an unexpected version'
               }
-              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The following step runs the pinned 2.5.8 install and 2.5.10 /UPDATE smoke without launching the GUI/core or starting the service."
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The final 2.5.8 install and 2.5.10 /UPDATE smoke is monitored for GUI, service and stock-core process starts."
             }
           }
 
