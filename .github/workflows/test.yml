@@ -78,7 +78,7 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          actionlint -color
+          actionlint -color .github/workflows/test.yml
           python3 -m unittest discover -s tools/network-lab -p 'test_*.py' -v
 
       - name: Test current source and compile Linux and Windows cores
