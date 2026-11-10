@@ -80,6 +80,13 @@ class CIContractTests(unittest.TestCase):
         release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
         self.assertIn("needs:\n      - source\n      - profile-contract\n      - cvr-2-5-10-package\n      - cvr-windows-payload", release_job)
 
+    def test_nested_module_tidy_preserves_committed_manifests(self):
+        job = WORKFLOWS["test.yml"].split("\n  test-module:\n", 1)[1]
+        self.assertRegex(
+            job,
+            r'go mod tidy\s+git -C "\\$GITHUB_WORKSPACE/source" diff --exit-code -- test/go\\.mod test/go\\.sum',
+        )
+
     def test_weekly_grouped_dependabot_updates(self):
         self.assertTrue(DEPENDABOT, "missing .github/dependabot.yml")
         ecosystems = re.findall(r"^  - package-ecosystem: (.+)$", DEPENDABOT, re.MULTILINE)
