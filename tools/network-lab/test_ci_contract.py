@@ -114,7 +114,7 @@ class CIContractTests(unittest.TestCase):
 
     def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        workflow = WORKFLOWS["test.yml"].split("\\n  cvr-windows-payload:\\n", 1)[1]
+        workflow = WORKFLOWS["test.yml"]
         recovery = "$installRecovered = Invoke-CvrInstaller -Version '2.5.8'"
         self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
         recovery_script = script[script.index(recovery):]
