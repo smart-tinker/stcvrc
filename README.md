@@ -73,6 +73,10 @@ replace only that core binary. The UI package and service helper remain stock.
 The release manifest records the accepted UI installer digest and its verified
 Tauri updater signature; the UI installer itself is not redistributed here.
 
+## OpenVPN profile support
+
+See the [versioned OpenVPN profile contract](docs/openvpn-profile-contract.md) for parser-supported fields, checked synthetic examples, and troubleshooting boundaries. Parser success does not establish server connectivity or platform acceptance.
+
 ## Upstream documentation
 
 Configuration and controller API documentation is maintained by MetaCubeX at
