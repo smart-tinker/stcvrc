@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly SOURCE_COMMIT=d888dfad5e785217778bb7515c931840d5307dd4
+readonly SOURCE_COMMIT=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+readonly CORE_SHA256=dce11f5ad306e80d4ac768daf744a88a412be06162ed228059b6b084842c2e56
 readonly GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
 readonly XRAY_ZIP_SHA256=e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214
 readonly XRAY_SHA256=cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1
-readonly CORE_SHA256=5c811c83dc2f8fae6dcb5933fde988f5d34bb3f87e6dbab6d130aeb30146809a
+readonly VERSION=1.19.33-STCVRC-candidate-mit-lzo-20261109
+readonly BUILD_TIME=2026-11-09T00:00:00Z
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 
@@ -66,24 +68,33 @@ export GOPATH="$work/gopath" GOCACHE="$work/gocache" GOMODCACHE="$work/gopath/pk
 export GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
 cd "$work/source"
 "$work/go/bin/go" version
+module_list="$("$work/go/bin/go" list -m all)"
+grep -Fqx 'github.com/anchore/go-lzo v0.1.1' <<<"$module_list"
+if grep -q '^github.com/rasky/go-lzo ' <<<"$module_list"; then
+  printf 'GPL-only LZO dependency remains in the selected candidate\n' >&2
+  exit 1
+fi
+timeout 90s "$work/go/bin/go" mod verify
 timeout 600s "$work/go/bin/go" build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
-  -ldflags='-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-lab-d888dfad -X github.com/metacubex/mihomo/constant.BuildTime=2026-10-22T00:00:00Z' \
+  -ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$VERSION -X github.com/metacubex/mihomo/constant.BuildTime=$BUILD_TIME" \
   -o "$work/core" .
 printf '%s  %s\n' "$CORE_SHA256" "$work/core" | sha256sum --check --status
-timeout 90s "$work/go/bin/go" mod verify
+core_sha256="$CORE_SHA256"
+[[ "$core_sha256" =~ ^[0-9a-f]{64}$ ]]
+printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
 test -z "$(git status --porcelain)"
-"$work/core" -v
+"$work/core" -v | grep -F "$VERSION"
 "$work/xray" version
 
-timeout 90s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$CORE_SHA256" \
+timeout 90s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha256" \
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/failover.json"
-timeout 45s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$CORE_SHA256" \
+timeout 45s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha256" \
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" --check-tls-rejection | tee "$work/tls.json"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     printf '## STCVRC Linux loopback pilot\n\n'
-    printf 'Source: %s\n\nLinux binary SHA256: %s\n\n' "$SOURCE_COMMIT" "$CORE_SHA256"
+    printf 'Source: %s\n\nFresh Linux/amd64 SHA256: %s\n\n' "$SOURCE_COMMIT" "$core_sha256"
     printf 'Xray 26.10.31 SHA256: %s\n\n' "$XRAY_SHA256"
     printf '```json\n'
     cat "$work/failover.json" "$work/tls.json"

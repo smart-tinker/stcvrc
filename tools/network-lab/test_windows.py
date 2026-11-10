@@ -84,14 +84,35 @@ class WindowsInputsTests(unittest.TestCase):
                 self.assertEqual(ctypes.get_last_error(), 87)  # Process already disappeared.
             held_file.unlink()  # Windows refuses this while the child's handle is open.
 
-    def test_download_rejects_changed_release_bytes(self):
+    def test_download_rejects_changed_xray_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             target = pathlib.Path(directory) / "core.exe"
             response = io.BytesIO(b"changed release")
             response.url = "https://example.invalid/core.exe"
             with mock.patch.object(windows.urllib.request, "urlopen", return_value=response):
                 with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
-                    windows.download(windows.CORE_URL, target, windows.CORE_SHA)
+                    windows.download(windows.XRAY_URL, target, windows.XRAY_ZIP_SHA)
+
+    def test_fresh_core_requires_the_built_path_and_checks_its_sha(self):
+        with mock.patch.dict(windows.os.environ, {}, clear=True):
+            with self.assertRaisesRegex(SystemExit, "Fresh STCVRC build path and SHA are required"):
+                windows.fresh_core()
+
+        with tempfile.TemporaryDirectory() as directory:
+            core = pathlib.Path(directory) / "fresh-core.exe"
+            core.write_bytes(b"fresh source build")
+            expected = hashlib.sha256(core.read_bytes()).hexdigest()
+            env = {"STCVRC_CORE_PATH": str(core), "STCVRC_CORE_SHA256": expected}
+            with mock.patch.dict(windows.os.environ, env, clear=True):
+                actual_path, actual_sha = windows.fresh_core()
+            self.assertEqual(actual_path, core.resolve())
+            self.assertEqual(actual_sha, expected)
+
+            env["STCVRC_CORE_SHA256"] = "0" * 64
+            with mock.patch.dict(windows.os.environ, env, clear=True):
+                with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
+                    windows.fresh_core()
+
 
     def test_extracts_only_the_known_executable(self):
         with tempfile.TemporaryDirectory() as directory:
