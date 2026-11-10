@@ -119,12 +119,13 @@ class CIContractTests(unittest.TestCase):
         self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
         recovery_script = script[script.index(recovery):]
         for required in (
-            "Get-InstalledCvrDirectory -ExpectedVersion '2.5.8'",
-            "CVR recovery did not preserve the synthetic profile marker",
-            "Fresh candidate core was not restored after recovery",
+            "Assert-ProfilePreserved -Phase 'recovery'",
+            "Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, recovery_script)
+        self.assertIn('throw "CVR $Phase did not preserve the synthetic profile marker."', script)
+        self.assertIn('throw "Fresh candidate core was not restored after $Phase."', script)
         self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", workflow)
 
 
