@@ -18,7 +18,7 @@ The unpublished MIT-LZO candidate pins source commit 92107a2605e19df0cb0d8b7bb08
 
 The historical RC2 source.json patchSource record needs correction: it names base 88dcbf7f (the v1.19.32-era base), while the candidate's declared upstream is 3f27ef39 (v1.19.33). The referenced public commit 9ccecd85 resolves to a STCVRC commit whose changed files are under the v1.19.32 candidate-preparation tree, not a Mihomo source-patch commit. CI reports this mismatch rather than treating the record as verified. The exact .33 source tree and its 14 file digests can still be checked against upstream; the origin of the patch archive/digest itself remains unproven.
 
-CI fetches each exact source tag and upstream tag, verifies their peeled commits, tests the exact source, builds the Windows executable from scratch, checks the expected binary SHA256, and runs dependency-license inventory against that same source/build target. It never downloads or uses either previously built STCVRC executable. Each line gets an isolated temporary Go module/build cache; no Actions cache or artifact is used.
+CI fetches each exact source revision and upstream tag, verifies their peeled commits, tests the exact source, builds the Windows executable from scratch, checks the expected binary SHA256, and runs dependency-license inventory against that same source/build target. It never downloads or uses either previously built STCVRC executable. Each line gets an isolated temporary Go module/build cache; no Actions cache or artifact is used.
 
 ## Distributed release assets
 
