@@ -3,10 +3,13 @@ import re
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
-WORKFLOW = (HERE.parents[1] / ".github/workflows/stcvrc-network-lab.yml").read_text()
+ROOT = HERE.parents[1]
+WORKFLOW = (ROOT / ".github/workflows/stcvrc-network-lab.yml").read_text()
 WORKFLOWS = {path.name: path.read_text() for path in
-             (HERE.parents[1] / ".github/workflows").glob("*.y*ml")}
+             (ROOT / ".github/workflows").glob("*.y*ml")}
 SCRIPT = (HERE / "ci.sh").read_text()
+DEPENDABOT_PATH = ROOT / ".github/dependabot.yml"
+DEPENDABOT = DEPENDABOT_PATH.read_text() if DEPENDABOT_PATH.is_file() else ""
 
 
 class CIContractTests(unittest.TestCase):
@@ -19,21 +22,53 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", WORKFLOW)
 
     def test_no_privileged_or_paid_automation_paths(self):
-        self.assertEqual(set(WORKFLOWS), {"test.yml", "stcvrc-network-lab.yml"})
-        for workflow in WORKFLOWS.values():
-            self.assertIn("push:\n    branches: [main]", workflow)
-            self.assertIn("pull_request:\n    branches: [main]", workflow)
-            self.assertIn("permissions:\n  contents: read", workflow)
-            self.assertIn("!github.event.repository.private", workflow)
-            self.assertIn("!github.event.pull_request.draft", workflow)
-            self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+        self.assertEqual(set(WORKFLOWS), {
+            "test.yml",
+            "stcvrc-network-lab.yml",
+            "codeql.yml",
+            "dependency-review.yml",
+        })
+        for name, workflow in WORKFLOWS.items():
+            self.assertIn("pull_request:\n    branches: [main]", workflow, name)
+            self.assertIn("permissions:\n  contents: read", workflow, name)
+            self.assertIn("!github.event.repository.private", workflow, name)
+            self.assertIn("!github.event.pull_request.draft", workflow, name)
+            self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
             self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
+        for name in ("test.yml", "stcvrc-network-lab.yml", "codeql.yml"):
+            self.assertIn("push:\n    branches: [main]", WORKFLOWS[name], name)
+
+        refs = re.findall(r"^\s*uses:\s*([^\s#]+)", "\n".join(WORKFLOWS.values()), re.MULTILINE)
+        self.assertEqual({ref.split("@", 1)[0] for ref in refs}, {
+            "actions/checkout",
+            "github/codeql-action/init",
+            "github/codeql-action/analyze",
+            "actions/dependency-review-action",
+        })
+        self.assertTrue(all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref) for ref in refs))
+        self.assertIn("security-events: write", WORKFLOWS["codeql.yml"])
+        self.assertIn("actions: read", WORKFLOWS["codeql.yml"])
+        self.assertNotIn("security-events: write", WORKFLOWS["dependency-review.yml"])
+
         for forbidden in ("pull_request_target", "workflow_run:", "schedule:", "tags:",
-                          "uses:", "secrets.", "GITHUB_TOKEN", "GH_TOKEN", "write-all",
+                          "secrets.", "GITHUB_TOKEN", "GH_TOKEN", "write-all",
                           "upload-artifact", "download-artifact", "actions/cache", "sudo ",
                           "--privileged", "self-hosted", "docker ", "--force", "/dispatches"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, "\n".join(WORKFLOWS.values()) + SCRIPT)
+
+    def test_weekly_grouped_dependabot_updates(self):
+        self.assertTrue(DEPENDABOT, "missing .github/dependabot.yml")
+        ecosystems = re.findall(r"^  - package-ecosystem: (.+)$", DEPENDABOT, re.MULTILINE)
+        directories = re.findall(r"^    directory: (.+)$", DEPENDABOT, re.MULTILINE)
+        self.assertEqual(ecosystems, ["gomod", "gomod", "github-actions"])
+        self.assertEqual(directories, ["/", "/test", "/"])
+        self.assertEqual(DEPENDABOT.count("interval: weekly"), 3)
+        self.assertEqual(len(re.findall(r"^        - \"\*\"$", DEPENDABOT, re.MULTILINE)), 3)
+        self.assertEqual(DEPENDABOT.count("update-types:"), 3)
+
+    def test_dependabot_changes_run_the_contract_check(self):
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/dependabot.yml"), 2)
 
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))

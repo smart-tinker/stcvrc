@@ -9,6 +9,7 @@ name: STCVRC source checks
       - go.sum
       - component/ca/ca-certificates.crt
       - .github/workflows/**
+      - .github/dependabot.yml
       - README.md
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
@@ -22,6 +23,7 @@ name: STCVRC source checks
       - go.sum
       - component/ca/ca-certificates.crt
       - .github/workflows/**
+      - .github/dependabot.yml
       - README.md
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
