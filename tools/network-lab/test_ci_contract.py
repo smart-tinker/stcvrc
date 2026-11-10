@@ -273,6 +273,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", job)
         self.assertIn("timeout-minutes: 30", job)
         self.assertIn("working-directory: source/test", job)
+        self.assertIn("go mod tidy", job)
         self.assertIn("go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...", job)
 
 

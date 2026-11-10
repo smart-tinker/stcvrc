@@ -834,5 +834,6 @@ jobs:
           export GOCACHE="$RUNNER_TEMP/test-go-cache"
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
           go version
+          go mod tidy
           go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...
           go mod verify
