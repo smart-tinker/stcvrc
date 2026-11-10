@@ -129,5 +129,21 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", workflow)
 
 
+    def test_rc4_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
+        assembly = WORKFLOWS["test.yml"].split("\\n  assemble-draft-rc:\\n", 1)[1]
+        self.assertIn("tag=stcvrc-1.19.33-rc.4", assembly)
+        self.assertIn("STCVRC 1.19.33 RC4", assembly)
+        for status in (
+            '"disposableWindowsInstallUpdateRecovery": "PASS"',
+            '"authenticodeSignerAcceptance": "NOT_REVIEWED"',
+            '"nativeGuiServiceTunDns": "NOT_RUN"',
+            '"licenseAudit": "INCOMPLETE_ISSUE_7"',
+            '"userAcceptance": "NOT_RUN"',
+            '"productionDeployment": "NOT_AUTHORIZED"',
+        ):
+            with self.subTest(status=status):
+                self.assertEqual(assembly.count(status), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
