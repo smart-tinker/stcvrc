@@ -10,7 +10,7 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - tools/network-lab/**
-      - candidates/cvr-2.5.9/**
+      - candidates/cvr-2.5.10/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
@@ -21,7 +21,7 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - tools/network-lab/**
-      - candidates/cvr-2.5.9/**
+      - candidates/cvr-2.5.10/**
   workflow_dispatch: {}
 
 permissions:
@@ -102,7 +102,7 @@ jobs:
           test -z "$(git status --porcelain)"
           printf '\nCurrent-source tests and Linux/Windows compilation passed. These are CI builds, not release artifacts.\n' >> "$GITHUB_STEP_SUMMARY"
 
-  cvr-2-5-9-package:
+  cvr-2-5-10-package:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
@@ -149,12 +149,12 @@ jobs:
         run: |
           set -euo pipefail
           actionlint -color "$PR_SOURCE/.github/workflows/test.yml"
-          python3 -B -m unittest discover -s "$PR_SOURCE/candidates/cvr-2.5.9" -p 'test_*.py' -v
+          python3 -B -m unittest discover -s "$PR_SOURCE/candidates/cvr-2.5.10" -p 'test_*.py' -v
 
       - name: Download only pinned public CVR inputs
         run: |
           set -euo pipefail
-          manifest="$PR_SOURCE/candidates/cvr-2.5.9/inputs.json"
+          manifest="$PR_SOURCE/candidates/cvr-2.5.10/inputs.json"
           downloads="$RUNNER_TEMP/cvr-downloads.tsv"
           input_dir="$RUNNER_TEMP/cvr-public-inputs"
           mkdir -p "$input_dir"
@@ -248,5 +248,5 @@ jobs:
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
             "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
           test -z "$(git -C "$core_source" status --porcelain)"
-          python3 -B "$PR_SOURCE/candidates/cvr-2.5.9/verify-artifacts.py" \
+          python3 -B "$PR_SOURCE/candidates/cvr-2.5.10/verify-artifacts.py" \
             --artifacts "$RUNNER_TEMP/cvr-public-inputs" --core "$binary" | tee -a "$GITHUB_STEP_SUMMARY"
