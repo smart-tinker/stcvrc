@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   validate:
+    if: github.repository == 'smart-tinker/stcvrc' && !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -52,7 +53,7 @@ jobs:
           tools="$RUNNER_TEMP/ci-tools"
           mkdir -p "$tools"
           cd "$tools"
-          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 120 --silent --show-error \
             https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
           printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
           tar -xzf go.tar.gz
@@ -64,7 +65,6 @@ jobs:
           export GOPATH="$RUNNER_TEMP/go-path"
           export GOCACHE="$RUNNER_TEMP/go-build"
           export GOMODCACHE="$RUNNER_TEMP/go-mod"
-          trap 'rm -rf "$GOPATH" "$GOCACHE" "$GOMODCACHE"' EXIT
           rm -rf "$GOPATH" "$GOCACHE" "$GOMODCACHE"
           mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
           cd "$RUNNER_TEMP/source"
@@ -76,4 +76,4 @@ jobs:
             -o "$RUNNER_TEMP/core-windows.exe" .
           timeout 90s go mod verify
           test -z "$(git status --porcelain)"
-          printf '\nOpenVPN tests, fresh Linux/Windows builds, and module verification passed. No Actions artifacts or cache are used.\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '\nOpenVPN tests, fresh Linux/Windows builds, and module verification passed. No Actions cache or artifact upload is configured; runner-local Go caches are discarded with the hosted runner.\n' >> "$GITHUB_STEP_SUMMARY"
