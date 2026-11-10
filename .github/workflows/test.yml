@@ -33,12 +33,7 @@ concurrency:
 
 jobs:
   source:
-    if: >-
-      github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -103,11 +98,7 @@ jobs:
           printf '\nCurrent-source tests and Linux/Windows compilation passed. These are CI builds, not release artifacts.\n' >> "$GITHUB_STEP_SUMMARY"
 
   cvr-2.5.9-package:
-    if: >-
-      github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -116,7 +107,7 @@ jobs:
     steps:
       - name: Fetch the exact pull request source
         env:
-          SOURCE_SHA: \${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
