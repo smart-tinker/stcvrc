@@ -276,7 +276,7 @@ jobs:
     steps:
       - name: Fetch exact RC manifest source
         env:
-          SOURCE_SHA: \${{ github.sha }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -343,9 +343,9 @@ jobs:
 
       - name: Create and read back the draft RC release
         env:
-          GH_TOKEN: \${{ github.token }}
-          RUN_ID: \${{ github.run_id }}
-          HEAD_SHA: \${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           tag=stcvrc-1.19.33-rc.3
