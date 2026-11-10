@@ -82,10 +82,10 @@ class CIContractTests(unittest.TestCase):
 
     def test_nested_module_tidy_preserves_committed_manifests(self):
         job = WORKFLOWS["test.yml"].split("\n  test-module:\n", 1)[1]
-        self.assertRegex(
-            job,
-            r'go mod tidy\s+git -C "\\$GITHUB_WORKSPACE/source" diff --exit-code -- test/go\\.mod test/go\\.sum',
-        )
+        drift_check = 'git -C "$GITHUB_WORKSPACE/source" diff --exit-code -- test/go.mod test/go.sum'
+        self.assertIn("go mod tidy", job)
+        self.assertIn(drift_check, job)
+        self.assertLess(job.index("go mod tidy"), job.index(drift_check))
 
     def test_weekly_grouped_dependabot_updates(self):
         self.assertTrue(DEPENDABOT, "missing .github/dependabot.yml")
