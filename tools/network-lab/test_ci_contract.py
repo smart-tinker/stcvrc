@@ -79,7 +79,7 @@ class CIContractTests(unittest.TestCase):
 
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]
-        job = workflow.split("\\n  cvr-windows-payload:\\n", 1)[1].split("\\n  assemble-draft-rc:\\n", 1)[0]
+        job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
         self.assertIn("Install 2.5.8 then update to 2.5.10", job)
