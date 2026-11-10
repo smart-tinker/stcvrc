@@ -337,9 +337,8 @@ jobs:
           test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
           test "$binary_size" = 61143552
           test -z "$(git -C "$core_source" status --porcelain)"
-          echo "RC_BINARY=$binary" >> "$GITHUB_ENV"
-          echo "RC_BINARY_SHA=$binary_sha" >> "$GITHUB_ENV"
-          echo "RC_BINARY_SIZE=$binary_size" >> "$GITHUB_ENV"
+          printf 'RC_BINARY=%s\nRC_BINARY_SHA=%s\nRC_BINARY_SIZE=%s\n' \
+            "$binary" "$binary_sha" "$binary_size" >> "$GITHUB_ENV"
 
       - name: Create and read back the draft RC release
         env:
