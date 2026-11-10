@@ -33,7 +33,7 @@ class DistributionAuditContractTests(unittest.TestCase):
                 "distribution_status": "unpublished-candidate",
                 "release_tag": None,
                 "asset_sha256": None,
-                "source_commit": "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
+                "source_commit": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
                 "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
                 "go_version": "1.26.10",
                 "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
@@ -143,7 +143,7 @@ class DistributionAuditContractTests(unittest.TestCase):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
         self.assertEqual(candidate["distribution_status"], "unpublished-candidate")
-        self.assertEqual(candidate["source_commit"], "76b7ec3ff9854d32cb3964403c065928ecdc9dd6")
+        self.assertEqual(candidate["source_commit"], "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93")
         self.assertEqual(candidate["upstream_commit"], "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8")
         self.assertEqual(candidate["go_version"], "1.26.10")
         self.assertEqual(candidate["go_sha256"], "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5")
@@ -165,7 +165,7 @@ class DistributionAuditContractTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         for required in (
             "candidate-1.19.33-mit-lzo",
-            "76b7ec3ff9854d32cb3964403c065928ecdc9dd6",
+            "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
             "github.com/anchore/go-lzo v0.1.1",
             "github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=",
             "github.com/rasky/go-lzo",
