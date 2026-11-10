@@ -130,32 +130,46 @@ function Invoke-CvrInstaller {
     return $directory
 }
 
+function Assert-ProfilePreserved {
+    param([string]$Phase)
+    if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $profileSha) {
+        throw "CVR $Phase did not preserve the synthetic profile marker."
+    }
+}
+function Install-CandidateCore {
+    param([string]$InstallDirectory, [string]$Phase)
+    $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $installedCore -PathType Leaf)) { throw "CVR $Phase core path is missing." }
+    Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $installedCore -Force
+    if ((Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
+        throw "Fresh candidate core was not restored after $Phase."
+    }
+    $helpers = @(Get-ChildItem -LiteralPath $InstallDirectory -Recurse -File -Filter 'clash-verge-service-install.exe')
+    if ($helpers.Count -ne 1) { throw "Expected one service core-staging helper after $Phase; found $($helpers.Count)." }
+    $stageOutput = & $helpers[0].FullName --install-core $installedCore --sha256 $coreSha 2>&1
+    $stageExit = $LASTEXITCODE
+    if ($stageExit -ne 0) { throw "SHA-pinned core staging failed after $Phase ($stageExit): $($stageOutput -join ' ')" }
+    $stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $stagedCore -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $stagedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
+        throw "Service helper did not stage the fresh candidate core after $Phase."
+    }
+}
+
 $processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
 Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
+Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline'
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
-if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf) -or
-    (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $profileSha) {
-    throw 'CVR 2.5.10 update did not preserve the synthetic profile marker.'
-}
+Assert-ProfilePreserved -Phase '2.5.10 update'
+Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update'
 
-$installedCore = Join-Path $install2510 'verge-mihomo.exe'
-if (-not (Test-Path -LiteralPath $installedCore -PathType Leaf)) { throw 'CVR 2.5.10 core path is missing.' }
-Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $installedCore -Force
-if ((Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
-    throw 'Fresh candidate core did not replace the installed CVR core bytes.'
-}
-$helpers = @(Get-ChildItem -LiteralPath $install2510 -Recurse -File -Filter 'clash-verge-service-install.exe')
-if ($helpers.Count -ne 1) { throw "Expected one installed service core-staging helper; found $($helpers.Count)." }
-$stageOutput = & $helpers[0].FullName --install-core $installedCore --sha256 $coreSha 2>&1
-$stageExit = $LASTEXITCODE
-if ($stageExit -ne 0) { throw "SHA-pinned core staging failed ($stageExit): $($stageOutput -join ' ')" }
-$stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
-if (-not (Test-Path -LiteralPath $stagedCore -PathType Leaf) -or
-    (Get-FileHash -LiteralPath $stagedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
-    throw 'Service helper did not stage the fresh candidate core bytes.'
-}
+$installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS')
+if ($installRecovered -ne $install258) { throw 'CVR recovery changed the registered install directory.' }
+Assert-ProfilePreserved -Phase 'recovery'
+Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'
 Assert-NoService
 Assert-NoCvrProcesses
 Start-Sleep -Milliseconds 250
@@ -168,7 +182,7 @@ if ($forbiddenStarts.Count) { throw "Forbidden CVR process started during instal
 
 Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value @(
     '## Bounded CVR Windows install/update smoke',
-    '- Pinned 2.5.8 install and 2.5.10 /UPDATE passed on the clean disposable runner.',
+    '- Pinned 2.5.8 install, 2.5.10 /UPDATE, and recovery to 2.5.8 passed on the clean disposable runner.',
     '- Registry versions and the synthetic profile marker were verified.',
     '- Fresh STCVRC core bytes were SHA-checked in the app and service core locations.',
     '- No CVR GUI/core process was launched and no Windows service was created or started.',

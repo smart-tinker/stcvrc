@@ -517,7 +517,7 @@ jobs:
             }
           }
 
-      - name: Install 2.5.8 then update to 2.5.10
+      - name: Install 2.5.8, update to 2.5.10, then recover to 2.5.8
         run: |
           & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
 
