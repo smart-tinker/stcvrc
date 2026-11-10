@@ -130,7 +130,7 @@ class CIContractTests(unittest.TestCase):
 
 
     def test_rc4_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
-        assembly = WORKFLOWS["test.yml"].split("\\n  assemble-draft-rc:\\n", 1)[1]
+        assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
         self.assertIn("tag=stcvrc-1.19.33-rc.4", assembly)
         self.assertIn("STCVRC 1.19.33 RC4", assembly)
         for status in (
@@ -143,6 +143,20 @@ class CIContractTests(unittest.TestCase):
         ):
             with self.subTest(status=status):
                 self.assertEqual(assembly.count(status), 2)
+
+
+    def test_installed_gui_matches_exact_extracted_release_payload(self):
+        workflow = WORKFLOWS["test.yml"]
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        for required in (
+            "CVR_258_GUI_SHA256",
+            "CVR_2510_GUI_SHA256",
+            "$guiPath = Join-Path $fullPath 'clash-verge.exe'",
+            "Get-FileHash -LiteralPath $guiPath -Algorithm SHA256",
+            "Installed CVR GUI SHA256 mismatch",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, workflow + script)
 
 
 if __name__ == "__main__":
