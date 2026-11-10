@@ -112,5 +112,21 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, script)
 
 
+    def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        workflow = WORKFLOWS["test.yml"].split("\\n  cvr-windows-payload:\\n", 1)[1]
+        recovery = "$installRecovered = Invoke-CvrInstaller -Version '2.5.8'"
+        self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
+        recovery_script = script[script.index(recovery):]
+        for required in (
+            "Get-InstalledCvrDirectory -ExpectedVersion '2.5.8'",
+            "CVR recovery did not preserve the synthetic profile marker",
+            "Fresh candidate core was not restored after recovery",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, recovery_script)
+        self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
