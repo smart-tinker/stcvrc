@@ -141,10 +141,7 @@ jobs:
           printf '%s  %s\n' 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757 "$tool/actionlint.tar.gz" | sha256sum --check --status
           tar -xzf "$tool/actionlint.tar.gz" -C "$tool" actionlint
           echo "$tool" >> "$GITHUB_PATH"
-          if ! python3 -c 'import cryptography' >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y python3-cryptography
-          fi
+          python3 -c 'import cryptography'
 
       - name: Validate workflows and verifier fixtures
         env:
