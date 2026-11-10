@@ -10,6 +10,8 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - .github/dependabot.yml
+      - .github/ISSUE_TEMPLATE/**
+      - .github/PULL_REQUEST_TEMPLATE.md
       - README.md
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
@@ -24,6 +26,8 @@ name: STCVRC source checks
       - component/ca/ca-certificates.crt
       - .github/workflows/**
       - .github/dependabot.yml
+      - .github/ISSUE_TEMPLATE/**
+      - .github/PULL_REQUEST_TEMPLATE.md
       - README.md
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
