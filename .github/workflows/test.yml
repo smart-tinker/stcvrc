@@ -12,6 +12,7 @@ name: STCVRC source checks
       - README.md
       - docs/license-audit.md
       - docs/license-provenance.json
+      - docs/third-party-notices.md
       - tools/license-audit/**
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
@@ -28,6 +29,7 @@ name: STCVRC source checks
       - README.md
       - docs/license-audit.md
       - docs/license-provenance.json
+      - docs/third-party-notices.md
       - tools/license-audit/**
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**

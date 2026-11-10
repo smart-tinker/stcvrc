@@ -117,7 +117,7 @@ class DistributionAuditContractTests(unittest.TestCase):
 
     def test_license_audit_docs_trigger_source_checks(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json"):
+        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json", "docs/third-party-notices.md"):
             self.assertGreaterEqual(
                 workflow.count(f"      - {path}"),
                 2,
@@ -175,27 +175,46 @@ class DistributionAuditContractTests(unittest.TestCase):
             self.assertIn(required, workflow)
 
 
-    def test_public_notices_include_pinned_mit_dependency_text(self):
+    def test_public_notice_includes_mit_lzo_and_flags_unresolved_chacha(self):
         path = ROOT / "docs" / "third-party-notices.md"
         self.assertTrue(path.is_file(), "public third-party notice file is missing")
         notices = path.read_text(encoding="utf-8")
-        for required in (
-            "github.com/metacubex/chacha v0.1.5",
-            "07294f500ca8384015f6cc21311de7b6f093607d",
-            "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE",
-            "Copyright (c) 2016 Andreas Auernhammer",
-            "Copyright (c) 2025 MetaCubex",
-            "github.com/anchore/go-lzo v0.1.1",
-            "Copyright (c) 2025 Anchore, Inc",
-            "Permission is hereby granted, free of charge",
-        ):
-            self.assertIn(required, notices)
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertGreaterEqual(
-            workflow.count("      - docs/third-party-notices.md"),
-            2,
-            "notice edits must trigger push and pull_request checks",
+        lzo_section = notices.split("## github.com/anchore/go-lzo v0.1.1", 1)[1]
+        lzo_section = lzo_section.split("\n## github.com/metacubex/chacha", 1)[0]
+        self.assertIn("https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE", lzo_section)
+        fence = chr(96) * 3 + "text\n"
+        license_text = lzo_section.split(fence, 1)[1].split("\n" + chr(96) * 3, 1)[0]
+        self.assertEqual(
+            license_text,
+            """MIT License
+
+Copyright (c) 2025 Anchore, Inc
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.""",
         )
+
+        chacha_section = notices.split("## github.com/metacubex/chacha v0.1.5", 1)[1]
+        self.assertIn("07294f500ca8384015f6cc21311de7b6f093607d", chacha_section)
+        self.assertIn("has no root LICENSE file", chacha_section)
+        self.assertIn("license terms remain unverified", chacha_section)
+        self.assertIn("This later file does not establish license terms for the pinned revision.", chacha_section)
+        self.assertNotIn("MIT License", chacha_section)
 
 
 if __name__ == "__main__":
