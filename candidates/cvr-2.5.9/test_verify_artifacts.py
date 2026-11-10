@@ -266,5 +266,10 @@ class CandidateSourceContractTests(unittest.TestCase):
         self.assertNotIn('size', core)
 
 
+    def test_release_pair_pins_2_5_8_recovery_and_2_5_10_update(self):
+        manifest = json.loads(SCRIPT.with_name('inputs.json').read_text(encoding='utf-8'))
+        self.assertEqual([release['version'] for release in manifest['releases']], ['2.5.8', '2.5.10'])
+
+
 if __name__ == '__main__':
     unittest.main()
