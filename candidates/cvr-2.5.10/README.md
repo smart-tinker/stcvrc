@@ -8,13 +8,13 @@ published core executable or change the accepted release table.
 
 ## CI and offline artifact verification
 
-The existing GitHub Actions workflow downloads the pinned public CVR inputs and
-builds the custom core from its exact source commit on a standard Ubuntu runner.
-It verifies the build SHA and installer signatures without secrets, Actions
-cache or uploaded artifacts. The job uses ephemeral runner storage only.
+The existing GitHub Actions workflows use standard public Ubuntu and Windows
+runners. They build the current source and pinned candidate from exact commits,
+verify the CVR installer signatures and hashes, then run a bounded install/update
+smoke only on a clean disposable Windows runner. No secrets, Actions cache or
+uploaded artifacts are used.
 
-Use Python 3.9+ with the existing `cryptography` package for the offline verifier. The verifier reads local
-files only; it does not download, install or execute artifacts.
+Use Python 3.9+ with the existing `cryptography` package for the offline verifier. This verifier reads the already downloaded files only; it does not download, install or execute them.
 
 Place these public inputs in one directory, for each `VERSION` in `2.5.8`, `2.5.10`:
 
@@ -41,9 +41,10 @@ release identities and both Windows updater entries. Synthetic tests use real
 Ed25519 signing and cover substitutions and malformed inputs.
 
 The receipt records the verifier and input-manifest hashes and public component
-identities. It explicitly leaves extracted payloads, Authenticode, native
-acceptance and publication unverified. Installer integrity does not establish
-the hashes or behavior of its embedded GUI, service, helper or stock core.
+identities. The offline receipt explicitly leaves extracted payloads, Authenticode, native
+acceptance and publication unverified. A separate disposable-runner install smoke
+is described below; installer integrity alone does not establish the behavior of
+the GUI, service, helper or stock core.
 
 ## Component provenance and RC freeze
 

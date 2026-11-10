@@ -90,6 +90,8 @@ foreach ($release in $manifest.releases) {
 }
 
 $profilePath = Join-Path $profileDirectory 'ci-update-preserve.yaml'
+$profileRoot = Split-Path -Parent $profileDirectory
+if (Test-Path -LiteralPath $profileRoot) { throw 'Synthetic CVR app data unexpectedly exists before setup.' }
 [IO.Directory]::CreateDirectory($profileDirectory) | Out-Null
 [IO.File]::WriteAllText($profilePath, "synthetic-ci-profile-preserve" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 $profileSha = (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -130,8 +132,6 @@ function Invoke-CvrInstaller {
     return $directory
 }
 
-$profileRoot = Split-Path -Parent $profileDirectory
-if (Test-Path -LiteralPath $profileRoot) { throw 'Synthetic CVR app data unexpectedly exists before setup.' }
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
