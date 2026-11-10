@@ -349,69 +349,85 @@ jobs:
           set -euo pipefail
           tag=stcvrc-1.19.33-rc.3
           repo=smart-tinker/stcvrc
-          if gh api "repos/$repo/releases/tags/$tag" --jq .id >/dev/null 2>&1; then
-            printf 'Refusing to overwrite existing tag/release %s\n' "$tag" >&2
-            exit 1
+          release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
+          if [[ -z "$release_id" ]]; then
+            gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
+              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC3 — CVR 2.5.10 candidate" --notes-file "$notes"
+            release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
-          manifest="$RUNNER_TEMP/RC-MANIFEST.json"
-          python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$manifest" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$RUN_ID" "$HEAD_SHA" <<'PY'
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          api="repos/$repo/releases/$release_id"
+          test "$(gh api "$api" --jq .draft)" = true
+          test "$(gh api "$api" --jq .prerelease)" = true
+          test "$(gh api "$api" --jq .tag_name)" = "$tag"
+          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC3 — CVR 2.5.10 candidate"
+          release_target="$(gh api "$api" --jq .target_commitish)"
+          assets_api="$api/assets"
+          asset_names="$(gh api "$assets_api" --paginate --jq '.[].name' | LC_ALL=C sort)"
+          test "$asset_names" = "$(printf 'RC-MANIFEST.json\\nverge-mihomo.exe')"
+
+          readback="$RUNNER_TEMP/rc-readback"
+          mkdir "$readback"
+          for asset_name in RC-MANIFEST.json verge-mihomo.exe; do
+            asset_id="$(gh api "$assets_api" --paginate --jq ".[] | select(.name == \"$asset_name\") | .id")"
+            [[ "$asset_id" =~ ^[0-9]+$ ]]
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+              --max-time 300 --max-filesize 67108864 --silent --show-error \
+              -H "Accept: application/octet-stream" -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$repo/releases/assets/$asset_id" -o "$readback/$asset_name"
+          done
+          cmp --silent "$RC_BINARY" "$readback/verge-mihomo.exe"
+          test "$(sha256sum "$readback/verge-mihomo.exe" | awk '{print $1}')" = "$RC_BINARY_SHA"
+          test "$(stat -c %s "$readback/verge-mihomo.exe")" = "$RC_BINARY_SIZE"
+          creator_run_id="$(python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$readback/RC-MANIFEST.json" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$tag" "$release_target" <<'PY'
           import hashlib
           import json
+          import re
           from pathlib import Path
           import sys
 
-          inputs_path, output_path = map(Path, sys.argv[1:3])
-          inputs_bytes = inputs_path.read_bytes()
-          inputs = json.loads(inputs_bytes)
+          inputs_path, manifest_path = map(Path, sys.argv[1:3])
+          expected_sha, expected_size, tag, release_target = sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6]
+          input_bytes = inputs_path.read_bytes()
+          inputs = json.loads(input_bytes)
           releases = {item["version"]: item for item in inputs["releases"]}
-          if set(releases) != {"2.5.8", "2.5.10"}:
-              raise SystemExit("RC manifest must pin recovery 2.5.8 and update 2.5.10")
-          core = dict(inputs["core"])
-          core.update(sha256=sys.argv[3], size=int(sys.argv[4]))
-          receipt = {
-              "schemaVersion": 1,
-              "releaseTag": "stcvrc-1.19.33-rc.3",
-              "releaseState": "DRAFT_NOT_PUBLISHED",
-              "createdByWorkflowRun": int(sys.argv[5]),
-              "workflowHeadSha": sys.argv[6],
-              "inputManifestSha256": hashlib.sha256(inputs_bytes).hexdigest(),
-              "recovery": releases["2.5.8"],
-              "update": releases["2.5.10"],
-              "core": core,
-              "acceptance": {
-                  "installerExecuted": False,
-                  "extractedPayloads": "NOT_VERIFIED",
-                  "authenticode": "NOT_VERIFIED",
-                  "nativeWindowsAcceptance": "NOT_RUN",
-                  "productionDeployment": "NOT_AUTHORIZED"
-              }
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          expected_core = dict(inputs["core"], sha256=expected_sha, size=expected_size)
+          expected_acceptance = {
+              "installerExecuted": False,
+              "extractedPayloads": "NOT_VERIFIED",
+              "authenticode": "NOT_VERIFIED",
+              "nativeWindowsAcceptance": "NOT_RUN",
+              "productionDeployment": "NOT_AUTHORIZED",
           }
-          output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          if set(releases) != {"2.5.8", "2.5.10"}:
+              raise SystemExit("Unexpected CVR release pair")
+          if manifest.get("schemaVersion") != 1 or manifest.get("releaseTag") != tag:
+              raise SystemExit("RC manifest schema/tag mismatch")
+          if manifest.get("releaseState") != "DRAFT_NOT_PUBLISHED":
+              raise SystemExit("RC manifest does not describe a draft")
+          if manifest.get("inputManifestSha256") != hashlib.sha256(input_bytes).hexdigest():
+              raise SystemExit("RC input manifest digest mismatch")
+          if manifest.get("recovery") != releases["2.5.8"] or manifest.get("update") != releases["2.5.10"]:
+              raise SystemExit("RC CVR pins mismatch")
+          if manifest.get("core") != expected_core or manifest.get("acceptance") != expected_acceptance:
+              raise SystemExit("RC core or acceptance evidence mismatch")
+          workflow_sha = manifest.get("workflowHeadSha")
+          creator_run = manifest.get("createdByWorkflowRun")
+          if not isinstance(workflow_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", workflow_sha):
+              raise SystemExit("Invalid RC workflow commit")
+          if workflow_sha != release_target:
+              raise SystemExit("Release target does not match the workflow commit recorded in the manifest")
+          if type(creator_run) is not int or creator_run < 1:
+              raise SystemExit("Invalid RC creator workflow run")
+          print(creator_run)
           PY
-          notes="$RUNNER_TEMP/RC-NOTES.md"
-          cat > "$notes" <<EOF
-          **Draft, unpublished RC for internal review.**
-          This candidate is not stable and has not passed native Windows installation, recovery, TUN/DNS or user acceptance.
-          Built from exact source \`76b7ec3ff9854d32cb3964403c065928ecdc9dd6\` using Go 1.26.10.
-          CVR compatibility pins: update 2.5.10, recovery 2.5.8. See RC-MANIFEST.json.
-          Workflow run: https://github.com/smart-tinker/stcvrc/actions/runs/$RUN_ID
-          EOF
-          gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
-            --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC3 — CVR 2.5.10 candidate" --notes-file "$notes"
-          api="repos/$repo/releases/tags/$tag"
-          test "$(gh api "$api" --jq .draft)" = true
-          test "$(gh api "$api" --jq .prerelease)" = true
-          test "$(gh api "$api" --jq '.assets | length')" = 2
-          readback="$RUNNER_TEMP/rc-readback"
-          mkdir "$readback"
-          gh release download "$tag" --repo "$repo" --dir "$readback"
-          cmp --silent "$RC_BINARY" "$readback/verge-mihomo.exe"
-          cmp --silent "$manifest" "$readback/RC-MANIFEST.json"
-          test "$(sha256sum "$readback/verge-mihomo.exe" | awk '{print $1}')" = "$RC_BINARY_SHA"
-          test "$(stat -c %s "$readback/verge-mihomo.exe")" = "$RC_BINARY_SIZE"
+          )"
+          release_url="$(gh api "$api" --jq .html_url)"
           {
-            printf '%s\n' "Draft release: https://github.com/$repo/releases/tag/$tag"
-            printf 'Release remains draft/unpublished; uploaded assets: core and manifest only.\n'
-            printf 'Fresh core SHA256: %s\nSize: %s bytes\n' "$RC_BINARY_SHA" "$RC_BINARY_SIZE"
-            printf 'Readback of both uploaded assets matched the runner-generated bytes.\n'
+            printf '%s\\n' "Draft release: $release_url"
+            printf 'Release remains draft/unpublished; assets are core and manifest only.\\n'
+            printf 'Fresh core SHA256: %s\\nSize: %s bytes\\n' "$RC_BINARY_SHA" "$RC_BINARY_SIZE"
+            printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\\n'
+            printf 'Manifest creator run: %s; current verifier run: %s\\n' "$creator_run_id" "$RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
