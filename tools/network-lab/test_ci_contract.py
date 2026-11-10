@@ -30,6 +30,10 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("needs:\n      - source\n      - cvr-2-5-10-package", release_job)
         self.assertEqual(release_job.count("GH_TOKEN: ${{ github.token }}"), 1)
         self.assertEqual(release_workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
+        self.assertIn('gh api "repos/$repo/releases" --paginate', release_job)
+        self.assertIn("releases/assets/$asset_id", release_job)
+        self.assertNotIn("releases/tags/$tag", release_job)
+        self.assertIn("cmp --silent", release_job)
         self.assertNotIn("GH_TOKEN:", release_workflow.split("\n  assemble-draft-rc:\n", 1)[0])
         for workflow in WORKFLOWS.values():
             self.assertIn("push:\n    branches: [main]", workflow)
