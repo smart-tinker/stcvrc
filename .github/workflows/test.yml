@@ -364,7 +364,7 @@ jobs:
           release_target="$(gh api "$api" --jq .target_commitish)"
           assets_api="$api/assets"
           asset_names="$(gh api "$assets_api" --paginate --jq '.[].name' | LC_ALL=C sort)"
-          test "$asset_names" = "$(printf 'RC-MANIFEST.json\\nverge-mihomo.exe')"
+          test "$asset_names" = "$(printf 'RC-MANIFEST.json\nverge-mihomo.exe')"
 
           readback="$RUNNER_TEMP/rc-readback"
           mkdir "$readback"
@@ -425,9 +425,9 @@ jobs:
           )"
           release_url="$(gh api "$api" --jq .html_url)"
           {
-            printf '%s\\n' "Draft release: $release_url"
-            printf 'Release remains draft/unpublished; assets are core and manifest only.\\n'
-            printf 'Fresh core SHA256: %s\\nSize: %s bytes\\n' "$RC_BINARY_SHA" "$RC_BINARY_SIZE"
-            printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\\n'
-            printf 'Manifest creator run: %s; current verifier run: %s\\n' "$creator_run_id" "$RUN_ID"
+            printf '%s\n' "Draft release: $release_url"
+            printf 'Release remains draft/unpublished; assets are core and manifest only.\n'
+            printf 'Fresh core SHA256: %s\nSize: %s bytes\n' "$RC_BINARY_SHA" "$RC_BINARY_SIZE"
+            printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\n'
+            printf 'Manifest creator run: %s; current verifier run: %s\n' "$creator_run_id" "$RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
