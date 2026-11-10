@@ -152,16 +152,16 @@ jobs:
           test "$(git -C "$docs_source" rev-parse HEAD)" = "$SOURCE_SHA"
 
           build_and_check() {
-            local name="$1" source_sha="$2"
+            local name="$1" pinned_sha="$2"
             local source_dir="$RUNNER_TEMP/profile-$name/source"
             local binary="$RUNNER_TEMP/profile-$name/mihomo"
             local profile_dir="$docs_source/docs/openvpn-profile-examples"
             mkdir -p "$(dirname "$source_dir")"
             git init --quiet "$source_dir"
             git -C "$source_dir" remote add origin https://github.com/smart-tinker/stcvrc.git
-            git -C "$source_dir" fetch --quiet --depth=1 origin "$source_sha"
+            git -C "$source_dir" fetch --quiet --depth=1 origin "$pinned_sha"
             git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
-            test "$(git -C "$source_dir" rev-parse HEAD)" = "$source_sha"
+            test "$(git -C "$source_dir" rev-parse HEAD)" = "$pinned_sha"
 
             export GOPATH="$RUNNER_TEMP/go-$name"
             export GOCACHE="$RUNNER_TEMP/go-build-$name"
@@ -191,7 +191,7 @@ jobs:
             fi
             grep -Fq 'mutually exclusive' "$log" || { cat "$log"; return 1; }
 
-            printf '%s source: %s\n' "$name" "$source_sha" >> "$GITHUB_STEP_SUMMARY"
+            printf '%s source: %s\n' "$name" "$pinned_sha" >> "$GITHUB_STEP_SUMMARY"
             printf '%s binary SHA256: %s\n' "$name" "$(sha256sum "$binary" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
           }
 
