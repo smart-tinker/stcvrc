@@ -133,6 +133,7 @@ class CIContractTests(unittest.TestCase):
         assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
         self.assertIn("tag=stcvrc-1.19.33-rc.4", assembly)
         self.assertIn("STCVRC 1.19.33 RC4", assembly)
+        self.assertIn('test "$release_target" = "$HEAD_SHA"', assembly)
         for status in (
             '"disposableWindowsInstallUpdateRecovery": "PASS"',
             '"authenticodeSignerAcceptance": "NOT_REVIEWED"',
