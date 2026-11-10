@@ -609,6 +609,50 @@ jobs:
           set -euo pipefail
           tag=stcvrc-1.19.33-rc.3
           repo=smart-tinker/stcvrc
+          manifest="$RUNNER_TEMP/RC-MANIFEST.json"
+          notes="$RUNNER_TEMP/RC-NOTES.md"
+          python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$manifest" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$tag" "$HEAD_SHA" "$RUN_ID" <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+          import sys
+
+          inputs_path, manifest_path = map(Path, sys.argv[1:3])
+          sha, size, tag, head_sha, run_id = sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], int(sys.argv[7])
+          input_bytes = inputs_path.read_bytes()
+          inputs = json.loads(input_bytes)
+          releases = {item["version"]: item for item in inputs["releases"]}
+          if set(releases) != {"2.5.8", "2.5.10"}:
+              raise SystemExit("Unexpected CVR release pair")
+          if not re.fullmatch(r"[0-9a-f]{64}", sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha) or run_id < 1:
+              raise SystemExit("Invalid RC identity or digest")
+          manifest = {
+              "schemaVersion": 1,
+              "releaseTag": tag,
+              "releaseState": "DRAFT_NOT_PUBLISHED",
+              "inputManifestSha256": hashlib.sha256(input_bytes).hexdigest(),
+              "recovery": releases["2.5.8"],
+              "update": releases["2.5.10"],
+              "core": dict(inputs["core"], sha256=sha, size=size),
+              "acceptance": {
+                  "installerExecuted": False,
+                  "extractedPayloads": "NOT_VERIFIED",
+                  "authenticode": "NOT_VERIFIED",
+                  "nativeWindowsAcceptance": "NOT_RUN",
+                  "productionDeployment": "NOT_AUTHORIZED",
+              },
+              "workflowHeadSha": head_sha,
+              "createdByWorkflowRun": run_id,
+          }
+          manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+          PY
+          cat > "$notes" <<'EOF'
+          This is a draft, unpublished STCVRC 1.19.33 RC3 candidate.
+          It pins official CVR 2.5.8 recovery and CVR 2.5.10 update inputs.
+          The Windows core is rebuilt from the pinned MIT-LZO source and identified by RC-MANIFEST.json.
+          Installer execution, trusted Authenticode acceptance, native startup/service/TUN/DNS, recovery, observation, and user acceptance are not verified.
+          EOF
           release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           if [[ -z "$release_id" ]]; then
             gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
