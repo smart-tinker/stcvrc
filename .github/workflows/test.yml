@@ -513,9 +513,11 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
       github.ref == 'refs/heads/codex/cvr-2.5.9-release-cycle-20261102'
     needs:
       - source
+      - profile-contract
       - cvr-2-5-10-package
       - cvr-windows-payload
     runs-on: ubuntu-24.04
