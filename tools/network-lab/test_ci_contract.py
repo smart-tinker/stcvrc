@@ -38,16 +38,32 @@ class CIContractTests(unittest.TestCase):
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
         self.assertEqual(pins, {
-            "SOURCE_COMMIT": "d888dfad5e785217778bb7515c931840d5307dd4",
+            "SOURCE_COMMIT": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
             "GO_SHA256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
             "XRAY_ZIP_SHA256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
             "XRAY_SHA256": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
-            "CORE_SHA256": "5c811c83dc2f8fae6dcb5933fde988f5d34bb3f87e6dbab6d130aeb30146809a",
+            "CORE_SHA256": "dce11f5ad306e80d4ac768daf744a88a412be06162ed228059b6b084842c2e56",
         })
         self.assertIn('cd "$work/source"', SCRIPT)
         self.assertIn('-mod=readonly', SCRIPT)
         self.assertIn('--check-tls-rejection', SCRIPT)
         self.assertNotIn('build-windows.ps1', SCRIPT)
+
+
+    def test_windows_lab_builds_exact_candidate_from_source_before_testing(self):
+        windows_job = WORKFLOW.split("  windows-exe-lab:", 1)[1]
+        windows_script = (HERE / "windows.py").read_text()
+        for required in (
+            "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
+            "go1.26.10.windows-amd64.zip",
+            "7ecd2d7260e82c59bcbd7f1077a07cee2dea607295b858df67195a1e4e09629b",
+            "Get-FileHash",
+            "windows.py --core",
+            "c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf",
+        ):
+            self.assertIn(required, windows_job)
+        self.assertNotIn("CORE_URL", windows_script)
+        self.assertNotIn("published Windows EXE", WORKFLOW + windows_script)
 
     def test_build_temporaries_and_cleanup_are_scoped(self):
         self.assertIn('${RUNNER_TEMP:-$HERE}/stcvrc-ci.XXXXXXXX', SCRIPT)
