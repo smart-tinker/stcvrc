@@ -290,7 +290,7 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
 
     def test_windows_job_executes_and_identifies_only_the_fresh_custom_core(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
-        block = workflow.split('  cvr-windows-payload:\\n', 1)[1].split('  assemble-draft-rc:\\n', 1)[0]
+        block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
         self.assertIn('$coreVersionOutput = & $stockCore -v 2>&1', block)
         self.assertIn('if ($coreExit -ne 0)', block)
         self.assertIn('Mihomo Meta 1.19.33-STCVRC-candidate-mit-lzo-20261109 windows amd64', block)
