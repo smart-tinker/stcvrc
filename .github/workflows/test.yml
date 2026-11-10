@@ -344,8 +344,7 @@ jobs:
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
-          printf 'Fresh candidate source: %s\\nFresh Windows/amd64 SHA256: %s\\nMeasured size: %s bytes\\n' \\
-            "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Fresh candidate source: %s | Windows/amd64 SHA256: %s | size: %s bytes\n' "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
           test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
             "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
