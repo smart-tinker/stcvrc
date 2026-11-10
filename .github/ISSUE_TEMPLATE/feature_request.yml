@@ -1,37 +1,39 @@
-name: Feature request
-description: Suggest an idea for this project
-title: "[Feature] "
-labels: ["enhancement"]
+name: Required downstream capability
+description: A required scenario not yet satisfied by stock CVR
+title: "[Compatibility] "
 body:
-  - type: checkboxes
-    id: ensure
-    attributes:
-      label: Verify steps
-      description: "
-在提交之前，请确认
-Please verify that you've followed these steps
-"
-      options:
-        - label: "
-我已经在 [Issue Tracker](……/) 中找过我要提出的请求
-I have searched on the [issue tracker](……/) for a related feature request.
-"
-          required: true
-        - label: "
-我已经仔细看过 [Documentation](https://wiki.metacubex.one/) 并无法找到这个功能
-I have read the [documentation](https://wiki.metacubex.one/) and was unable to solve the issue.
-"
-          required: true
   - type: textarea
+    id: scenario
     attributes:
-      label: Description
-      description: 请详细、清晰地表达你要提出的论述，例如这个问题如何影响到你？你想实现什么功能？目前 Mihomo Core 的行为是什麽？
+      label: Required scenario and upstream gap
+      description: State the required behavior, stock CVR/core versions and evidence of the missing capability. No standalone product roadmap.
     validations:
       required: true
   - type: textarea
+    id: evidence
     attributes:
-      label: Possible Solution
-      description: "
-此项非必须，但是如果你有想法的话欢迎提出。
-Not obligatory, but suggest a fix/reason for the bug, or ideas how to implement the addition or change
-"
+      label: Observed and expected behavior
+      description: Include reproducible steps, exact source revisions and sanitized evidence. Separate facts from hypotheses and untested claims.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope, non-goals and existing work
+      description: Link related issues/PRs after checking https://github.com/smart-tinker/stcvrc/issues and /pulls. Identify the smallest downstream delta and dependencies.
+    validations:
+      required: true
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of Done
+      description: For each criterion give verification method and expected observable result; include applicable negative cases. Separate source/build checks from native acceptance.
+    validations:
+      required: true
+  - type: textarea
+    id: exit
+    attributes:
+      label: Upstream exit and stop conditions
+      description: What upstream capability/evidence lets this patch be removed and users migrate to stock CVR? When should implementation stop for clarification?
+    validations:
+      required: true
