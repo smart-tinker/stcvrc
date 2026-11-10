@@ -16,6 +16,7 @@ name: STCVRC source checks
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - test/**
       - candidates/cvr-2.5.10/**
   pull_request:
     branches: [main]
@@ -33,6 +34,7 @@ name: STCVRC source checks
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - test/**
       - candidates/cvr-2.5.10/**
   workflow_dispatch: {}
 
@@ -777,4 +779,60 @@ jobs:
             printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\n'
             printf 'Manifest creator run: %s; current verifier run: %s\n' "$creator_run_id" "$RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
+  test-module:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      github.event_name != 'workflow_dispatch' &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      GOPATH: ${{ runner.temp }}/test-go-path
+      GOMODCACHE: ${{ runner.temp }}/test-go-modcache
+      GOCACHE: ${{ runner.temp }}/test-go-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch the exact source revision
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          source="$GITHUB_WORKSPACE/source"
+          git init --quiet "$source"
+          git -C "$source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source" rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f "$source/test/go.mod"
+          printf 'Exact test source: %s\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Install checksum-pinned Go 1.26.10
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/test-go"
+          cd "$RUNNER_TEMP/test-go"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+          tar -xzf go.tar.gz
+          printf '%s\n' "$RUNNER_TEMP/test-go/go/bin" >> "$GITHUB_PATH"
+
+      - name: Run the protocol module suite from clean Go caches
+        working-directory: source/test
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go version
+          go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...
+          go mod verify
