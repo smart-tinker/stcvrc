@@ -17,6 +17,7 @@ name: STCVRC source checks
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - candidates/cvr-2.5.10/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
@@ -34,6 +35,7 @@ name: STCVRC source checks
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - candidates/cvr-2.5.10/**
   workflow_dispatch: {}
 
 permissions:
@@ -208,6 +210,577 @@ jobs:
           build_and_check "1.19.33" "$V33_SOURCE_SHA"
           printf '\nParser command: freshly built mihomo -d <temporary-home> -f docs/openvpn-profile-examples/<fixture>.yaml -t\n' >> "$GITHUB_STEP_SUMMARY"
           printf 'The three fixtures were checked against both source pins; no endpoint connection was attempted.\n' >> "$GITHUB_STEP_SUMMARY"
+
+  cvr-2-5-10-package:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch the exact pull request source
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pr_source="$RUNNER_TEMP/pr-source"
+          git init --quiet "$pr_source"
+          git -C "$pr_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$pr_source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$pr_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$pr_source" rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "PR source: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "PR_SOURCE=$pr_source" >> "$GITHUB_ENV"
+
+      - name: Install pinned workflow linter and Python crypto dependency
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/ci-tools"
+          mkdir -p "$tool"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            -o "$tool/actionlint.tar.gz"
+          printf '%s  %s\n' 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757 "$tool/actionlint.tar.gz" | sha256sum --check --status
+          tar -xzf "$tool/actionlint.tar.gz" -C "$tool" actionlint
+          echo "$tool" >> "$GITHUB_PATH"
+          python3 -c 'import cryptography'
+
+      - name: Validate workflows and verifier fixtures
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          actionlint -color "$PR_SOURCE/.github/workflows/test.yml"
+          python3 -B -m unittest discover -s "$PR_SOURCE/candidates/cvr-2.5.10" -p 'test_*.py' -v
+
+      - name: Download only pinned public CVR inputs
+        run: |
+          set -euo pipefail
+          manifest="$PR_SOURCE/candidates/cvr-2.5.10/inputs.json"
+          downloads="$RUNNER_TEMP/cvr-downloads.tsv"
+          input_dir="$RUNNER_TEMP/cvr-public-inputs"
+          mkdir -p "$input_dir"
+          python3 - "$manifest" "$downloads" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          from urllib.parse import urlparse
+
+          manifest_path, output_path = map(Path, sys.argv[1:])
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          repo = "clash-verge-rev/clash-verge-rev"
+          if manifest.get("repository") != repo:
+              raise SystemExit("unexpected upstream repository")
+          rows = []
+
+          def add(filename, url, host, path):
+              if not isinstance(filename, str) or Path(filename).name != filename or filename in ("", ".", ".."):
+                  raise SystemExit("unsafe pinned input filename")
+              parsed = urlparse(url)
+              if parsed.scheme != "https" or parsed.hostname != host or parsed.path != path or parsed.query or parsed.fragment:
+                  raise SystemExit("refusing non-pinned public input URL")
+              rows.append((filename, url))
+
+          for release in manifest["releases"]:
+              tag = release["tag"]
+              add(release["metadataFile"],
+                  f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
+                  "api.github.com", f"/repos/{repo}/releases/tags/{tag}")
+              commit = release["sourceCommit"]
+              config = release["config"]
+              add(config["file"], config["sourceURL"], "raw.githubusercontent.com",
+                  f"/{repo}/{commit}/src-tauri/tauri.conf.json")
+              for asset in release["assets"].values():
+                  add(asset["file"], asset["url"], "github.com",
+                      f"/{repo}/releases/download/{tag}/{asset['name']}")
+          output_path.write_text("".join(f"{name}\t{url}\n" for name, url in rows), encoding="utf-8")
+          PY
+          while IFS=$'\t' read -r name url; do
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+              --max-time 300 --max-filesize 67108864 --silent --show-error \
+              "$url" -o "$input_dir/$name"
+          done < "$downloads"
+
+      - name: Build fresh MIT-LZO source and verify the official installer pair
+        run: |
+          set -euo pipefail
+          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          core_source="$RUNNER_TEMP/cvr-mit-lzo-source"
+          go_dir="$RUNNER_TEMP/toolchain-go1.26.10"
+          mkdir -p "$core_source" "$go_dir"
+          git -C "$core_source" init --quiet
+          git -C "$core_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$core_source" fetch --quiet --depth=1 --no-tags origin "$source_sha"
+          git -C "$core_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$core_source" rev-parse HEAD)" = "$source_sha"
+          git -C "$core_source" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          test "$(git -C "$core_source" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_sha"
+
+          curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
+          printf '%s  %s\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 "$go_dir/go.tar.gz" | sha256sum --check --status
+          tar -xzf "$go_dir/go.tar.gz" -C "$go_dir"
+          export PATH="$go_dir/go/bin:$PATH"
+          export GOENV=off GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off
+          export CGO_ENABLED=0 GOAMD64=v1 GOMAXPROCS=2
+          export GOPATH="$RUNNER_TEMP/cvr-gopath" GOMODCACHE="$RUNNER_TEMP/cvr-modcache" GOCACHE="$RUNNER_TEMP/cvr-gocache"
+          export GOFLAGS='-mod=readonly -p=2'
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          test "$(go version | awk '{print $3}')" = "go1.26.10"
+          cd "$core_source"
+          go list -m all > "$RUNNER_TEMP/cvr-modules.txt"
+          grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$RUNNER_TEMP/cvr-modules.txt"
+          if grep -q '^github.com/rasky/go-lzo ' "$RUNNER_TEMP/cvr-modules.txt"; then
+            printf 'GPL-only go-lzo module remains in the candidate module graph.\n' >&2
+            exit 1
+          fi
+          go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
+          go mod verify
+
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
+          build_time=2026-11-09T00:00:00Z
+          ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
+          binary="$RUNNER_TEMP/verge-mihomo-mit-lzo.exe"
+          GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
+            go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
+          binary_size="$(stat -c %s "$binary")"
+          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
+          printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
+            "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
+          test -z "$(git -C "$core_source" status --porcelain)"
+          python3 -B "$PR_SOURCE/candidates/cvr-2.5.10/verify-artifacts.py" \
+            --artifacts "$RUNNER_TEMP/cvr-public-inputs" --core "$binary" | tee -a "$GITHUB_STEP_SUMMARY"
+
+
+
+  cvr-windows-payload:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    needs: cvr-2-5-10-package
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Fetch the exact PR source
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SOURCE_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Invalid source SHA' }
+          $source = Join-Path $env:RUNNER_TEMP 'cvr-pr-source'
+          git init --quiet $source
+          if ($LASTEXITCODE -ne 0) { throw 'git init failed' }
+          git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
+          if ($LASTEXITCODE -ne 0) { throw 'git remote add failed' }
+          git -C $source fetch --quiet --depth=1 --no-tags origin $env:SOURCE_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'fetch of PR source failed' }
+          git -C $source checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
+          $actual = (& git -C $source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
+          Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
+
+      - name: Fresh native Windows core build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $goZip = Join-Path $env:RUNNER_TEMP 'go1.26.10.windows-amd64.zip'
+          & curl.exe --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error https://go.dev/dl/go1.26.10.windows-amd64.zip -o $goZip
+          if ($LASTEXITCODE -ne 0) { throw 'Go toolchain download failed' }
+          $goHash = (Get-FileHash -LiteralPath $goZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($goHash -ne '7ecd2d7260e82c59bcbd7f1077a07cee2dea607295b858df67195a1e4e09629b') { throw 'Go toolchain SHA256 mismatch' }
+          $goRoot = Join-Path $env:RUNNER_TEMP 'go-toolchain'
+          Expand-Archive -LiteralPath $goZip -DestinationPath $goRoot
+          $go = Join-Path $goRoot 'go\bin\go.exe'
+          if (-not (Test-Path -LiteralPath $go)) { throw 'Go toolchain missing after extraction' }
+          $goVersion = (& $go version).Trim()
+          if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch 'go1\.26\.10') { throw 'Unexpected Go toolchain version' }
+          $env:PATH = "$(Split-Path -Parent $go);$env:PATH"
+          $env:GOENV = 'off'
+          $env:GOTOOLCHAIN = 'local'
+          $env:GOWORK = 'off'
+          $env:GOTELEMETRY = 'off'
+          $env:CGO_ENABLED = '0'
+          $env:GOAMD64 = 'v1'
+          $env:GOMAXPROCS = '2'
+          $env:GOFLAGS = '-mod=readonly -p=2'
+          $env:GOPATH = Join-Path $env:RUNNER_TEMP 'cvr-gopath'
+          $env:GOMODCACHE = Join-Path $env:RUNNER_TEMP 'cvr-modcache'
+          $env:GOCACHE = Join-Path $env:RUNNER_TEMP 'cvr-gocache'
+          New-Item -ItemType Directory -Force -Path $env:GOPATH,$env:GOMODCACHE,$env:GOCACHE | Out-Null
+          $source = Join-Path $env:RUNNER_TEMP 'cvr-mit-lzo-source'
+          git init --quiet $source
+          if ($LASTEXITCODE -ne 0) { throw 'candidate git init failed' }
+          git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
+          if ($LASTEXITCODE -ne 0) { throw 'candidate git remote failed' }
+          $sourceSha = '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93'
+          git -C $source fetch --quiet --depth=1 --no-tags origin $sourceSha
+          if ($LASTEXITCODE -ne 0) { throw 'candidate source fetch failed' }
+          git -C $source checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'candidate checkout failed' }
+          $actualSource = (& git -C $source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualSource -ne $sourceSha) { throw 'candidate source SHA mismatch' }
+          $upstreamSha = '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8'
+          git -C $source fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          if ($LASTEXITCODE -ne 0) { throw 'upstream source fetch failed' }
+          $actualUpstream = (& git -C $source rev-parse 'FETCH_HEAD^{commit}').Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualUpstream -ne $upstreamSha) { throw 'upstream tag SHA mismatch' }
+          Push-Location $source
+          try {
+            $modules = & $go list -m all
+            if ($LASTEXITCODE -ne 0) { throw 'go list failed' }
+            if ($modules -notcontains 'github.com/anchore/go-lzo v0.1.1') { throw 'MIT LZO decoder is not pinned' }
+            if ($modules | Where-Object { $_ -match '^github.com/rasky/go-lzo ' }) { throw 'GPL-only LZO dependency remains' }
+            & $go mod verify
+            if ($LASTEXITCODE -ne 0) { throw 'go mod verify failed' }
+            $version = '1.19.33-STCVRC-candidate-mit-lzo-20261109'
+            $buildTime = '2026-11-09T00:00:00Z'
+            $ldflags = "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$buildTime"
+            $core = Join-Path $env:RUNNER_TEMP 'verge-mihomo-fresh-windows.exe'
+            & $go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags $ldflags -o $core .
+            if ($LASTEXITCODE -ne 0) { throw 'fresh native Windows core build failed' }
+            $status = (& git status --porcelain)
+            if ($LASTEXITCODE -ne 0 -or $status) { throw 'candidate source tree changed during build' }
+          } finally {
+            Pop-Location
+          }
+          $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
+          $coreSize = (Get-Item -LiteralPath $core).Length
+          if ($coreHash -ne 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf') { throw 'fresh native Windows core SHA256 mismatch' }
+          if ($coreSize -ne 61143552) { throw 'fresh native Windows core size mismatch' }
+          Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.10, SHA256 $coreHash, $coreSize bytes."
+
+      - name: Test fresh Windows candidate over loopback
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:PATH += ';C:\Program Files\Git\usr\bin'
+          $env:STCVRC_CORE_PATH = $env:CUSTOM_CORE
+          $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $env:STCVRC_CORE_SHA256 = [string]$manifest.core.sha256
+          Set-Location (Join-Path $env:PR_SOURCE 'tools\network-lab')
+          python -m unittest discover -v -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows loopback fixture tests failed' }
+          python windows.py
+      - name: Verify and extract pinned CVR installers without running them
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $versions = @($manifest.releases | ForEach-Object { $_.version }) -join ','
+          if ($versions -ne '2.5.8,2.5.10') { throw 'Unexpected CVR recovery/update pair' }
+          $root = Join-Path $env:RUNNER_TEMP 'cvr-installer-payloads'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nThe pinned installers are extracted and then exercised in a clean install/update smoke on this disposable windows-2022 runner. The test does not launch the GUI or start the service."
+          foreach ($release in $manifest.releases) {
+            $asset = $release.assets.installer
+            if ([IO.Path]::GetFileName([string]$asset.name) -ne $asset.name -or $asset.file -ne $asset.name) { throw 'Unsafe installer filename' }
+            $uri = [Uri]$asset.url
+            $expectedPath = "/clash-verge-rev/clash-verge-rev/releases/download/$($release.tag)/$($asset.name)"
+            if ($uri.Scheme -ne 'https' -or $uri.Host -ne 'github.com' -or $uri.AbsolutePath -ne $expectedPath -or $uri.Query -or $uri.Fragment) { throw 'Refusing non-pinned public installer URL' }
+            $versionDir = Join-Path $root $release.version
+            New-Item -ItemType Directory -Force -Path $versionDir | Out-Null
+            $installer = Join-Path $versionDir $asset.name
+            & curl.exe --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 300 --max-filesize 67108864 --silent --show-error $asset.url -o $installer
+            if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) installer download failed" }
+            $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($installerHash -ne $asset.sha256 -or (Get-Item -LiteralPath $installer).Length -ne $asset.size) { throw "CVR $($release.version) installer pin mismatch" }
+            if ($release.version -eq '2.5.8') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_INSTALLER=$installer" }
+            if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_INSTALLER=$installer" }
+            $authenticode = (Get-AuthenticodeSignature -LiteralPath $installer).Status
+            & $sevenZip t $installer -bso0 -bsp0
+            if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) NSIS archive test failed" }
+            $extract = Join-Path $versionDir 'extracted'
+            New-Item -ItemType Directory -Force -Path $extract | Out-Null
+            & $sevenZip x $installer "-o$extract" -y -bso0 -bsp0
+            if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) payload extraction failed" }
+            $files = @(Get-ChildItem -LiteralPath $extract -Recurse -File)
+            if ($files.Count -eq 0) { throw "CVR $($release.version) payload was empty" }
+            $guiFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge.exe' })
+            if ($guiFiles.Count -ne 1) { throw "CVR $($release.version) payload expected one clash-verge.exe, found $($guiFiles.Count)" }
+            $guiHash = (Get-FileHash -LiteralPath $guiFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($release.version -eq '2.5.8') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_GUI_SHA256=$guiHash" }
+            if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_GUI_SHA256=$guiHash" }
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n### CVR $($release.version)`n- Installer SHA256: $installerHash`n- Authenticode: $authenticode`n- Extracted files: $($files.Count)"
+            if ($release.version -eq '2.5.10') {
+              foreach ($name in @('clash-verge.exe','clash-verge-service-install.exe','verge-mihomo.exe','verge-mihomo-alpha.exe')) {
+                $matches = @($files | Where-Object { $_.Name -ieq $name })
+                if ($matches.Count -ne 1) { throw "CVR 2.5.10 payload expected one $name, found $($matches.Count)" }
+                $file = $matches[0]
+                $fileHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                $fileAuth = (Get-AuthenticodeSignature -LiteralPath $file.FullName).Status
+                $relative = $file.FullName.Substring($extract.Length).TrimStart('\','/')
+                Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- ``$relative`` — SHA256 ``$fileHash``; Authenticode ``$fileAuth``."
+                if ($name -eq 'verge-mihomo.exe') { $stockCore = $file.FullName }
+              }
+              Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $stockCore -Force
+              $stagedHash = (Get-FileHash -LiteralPath $stockCore -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($stagedHash -ne $manifest.core.sha256) { throw 'Fresh custom core did not replace the extracted stock core bytes' }
+              $coreVersionOutput = & $stockCore -v 2>&1
+              $coreExit = $LASTEXITCODE
+              $coreVersionOutput = $coreVersionOutput -join "`n"
+              if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
+              if ($coreVersionOutput -notmatch '^Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64 with go1\.26\.10 2026-11-09T00:00:00Z') {
+                throw 'Fresh custom core -v reported an unexpected version'
+              }
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The final 2.5.8 install and 2.5.10 /UPDATE smoke is monitored for GUI, service and stock-core process starts."
+            }
+          }
+
+      - name: Install 2.5.8, update to 2.5.10, then recover to 2.5.8
+        run: |
+          & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
+
+  assemble-draft-rc:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      github.ref == 'refs/heads/codex/cvr-2.5.9-release-cycle-20261102'
+    needs:
+      - source
+      - profile-contract
+      - cvr-2-5-10-package
+      - cvr-windows-payload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOAMD64: v1
+    steps:
+      - name: Fetch exact RC manifest source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pr_source="$RUNNER_TEMP/rc-pr-source"
+          git init --quiet "$pr_source"
+          git -C "$pr_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$pr_source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$pr_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$pr_source" rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f "$pr_source/candidates/cvr-2.5.10/inputs.json"
+          echo "PR_SOURCE=$pr_source" >> "$GITHUB_ENV"
+
+      - name: Build the pinned MIT-LZO core from exact source
+        run: |
+          set -euo pipefail
+          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          core_source="$RUNNER_TEMP/rc-core-source"
+          go_dir="$RUNNER_TEMP/rc-go1.26.10"
+          mkdir -p "$core_source" "$go_dir"
+          git -C "$core_source" init --quiet
+          git -C "$core_source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$core_source" fetch --quiet --depth=1 --no-tags origin "$source_sha"
+          git -C "$core_source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$core_source" rev-parse HEAD)" = "$source_sha"
+          git -C "$core_source" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          test "$(git -C "$core_source" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_sha"
+
+          curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
+          printf '%s  %s\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 "$go_dir/go.tar.gz" | sha256sum --check --status
+          tar -xzf "$go_dir/go.tar.gz" -C "$go_dir"
+          export PATH="$go_dir/go/bin:$PATH"
+          export GOENV=off GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off
+          export CGO_ENABLED=0 GOAMD64=v1 GOMAXPROCS=2
+          export GOPATH="$RUNNER_TEMP/rc-gopath" GOMODCACHE="$RUNNER_TEMP/rc-modcache" GOCACHE="$RUNNER_TEMP/rc-gocache"
+          export GOFLAGS='-mod=readonly -p=2'
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          test "$(go version | awk '{print $3}')" = go1.26.10
+          cd "$core_source"
+          go list -m all > "$RUNNER_TEMP/rc-modules.txt"
+          grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$RUNNER_TEMP/rc-modules.txt"
+          if grep -q '^github.com/rasky/go-lzo ' "$RUNNER_TEMP/rc-modules.txt"; then
+            printf 'GPL-only go-lzo module remains in RC source.\n' >&2
+            exit 1
+          fi
+          go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
+          go mod verify
+
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
+          build_time=2026-11-09T00:00:00Z
+          ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
+          binary="$RUNNER_TEMP/verge-mihomo.exe"
+          GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
+            go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
+          binary_size="$(stat -c %s "$binary")"
+          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
+          test "$binary_size" = 61143552
+          test -z "$(git -C "$core_source" status --porcelain)"
+          printf 'RC_BINARY=%s\nRC_BINARY_SHA=%s\nRC_BINARY_SIZE=%s\n' \
+            "$binary" "$binary_sha" "$binary_size" >> "$GITHUB_ENV"
+
+      - name: Create and read back the draft RC release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag=stcvrc-1.19.33-rc.5
+          repo=smart-tinker/stcvrc
+          manifest="$RUNNER_TEMP/RC-MANIFEST.json"
+          notes="$RUNNER_TEMP/RC-NOTES.md"
+          python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$manifest" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$tag" "$HEAD_SHA" "$RUN_ID" <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+          import sys
+
+          inputs_path, manifest_path = map(Path, sys.argv[1:3])
+          sha, size, tag, head_sha, run_id = sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], int(sys.argv[7])
+          input_bytes = inputs_path.read_bytes()
+          inputs = json.loads(input_bytes)
+          releases = {item["version"]: item for item in inputs["releases"]}
+          if set(releases) != {"2.5.8", "2.5.10"}:
+              raise SystemExit("Unexpected CVR release pair")
+          if not re.fullmatch(r"[0-9a-f]{64}", sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha) or run_id < 1:
+              raise SystemExit("Invalid RC identity or digest")
+          manifest = {
+              "schemaVersion": 2,
+              "releaseTag": tag,
+              "releaseState": "DRAFT_NOT_PUBLISHED",
+              "inputManifestSha256": hashlib.sha256(input_bytes).hexdigest(),
+              "recovery": releases["2.5.8"],
+              "update": releases["2.5.10"],
+              "core": dict(inputs["core"], sha256=sha, size=size),
+              "acceptance": {
+                  "disposableWindowsInstallUpdateRecovery": "PASS",
+                  "authenticodeSignerAcceptance": "NOT_REVIEWED",
+                  "nativeGuiServiceTunDns": "NOT_RUN",
+                  "licenseAudit": "INCOMPLETE_ISSUE_7",
+                  "userAcceptance": "NOT_RUN",
+                  "productionDeployment": "NOT_AUTHORIZED",
+              },
+              "workflowHeadSha": head_sha,
+              "createdByWorkflowRun": run_id,
+          }
+          manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          cat > "$notes" <<'EOF'
+          This is a draft, unpublished STCVRC 1.19.33 RC5 candidate.
+          It pins official CVR 2.5.8 recovery and CVR 2.5.10 update inputs.
+          The Windows core is rebuilt from the pinned MIT-LZO source and identified by RC-MANIFEST.json.
+          A disposable Windows runner completed the pinned 2.5.8 install, 2.5.10 /UPDATE, and recovery to 2.5.8.
+          The synthetic profile marker, installed GUI payload hashes, and fresh custom core hashes were checked.
+          This does not validate trusted Authenticode signing, GUI/service/TUN/DNS startup, long observation, or user acceptance.
+          The license audit remains incomplete in issue #7. Stable publication and production deployment have not occurred.
+          EOF
+          release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
+          if [[ -z "$release_id" ]]; then
+            gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
+              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC5 — CVR 2.5.10 candidate" --notes-file "$notes"
+            release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
+          fi
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          api="repos/$repo/releases/$release_id"
+          test "$(gh api "$api" --jq .draft)" = true
+          test "$(gh api "$api" --jq .prerelease)" = true
+          test "$(gh api "$api" --jq .tag_name)" = "$tag"
+          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC5 — CVR 2.5.10 candidate"
+          release_target="$(gh api "$api" --jq .target_commitish)"
+          test "$release_target" = "$HEAD_SHA"
+          assets_api="$api/assets"
+          asset_names="$(gh api "$assets_api" --paginate --jq '.[].name' | LC_ALL=C sort)"
+          test "$asset_names" = "$(printf 'RC-MANIFEST.json\nverge-mihomo.exe')"
+
+          readback="$RUNNER_TEMP/rc-readback"
+          mkdir "$readback"
+          for asset_name in RC-MANIFEST.json verge-mihomo.exe; do
+            asset_id="$(gh api "$assets_api" --paginate --jq ".[] | select(.name == \"$asset_name\") | .id")"
+            [[ "$asset_id" =~ ^[0-9]+$ ]]
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+              --max-time 300 --max-filesize 67108864 --silent --show-error \
+              -H "Accept: application/octet-stream" -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$repo/releases/assets/$asset_id" -o "$readback/$asset_name"
+          done
+          cmp --silent "$RC_BINARY" "$readback/verge-mihomo.exe"
+          test "$(sha256sum "$readback/verge-mihomo.exe" | awk '{print $1}')" = "$RC_BINARY_SHA"
+          test "$(stat -c %s "$readback/verge-mihomo.exe")" = "$RC_BINARY_SIZE"
+          creator_run_id="$(python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$readback/RC-MANIFEST.json" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$tag" "$release_target" <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+          import sys
+
+          inputs_path, manifest_path = map(Path, sys.argv[1:3])
+          expected_sha, expected_size, tag, release_target = sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6]
+          input_bytes = inputs_path.read_bytes()
+          inputs = json.loads(input_bytes)
+          releases = {item["version"]: item for item in inputs["releases"]}
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          expected_core = dict(inputs["core"], sha256=expected_sha, size=expected_size)
+          expected_acceptance = {
+              "disposableWindowsInstallUpdateRecovery": "PASS",
+              "authenticodeSignerAcceptance": "NOT_REVIEWED",
+              "nativeGuiServiceTunDns": "NOT_RUN",
+              "licenseAudit": "INCOMPLETE_ISSUE_7",
+              "userAcceptance": "NOT_RUN",
+              "productionDeployment": "NOT_AUTHORIZED",
+          }
+          if set(releases) != {"2.5.8", "2.5.10"}:
+              raise SystemExit("Unexpected CVR release pair")
+          if manifest.get("schemaVersion") != 2 or manifest.get("releaseTag") != tag:
+              raise SystemExit("RC manifest schema/tag mismatch")
+          if manifest.get("releaseState") != "DRAFT_NOT_PUBLISHED":
+              raise SystemExit("RC manifest does not describe a draft")
+          if manifest.get("inputManifestSha256") != hashlib.sha256(input_bytes).hexdigest():
+              raise SystemExit("RC input manifest digest mismatch")
+          if manifest.get("recovery") != releases["2.5.8"] or manifest.get("update") != releases["2.5.10"]:
+              raise SystemExit("RC CVR pins mismatch")
+          if manifest.get("core") != expected_core or manifest.get("acceptance") != expected_acceptance:
+              raise SystemExit("RC core or acceptance evidence mismatch")
+          workflow_sha = manifest.get("workflowHeadSha")
+          creator_run = manifest.get("createdByWorkflowRun")
+          if not isinstance(workflow_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", workflow_sha):
+              raise SystemExit("Invalid RC workflow commit")
+          if workflow_sha != release_target:
+              raise SystemExit("Release target does not match the workflow commit recorded in the manifest")
+          if type(creator_run) is not int or creator_run < 1:
+              raise SystemExit("Invalid RC creator workflow run")
+          print(creator_run)
+          PY
+          )"
+          release_url="$(gh api "$api" --jq .html_url)"
+          {
+            printf '%s\n' "Draft release: $release_url"
+            printf 'Release remains draft/unpublished; assets are core and manifest only.\n'
+            printf 'Fresh core SHA256: %s\nSize: %s bytes\n' "$RC_BINARY_SHA" "$RC_BINARY_SIZE"
+            printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\n'
+            printf 'Manifest creator run: %s; current verifier run: %s\n' "$creator_run_id" "$RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"
+
 
   license-audit:
     needs: source
