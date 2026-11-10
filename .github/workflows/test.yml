@@ -795,9 +795,6 @@ jobs:
       GOTOOLCHAIN: local
       GOWORK: 'off'
       GOTELEMETRY: 'off'
-      GOPATH: ${{ runner.temp }}/test-go-path
-      GOMODCACHE: ${{ runner.temp }}/test-go-modcache
-      GOCACHE: ${{ runner.temp }}/test-go-cache
     defaults:
       run:
         shell: bash
@@ -832,6 +829,9 @@ jobs:
         working-directory: source/test
         run: |
           set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/test-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/test-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/test-go-cache"
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
           go version
           go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...

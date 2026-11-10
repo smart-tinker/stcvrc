@@ -267,9 +267,9 @@ class CIContractTests(unittest.TestCase):
         workflow = WORKFLOWS["test.yml"]
         self.assertEqual(workflow.count("      - test/**"), 2,
                          "test module changes must trigger on both push and pull_request")
-        self.assertIn("  test-module:\\n", workflow,
+        self.assertIn("  test-module:" + chr(10), workflow,
                       "the test module needs its own fresh hosted-runner job")
-        job = workflow.split("\\n  test-module:\\n", 1)[1]
+        job = workflow.split(chr(10) + "  test-module:" + chr(10), 1)[1]
         self.assertIn("runs-on: ubuntu-24.04", job)
         self.assertIn("timeout-minutes: 30", job)
         self.assertIn("working-directory: source/test", job)
