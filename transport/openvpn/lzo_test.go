@@ -35,6 +35,24 @@ func TestLzo1xDecompressCompressedPayload(t *testing.T) {
 	}
 }
 
+func TestLzo1xDecompressGrowsOutputForCompressedRun(t *testing.T) {
+	const decodedSize = 2048
+
+	// One literal followed by an overlapping M3 match expands past the initial buffer.
+	stream := []byte{18, 'A', 0x20}
+	stream = append(stream, make([]byte, 7)...)
+	stream = append(stream, 229, 0, 0, 0x11, 0, 0)
+	packet := append([]byte{lzoCompressLZO}, stream...)
+
+	decompressed, err := lzo1xDecompressSafe(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := bytes.Repeat([]byte{'A'}, decodedSize); !bytes.Equal(decompressed, want) {
+		t.Fatalf("decompressed %d bytes, want %d repeated bytes", len(decompressed), len(want))
+	}
+}
+
 func TestLzo1xDecompressRejectsOversizedPacket(t *testing.T) {
 	const decodedSize = maxOpenVPNIPPacketSize + 1
 
