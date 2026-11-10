@@ -28,7 +28,6 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", release_job)
         self.assertIn("permissions:\n      contents: write", release_job)
         self.assertIn("!github.event.repository.private", release_job)
-        self.assertIn("needs:\n      - source\n      - profile-contract\n      - cvr-2-5-10-package\n      - cvr-windows-payload", release_job)
         self.assertEqual(release_job.count("GH_TOKEN: ${{ github.token }}"), 1)
         self.assertEqual(release_workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
         self.assertIn('gh api "repos/$repo/releases" --paginate', release_job)
@@ -50,6 +49,11 @@ class CIContractTests(unittest.TestCase):
                           "--privileged", "self-hosted", "docker ", "--force", "/dispatches"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, "\n".join(WORKFLOWS.values()) + SCRIPT)
+
+    def test_draft_rc_waits_for_profile_contract(self):
+        release_workflow = WORKFLOWS["test.yml"]
+        release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
+        self.assertIn("needs:\n      - source\n      - profile-contract\n      - cvr-2-5-10-package\n      - cvr-windows-payload", release_job)
 
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
