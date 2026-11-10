@@ -466,7 +466,7 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'cvr-installer-payloads'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nInstallers, GUI, service helpers and stock cores are not run. The SHA-verified fresh core is invoked with -v only; native installation remains untested."
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nThe pinned installers are extracted and then exercised in a clean install/update smoke on this disposable windows-2022 runner. The test does not launch the GUI or start the service."
           foreach ($release in $manifest.releases) {
             $asset = $release.assets.installer
             if ([IO.Path]::GetFileName([string]$asset.name) -ne $asset.name -or $asset.file -ne $asset.name) { throw 'Unsafe installer filename' }
@@ -480,6 +480,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) installer download failed" }
             $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($installerHash -ne $asset.sha256 -or (Get-Item -LiteralPath $installer).Length -ne $asset.size) { throw "CVR $($release.version) installer pin mismatch" }
+            if ($release.version -eq '2.5.8') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_INSTALLER=$installer" }
+            if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_INSTALLER=$installer" }
             $authenticode = (Get-AuthenticodeSignature -LiteralPath $installer).Status
             & $sevenZip t $installer -bso0 -bsp0
             if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) NSIS archive test failed" }
@@ -515,6 +517,9 @@ jobs:
             }
           }
 
+      - name: Install 2.5.8 then update to 2.5.10
+        run: |
+          & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
 
   assemble-draft-rc:
     if: >-

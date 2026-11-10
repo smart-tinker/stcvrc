@@ -95,8 +95,4 @@ DNS/routes. Follow with startup/reboot verification and the required qualified
 24-hour observation and owner acceptance. Gaps or unknown identity do not count
 as passing observation.
 
-These checks remain pending until native evidence exists. GitHub Actions now
-runs the pinned fresh-source build and installer-integrity verification on
-standard public runners. It does not execute installers, change a Windows host,
-publish a release, or create Actions cache/artifacts. Native installation,
-recovery and owner acceptance remain separate gates.
+These checks remain pending until operator-host evidence exists. GitHub Actions runs a bounded Windows install/update smoke on its disposable `windows-2022` runner: it installs the pinned 2.5.8 package, updates to 2.5.10 with `/UPDATE`, checks registry versions and preserves a synthetic profile marker, then stages the freshly built 1.19.33 core with `--install-core`. The NSIS installers reset TCP settings and the service helper adds firewall allow rules, so this is the final step on a clean runner that is discarded after the job. The GUI and core are not launched and the service is not started. This smoke does not establish user-machine installation, recovery, service startup, TUN/DNS, qualified observation, or owner acceptance. The workflow uses standard public runners and no Actions cache or uploaded artifacts.

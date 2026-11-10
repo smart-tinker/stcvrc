@@ -83,6 +83,10 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
         self.assertIn("Install 2.5.8 then update to 2.5.10", job)
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "ci-update-preserve.yaml"):
+            with self.subTest(required=required):
+                self.assertIn(required, script)
 
 
 if __name__ == "__main__":
