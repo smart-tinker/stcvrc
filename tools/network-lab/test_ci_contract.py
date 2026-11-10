@@ -281,14 +281,6 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("This is not a full-suite pass", job)
         self.assertIn("go mod verify", job)
 
-if __name__ == "__main__":
-    unittest.main()
- ./..."
-        self.assertIn(expected, job)
-        self.assertIn("https://github.com/smart-tinker/stcvrc/issues/25", job)
-        self.assertIn("This is not a full-suite pass", job)
-        self.assertIn("go mod verify", job)
-
 
 if __name__ == "__main__":
     unittest.main()
