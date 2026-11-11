@@ -334,6 +334,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("RUNNER_TEMP", scan_job)
         self.assertEqual(scan_job.count("continue-on-error: true"), 4)
         self.assertIn("Enforce all three vulnerability scans", scan_job)
+        self.assertEqual(scan_job.count("run: govulncheck -show verbose -tags=with_gvisor ./..."), 3)
+        self.assertIn("run: govulncheck -show verbose -tags=with_gvisor -test ./...", scan_job)
         source_job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
         self.assertIn("    needs: vulnerability-scan", source_job)
 
