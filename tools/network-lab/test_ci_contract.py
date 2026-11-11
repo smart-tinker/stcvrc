@@ -131,7 +131,7 @@ class CIContractTests(unittest.TestCase):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
         self.assertEqual(pins, {
             "SOURCE_COMMIT": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
-            "CORE_SHA256": "a3ff2bdb717fdfe760dab98450ac381d568cbeb459a36799dcb9e3cff06d10ac",
+            "CORE_SHA256": "d40adc330243b201d4bf060ad23f9fb9fbbd90aba846d295be842663bed5aa99",
             "GO_SHA256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
             "XRAY_ZIP_SHA256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
             "XRAY_SHA256": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
