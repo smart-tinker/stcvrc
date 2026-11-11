@@ -59,8 +59,8 @@ class DistributionAuditContractTests(unittest.TestCase):
             {
                 "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
                 "runs": [
-                    "https://github.com/smart-tinker/stcvrc/actions/runs/42723333952",
-                    "https://github.com/smart-tinker/stcvrc/actions/runs/42726584980",
+                    "https://github.com/smart-tinker/stcvrc/actions/runs/43016768459",
+                    "https://github.com/smart-tinker/stcvrc/actions/runs/43057665817",
                 ],
             },
         )
@@ -163,6 +163,10 @@ class DistributionAuditContractTests(unittest.TestCase):
         })
         self.assertEqual(candidate["asset_sha256"], "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87")
         self.assertEqual(candidate["release_id"], 441941273)
+        self.assertEqual(candidate["release_assets"], [
+            {"name": "RC-MANIFEST.json", "sha256": "69d678d8a40f0eb26491d6b1a731bdd077563be170e759133e9ad4e0be8235a9"},
+            {"name": "verge-mihomo.exe", "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"},
+        ])
         self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.6")
 
     def test_license_ci_builds_the_exact_draft_rc6_mit_lzo_source(self):

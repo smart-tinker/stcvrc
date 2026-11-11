@@ -1079,3 +1079,306 @@ jobs:
             printf 'At least one exact .33 upstream comparison failed; see per-case results above.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
           if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi
+
+  license-audit:
+    needs: source
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      AUDIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch audit manifest at tested revision
+        run: |
+          set -euo pipefail
+          audit_root="$RUNNER_TEMP/audit-definition"
+          git init --quiet "$audit_root"
+          git -C "$audit_root" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$audit_root" fetch --quiet --depth=1 --no-tags origin "$AUDIT_COMMIT"
+          git -C "$audit_root" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$audit_root" rev-parse HEAD)" = "$AUDIT_COMMIT"
+          printf 'Audit manifest commit: %s\n' "$AUDIT_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fetch exact source and upstream revisions
+        run: |
+          set -euo pipefail
+          fetch_tag() {
+            local dir="$1" repo_url="$2" tag="$3" expected="$4"
+            mkdir -p "$dir"
+            git -C "$dir" init --quiet
+            git -C "$dir" remote add origin "$repo_url"
+            git -C "$dir" fetch --quiet --depth=1 --no-tags origin "refs/tags/$tag"
+            local actual
+            actual="$(git -C "$dir" rev-parse 'FETCH_HEAD^{commit}')"
+            test "$actual" = "$expected"
+            git -C "$dir" checkout --quiet --detach "$actual"
+            test "$(git -C "$dir" rev-parse HEAD)" = "$expected"
+          }
+
+          stable="$RUNNER_TEMP/source-1.19.29"
+          candidate="$RUNNER_TEMP/source-1.19.33"
+          fetch_tag "$stable" https://github.com/smart-tinker/stcvrc.git v1.19.29-stcvrc.1 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
+          fetch_tag "$candidate" https://github.com/smart-tinker/stcvrc.git stcvrc-1.19.33-rc.2 d888dfad5e785217778bb7515c931840d5307dd4
+
+          mit_lzo_candidate="$RUNNER_TEMP/source-1.19.33-mit-lzo"
+          mkdir -p "$mit_lzo_candidate"
+          git -C "$mit_lzo_candidate" init --quiet
+          git -C "$mit_lzo_candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$mit_lzo_candidate" fetch --quiet --depth=1 --no-tags origin 086a62c3ce9a77f650786ae2eae92b68909d49e1
+          git -C "$mit_lzo_candidate" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$mit_lzo_candidate" rev-parse HEAD)" = 086a62c3ce9a77f650786ae2eae92b68909d49e1
+          git -C "$mit_lzo_candidate" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          mit_lzo_upstream="$(git -C "$mit_lzo_candidate" rev-parse 'FETCH_HEAD^{commit}')"
+          test "$mit_lzo_upstream" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          grep -Fqx 'github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=' "$mit_lzo_candidate/go.sum"
+          if grep -Fq 'github.com/rasky/go-lzo' "$mit_lzo_candidate/go.mod"; then
+            printf 'GPL-only go-lzo module remains in candidate go.mod.\n' >&2
+            exit 1
+          fi
+
+          git -C "$stable" fetch --quiet --depth=1 origin 9e23508270fed96e346fd4f68447e90401669131
+          git -C "$stable" fetch --quiet --depth=1 https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.29
+          stable_upstream="$(git -C "$stable" rev-parse 'FETCH_HEAD^{commit}')"
+          test "$stable_upstream" = e26714a181ac0e2fa803453c0a8e9a9ce94e31cb
+          test -z "$(git -C "$stable" diff --name-only 9e23508270fed96e346fd4f68447e90401669131 HEAD -- . ':(exclude)README.md' ':(exclude)build-windows.ps1')"
+
+          git -C "$candidate" fetch --quiet --depth=1 https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+          candidate_upstream="$(git -C "$candidate" rev-parse 'FETCH_HEAD^{commit}')"
+          test "$candidate_upstream" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          git -C "$candidate" fetch --quiet --depth=1 origin 9ccecd85017ec196975239a3afeef886cf991588
+          patch_claim_subject="$(git -C "$candidate" show -s --format=%s 9ccecd85017ec196975239a3afeef886cf991588)"
+
+          python3 - "$RUNNER_TEMP/audit-definition" "$stable" "$candidate" "$stable_upstream" "$candidate_upstream" "$patch_claim_subject" <<'PY'
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+
+          audit_root, stable, candidate, stable_upstream, candidate_upstream, patch_subject = sys.argv[1:]
+          root = Path(audit_root)
+          manifest = json.loads((root / "docs/license-provenance.json").read_text(encoding="utf-8"))
+          variants = {item["id"]: item for item in manifest["variants"]}
+
+          def changed(repo, base, head):
+              return set(subprocess.check_output(
+                  ["git", "-C", repo, "diff", "--name-only", base, head], text=True
+              ).splitlines())
+
+          stable_expected = set(variants["accepted-1.19.29"]["downstream_delta_files"])
+          stable_actual = changed(stable, stable_upstream, "9e23508270fed96e346fd4f68447e90401669131")
+          stable_actual.discard("README.md")
+          assert stable_actual == stable_expected, f"stable source delta mismatch: {stable_actual ^ stable_expected}"
+
+          source_path = Path(candidate) / "candidates/v1.19.33-20261022/source.json"
+          source = json.loads(source_path.read_text(encoding="utf-8"))
+          assert source["upstream"]["commit"] == candidate_upstream
+          candidate_actual = changed(candidate, candidate_upstream, "d888dfad5e785217778bb7515c931840d5307dd4")
+          candidate_actual -= {
+              "README.md", "build-windows.ps1",
+              "candidates/v1.19.33-20261022/README.md",
+              "candidates/v1.19.33-20261022/source.json",
+          }
+          candidate_expected = set(source["patchFiles"])
+          assert candidate_actual == candidate_expected, f"candidate source delta mismatch: {candidate_actual ^ candidate_expected}"
+          assert len(candidate_expected) == 14
+          for relative, expected in source["patchFiles"].items():
+              actual = hashlib.sha256((Path(candidate) / relative).read_bytes()).hexdigest()
+              assert actual == expected, f"candidate source digest mismatch: {relative}"
+
+          claimed_base = source["patchSource"]["base"]
+          if claimed_base != candidate_upstream:
+              print("PROVENANCE WARNING: source.json patchSource.base does not match the v1.19.33 upstream commit.")
+              print(f"source.json names patchSource.commit={source['patchSource']['commit']} base={claimed_base}")
+              print(f"That public commit subject is: {patch_subject}")
+              print("The 14 .33 source file hashes and exact upstream diff are checked independently; the patch-origin linkage remains unverified.")
+          PY
+
+          {
+            printf '## Exact upstream-to-STCVRC source deltas\n\n'
+            printf '### Accepted 1.19.29 code delta\n\n'
+            git -C "$stable" diff --no-ext-diff --no-renames --name-status "$stable_upstream" 9e23508270fed96e346fd4f68447e90401669131
+            printf '\n### Candidate 1.19.33 code delta\n\n'
+            git -C "$candidate" diff --no-ext-diff --no-renames --name-status "$candidate_upstream" d888dfad5e785217778bb7515c931840d5307dd4
+            printf '\nCandidate patch-origin claim subject: %s\n' "$patch_claim_subject"
+            printf 'Candidate patch-origin base recorded in source.json: %s\n' "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patchSource"]["base"])' "$candidate/candidates/v1.19.33-20261022/source.json")"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Fresh builds and license inventories for all source lines
+        run: |
+          set -euo pipefail
+          temp="$RUNNER_TEMP/issue7-license-audit"
+          mkdir -p "$temp"
+          cleanup() {
+            chmod -R u+w "$temp" 2>/dev/null || true
+            rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/source-1.19.33-mit-lzo" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/toolchain-go1.26.11" "$RUNNER_TEMP/audit-definition" || true
+          }
+          trap cleanup EXIT
+
+          install_go() {
+            local version="$1" digest="$2" dir="$RUNNER_TEMP/toolchain-go$1"
+            mkdir -p "$dir"
+            curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
+              "https://go.dev/dl/go$version.linux-amd64.tar.gz" -o "$dir/go.tar.gz"
+            printf '%s  %s\n' "$digest" "$dir/go.tar.gz" | sha256sum --check --status
+            tar -xzf "$dir/go.tar.gz" -C "$dir"
+            rm "$dir/go.tar.gz"
+            printf '%s\n' "$dir/go/bin/go"
+          }
+
+          go125="$(install_go 1.26.5 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053)"
+          go12610="$(install_go 1.26.10 ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5)"
+          go12611="$(install_go 1.26.11 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec)"
+          mismatches=0
+          license_findings=0
+
+          audit_variant() {
+            local id="$1" go="$2" expected_sha="$3" version="$4" build_time="$5" source_dir="$6"
+            local gopath="$temp/$id/gopath" modcache="$temp/$id/modcache" gocache="$temp/$id/gocache"
+            local gobin="$temp/$id/bin" licenses="$temp/$id/licenses" binary="$temp/$id/verge-mihomo.exe"
+            local module_graph="$temp/$id/module-graph.txt"
+            mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"
+            export GOTOOLCHAIN=local GOENV=off GOWORK=off GOTELEMETRY=off
+            export CGO_ENABLED=0 GOAMD64=v1 GOPATH="$gopath" GOMODCACHE="$modcache" GOCACHE="$gocache" GOBIN="$gobin"
+            go_bin="$(dirname "$go")"
+            export PATH="$go_bin:$gobin:$PATH"
+            export GOFLAGS=-mod=readonly
+            unset GOOS GOARCH GOMAXPROCS
+
+            {
+              printf '\n## %s fresh source build and license inventory\n\n' "$id"
+              printf 'Source commit: %s\n\n' "$(git -C "$source_dir" rev-parse HEAD)"
+              printf 'Go toolchain: %s\n\n' "$("$go" version)"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            cd "$source_dir"
+            "$go" list -m all > "$module_graph"
+            if [[ "$id" == candidate-1.19.33-mit-lzo ]]; then
+              grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$module_graph"
+              if grep -q '^github.com/rasky/go-lzo ' "$module_graph"; then
+                printf 'Forbidden GPL-only go-lzo module remains in the candidate graph.\n' >&2
+                exit 1
+              fi
+            fi
+            if [[ "$id" == accepted-1.19.29 ]]; then
+              "$go" test -p=2 -tags=with_gvisor -count=1 -timeout=120s ./transport/openvpn ./adapter/outbound
+            else
+              export GOMAXPROCS=2
+              "$go" test -p=2 -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
+            fi
+
+            ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
+            if [[ "$id" == accepted-1.19.29 ]]; then
+              GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
+                "$go" build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+            else
+              GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 GOFLAGS='-mod=readonly -p=2' \
+                "$go" build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+            fi
+
+            local actual_sha
+            actual_sha="$(sha256sum "$binary" | awk '{print $1}')"
+            {
+              printf '\nFreshly built binary SHA256: %s\n' "$actual_sha"
+              if [[ -n "$expected_sha" ]]; then
+                printf 'Reference release asset SHA256: %s\n\n' "$expected_sha"
+              else
+                printf 'Reference release asset SHA256: %s\n\n' "$actual_sha"
+              fi
+              printf '### go version -m\n\n'
+              GOOS=windows GOARCH=amd64 GOAMD64=v1 "$go" version -m "$binary"
+              printf '\n### Module requirements from go.mod\n\n'
+              cat go.mod
+              printf '\n### Resolved module graph, including replacements\n\n'
+              cat "$module_graph"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
+              "$go" install github.com/google/go-licenses/v2@v2.0.1
+            local report_status=0
+            GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
+              "$gobin/go-licenses" report . > "$temp/$id/go-licenses-report.csv" 2> "$temp/$id/go-licenses-report.stderr" || report_status=$?
+            if [[ "$id" == candidate-1.19.33-mit-lzo ]] && ! awk -F, '$1 == "github.com/anchore/go-lzo" && $3 == "MIT" { found = 1 } END { exit !found }' "$temp/$id/go-licenses-report.csv"; then
+              printf 'The candidate dependency inventory did not classify github.com/anchore/go-lzo as MIT.\n' >&2
+              exit 1
+            fi
+            local report_incomplete=0
+            if (( report_status != 0 )) \
+              || grep -qi "no license found" "$temp/$id/go-licenses-report.stderr" \
+              || awk -F, 'tolower($3) == "unknown" { found = 1 } END { exit !found }' "$temp/$id/go-licenses-report.csv"; then
+              report_incomplete=1
+            fi
+            {
+              printf '\n### Package license report for windows/amd64 with_gvisor\n\n'
+              cat "$temp/$id/go-licenses-report.csv"
+              cat "$temp/$id/go-licenses-report.stderr" >&2
+              if (( report_incomplete != 0 )); then
+                printf "\nLicense report incomplete for %s (exit %s); manual license review is required.\n" "$id" "$report_status"
+              fi
+              printf '\n### Repository-embedded license text file digests\n\n'
+              find . -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'COPYRIGHT*' \) \
+                -not -path './.git/*' -print0 | sort -z | xargs -0 -r sha256sum
+              printf '\n### Go toolchain license text digest\n\n'
+              sha256sum "$(dirname "$go")/../LICENSE"
+              printf '\n### Source go:embed directives\n\n'
+              python3 - "$source_dir" <<'PYEMBED'
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          for path in sorted(root.rglob("*.go")):
+              if ".git" in path.parts:
+                  continue
+              for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                  if "go:embed" in line:
+                      print(f"{path.relative_to(root)}:{number}:{line.strip()}")
+          PYEMBED
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            if (( report_incomplete != 0 )); then
+              license_findings=1
+            fi
+
+            local save_status=0
+            test ! -e "$licenses"
+            GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
+              "$gobin/go-licenses" save . --save_path="$licenses" > "$temp/$id/go-licenses-save.stdout" 2> "$temp/$id/go-licenses-save.stderr" || save_status=$?
+            cat "$temp/$id/go-licenses-save.stdout"
+            cat "$temp/$id/go-licenses-save.stderr" >&2
+            if (( save_status != 0 )) || grep -qi "no license found" "$temp/$id/go-licenses-save.stderr"; then
+              license_findings=1
+              printf "License file collection incomplete for %s (exit %s); manual license review is required.\n" "$id" "$save_status" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            {
+              printf '\n### Collected dependency license/notice file digests\n\n'
+              find "$licenses" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'COPYRIGHT*' \) \
+                -print0 | sort -z | xargs -0 -r sha256sum
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            "$go" mod verify
+            test -z "$(git -C "$source_dir" status --porcelain)"
+            if [[ -n "$expected_sha" && "$actual_sha" != "$expected_sha" ]]; then
+              printf 'Reproduced SHA mismatch for %s.\n' "$id" | tee -a "$GITHUB_STEP_SUMMARY"
+              mismatches=1
+            fi
+          }
+
+          audit_variant accepted-1.19.29 "$go125" \
+            71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b \
+            1.19.29-STCVRC-openvpn-rekey-9e235082 2026-07-20T00:00:00Z "$RUNNER_TEMP/source-1.19.29"
+          audit_variant candidate-1.19.33-rc.2 "$go12610" \
+            6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7 \
+            1.19.33-STCVRC-candidate-20261022 2026-10-22T00:00:00Z "$RUNNER_TEMP/source-1.19.33"
+          audit_variant candidate-1.19.33-mit-lzo "$go12611" \
+            d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87 \
+            1.19.33-STCVRC-candidate-mit-lzo-20261111 2026-11-11T00:00:00Z "$RUNNER_TEMP/source-1.19.33-mit-lzo"
+          test "$mismatches" -eq 0
+          printf "\nPublished RC2 and current draft RC6 asset digests matched fresh-source builds.\n" >> "$GITHUB_STEP_SUMMARY"
+          if (( license_findings != 0 )); then
+            printf "Automated license classification is incomplete; manual license review is required. This is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf "Automated license classification produced no missing-license findings; this is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
+          fi
