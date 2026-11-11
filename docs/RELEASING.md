@@ -28,7 +28,7 @@ For future tags, prefer SemVer's `vX.Y.Z-rc.N` form so numeric RC order is expli
 | `STCVRC network lab` | Fresh pinned-core loopback A/B failover, both-endpoints-down behavior and TLS hostname rejection on its configured runners. Check its run on the same source/fixture revision; it is a separate workflow. | Windows TUN, OpenVPN rekey, production network behavior, or long-duration acceptance. |
 | `assemble-draft-rc` in `.github/workflows/test.yml` | Runs only on manual `workflow_dispatch` from `main`, after `source`, `profile-contract`, `cvr-2-5-10-package`, and `cvr-windows-payload` succeed. It rebuilds the pinned core, writes the executable and manifest to a draft GitHub Release, then reads both assets back and compares exact bytes and manifest fields. | It does not gate on the separate network-lab workflow, issue closure, license sign-off, native acceptance, stable publication, or deployment. Check those separately. |
 
-The release workflow uses standard public GitHub-hosted runners, `contents: read` for checks and scoped `contents: write` for draft assembly. It uses disposable runner-local Go caches and has no Actions cache or artifact-upload step. Release assets are GitHub Release files, not Actions artifacts. The separate CodeQL workflow has its own cache settings; do not infer repository-wide cache state from the release job.
+The release workflow uses standard public GitHub-hosted runners, `contents: read` for checks and scoped `contents: write` for draft assembly. It uses disposable runner-local Go caches and has no Actions cache or artifact-upload step. Release assets are GitHub Release files, not Actions artifacts. CodeQL is a separate workflow and may use a persistent overlay cache; inspect its effective configuration and the repository cache inventory before claiming repository-wide zero cache.
 
 ## Draft-to-RC checklist
 
@@ -52,4 +52,5 @@ Deployment is tracked per target only after stable acceptance and separate autho
 - [CVR 2.5.10 candidate and native acceptance](https://github.com/smart-tinker/stcvrc/issues/3)
 - [Dependency license and provenance review](https://github.com/smart-tinker/stcvrc/issues/7)
 - [GitHub checks and repository protections](https://github.com/smart-tinker/stcvrc/issues/23)
+- [CI and release workflow hardening](https://github.com/smart-tinker/stcvrc/issues/6)
 - [Dependency reachability triage](https://github.com/smart-tinker/stcvrc/issues/26)
