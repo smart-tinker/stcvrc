@@ -75,9 +75,9 @@ jobs:
           GOOS=windows GOARCH=amd64 timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
             -o "$RUNNER_TEMP/core-windows.exe" .
           timeout 90s go mod verify
-          printf 'Fresh Linux core SHA256: %s\n' "$(sha256sum "$RUNNER_TEMP/core-linux" | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
-          printf 'Fresh Linux core size: %s bytes\n' "$(stat -c %s "$RUNNER_TEMP/core-linux")" >> "$GITHUB_STEP_SUMMARY"
-          printf 'Fresh Windows core SHA256: %s\n' "$(sha256sum "$RUNNER_TEMP/core-windows.exe" | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
-          printf 'Fresh Windows core size: %s bytes\n' "$(stat -c %s "$RUNNER_TEMP/core-windows.exe")" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Fresh Linux core SHA256: %s\n' "$(sha256sum "$RUNNER_TEMP/core-linux" | awk '{print $1}')" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'Fresh Linux core size: %s bytes\n' "$(stat -c %s "$RUNNER_TEMP/core-linux")" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'Fresh Windows core SHA256: %s\n' "$(sha256sum "$RUNNER_TEMP/core-windows.exe" | awk '{print $1}')" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'Fresh Windows core size: %s bytes\n' "$(stat -c %s "$RUNNER_TEMP/core-windows.exe")" | tee -a "$GITHUB_STEP_SUMMARY"
                     test -z "$(git status --porcelain)"
           printf '\nOpenVPN tests, fresh Linux/Windows builds, and module verification passed. No Actions cache or artifact upload is configured; runner-local Go caches are discarded with the hosted runner.\n' >> "$GITHUB_STEP_SUMMARY"
