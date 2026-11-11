@@ -334,6 +334,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("RUNNER_TEMP", scan_job)
         self.assertEqual(scan_job.count("continue-on-error: true"), 4)
         self.assertIn("Enforce all three vulnerability scans", scan_job)
+        self.assertEqual(scan_job.count("run: govulncheck -show verbose -tags=with_gvisor ./..."), 3)
+        self.assertIn("run: govulncheck -show verbose -tags=with_gvisor -test ./...", scan_job)
         source_job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
         self.assertIn("    needs: vulnerability-scan", source_job)
 
@@ -487,6 +489,13 @@ class CIContractTests(unittest.TestCase):
             section = workflow.split(f"  {job_name}:", 1)[1].split(f"  {next_job}:", 1)[0]
             with self.subTest(job=job_name):
                 self.assertIn('go version -m "$binary"', section)
+
+
+    def test_current_source_binary_modules_are_recorded(self):
+        source_job = WORKFLOWS["test.yml"].split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
+        self.assertIn('go version -m "$RUNNER_TEMP/core-linux" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
+        self.assertIn('go version -m "$RUNNER_TEMP/core-windows.exe" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
+
 
 if __name__ == "__main__":
     unittest.main()
