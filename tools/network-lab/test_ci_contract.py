@@ -390,7 +390,7 @@ class CIContractTests(unittest.TestCase):
         uot = SS_TESTS.split("func TestMihomo_ShadowsocksUoT", 1)[1].split("\\nfunc ", 1)[0]
         self.assertIn("Image:        ImageXray", uot)
         self.assertNotIn("ImageVless", uot)
-        self.assertRegex(CLASH_TESTS, r'ImageXray\\s+= "teddysun/xray@sha256:[0-9a-f]{64}"')
+        self.assertIn('ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"', CLASH_TESTS)
 
 if __name__ == "__main__":
     unittest.main()
