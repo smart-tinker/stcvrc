@@ -111,25 +111,25 @@ jobs:
         name: Report findings on the exact main base
         working-directory: baseline
         continue-on-error: true
-        run: govulncheck -tags=with_gvisor ./...
+        run: govulncheck -show verbose -tags=with_gvisor ./...
 
       - id: source_scan
         name: Scan current source with release build tags
         working-directory: source
         continue-on-error: true
-        run: govulncheck -tags=with_gvisor ./...
+        run: govulncheck -show verbose -tags=with_gvisor ./...
 
       - id: test_scan
         name: Scan the nested test module
         working-directory: source/test
         continue-on-error: true
-        run: govulncheck -tags=with_gvisor -test ./...
+        run: govulncheck -show verbose -tags=with_gvisor -test ./...
 
       - id: candidate_scan
         name: Scan selected .33 source
         working-directory: candidate
         continue-on-error: true
-        run: govulncheck -tags=with_gvisor ./...
+        run: govulncheck -show verbose -tags=with_gvisor ./...
 
       - name: Enforce all three vulnerability scans
         if: always()
