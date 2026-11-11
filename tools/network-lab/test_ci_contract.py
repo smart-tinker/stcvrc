@@ -484,10 +484,9 @@ class CIContractTests(unittest.TestCase):
             ("cvr-2-5-10-package", "cvr-windows-payload"),
             ("assemble-draft-rc", "test-module"),
         ):
-            section = workflow.split(f"\\n  {job_name}:\\n", 1)[1].split(f"\\n  {next_job}:\\n", 1)[0]
+            section = workflow.split(f"  {job_name}:", 1)[1].split(f"  {next_job}:", 1)[0]
             with self.subTest(job=job_name):
                 self.assertIn('go version -m "$binary"', section)
-
 
 if __name__ == "__main__":
     unittest.main()
