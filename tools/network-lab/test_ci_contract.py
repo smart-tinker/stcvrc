@@ -393,5 +393,19 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn("ImageVless", uot)
         self.assertIn('ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"', CLASH_TESTS)
 
+    def test_issue25_xray_fixtures_allow_only_loopback_probe_endpoint(self):
+        expected = [{
+            "action": "allow",
+            "network": "tcp,udp",
+            "port": "10001",
+            "ip": ["127.0.0.1/32"],
+        }]
+        for name in ("trojan-grpc.json", "vmess-ws-xray-0rtt.json"):
+            with self.subTest(config=name):
+                config = json.loads((ROOT / "test/config" / name).read_text(encoding="utf-8"))
+                settings = config["outbounds"][0]["settings"]
+                self.assertEqual(settings.get("finalRules"), expected)
+
+
 if __name__ == "__main__":
     unittest.main()
