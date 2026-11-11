@@ -281,18 +281,19 @@ func Benchmark_Shadowsocks(b *testing.B) {
 }
 
 func TestMihomo_ShadowsocksUoT(t *testing.T) {
-	configPath := C.Path.Resolve("xray-shadowsocks.json")
+	configPath := C.Path.Resolve("sing-box-shadowsocks.json")
 
 	cfg := &container.Config{
-		Image:        ImageXray,
+		Image:        ImageSingBox,
 		ExposedPorts: defaultExposedPorts,
+		Cmd:          []string{"run", "-c", "/etc/sing-box/config.json"},
 	}
 	hostCfg := &container.HostConfig{
 		PortBindings: defaultPortBindings,
-		Binds:        []string{fmt.Sprintf("%s:/etc/xray/config.json", configPath)},
+		Binds:        []string{fmt.Sprintf("%s:/etc/sing-box/config.json", configPath)},
 	}
 
-	id, err := startContainer(cfg, hostCfg, "xray-ss")
+	id, err := startContainer(cfg, hostCfg, "sing-box-ss-uot")
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

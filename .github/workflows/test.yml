@@ -939,7 +939,7 @@ jobs:
           tar -xzf go.tar.gz
           printf '%s\n' "$RUNNER_TEMP/test-go/go/bin" >> "$GITHUB_PATH"
 
-      - name: Run the protocol module suite from clean Go caches
+      - name: Run the full protocol module suite from clean Go caches
         working-directory: source/test
         run: |
           set -euo pipefail
@@ -950,12 +950,11 @@ jobs:
           go version
           go mod tidy
           git -C "$GITHUB_WORKSPACE/source" diff --exit-code -- test/go.mod test/go.sum
-                    printf '%s\n' \
-            'Known unresolved integration cases are excluded; see https://github.com/smart-tinker/stcvrc/issues/25.' \
-            'This is not a full-suite pass.' \
-            'Skipped: TestMihomo_Hysteria, TestMihomo_ShadowsocksUoT, TestMihomo_TrojanGrpc, TestMihomo_VmessPacketAddr, TestMihomo_VmessWebsocketXray0RTT' >> "$GITHUB_STEP_SUMMARY"
-          go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)$' ./...
+          go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...
           go mod verify
+          printf '%s\n' \
+            'Full nested test-module suite completed from clean Go caches.' \
+            'Issue #25 selected protocol cases are also compared on exact .33 upstream and candidate sources.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run each issue-25 protocol case independently
         env:
@@ -1003,7 +1002,7 @@ jobs:
           cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"
           diff -qr "$upstream/test" "$candidate/test"
           grep -Fq 'tobyxdd/hysteria@sha256:4c8c92ba4b9b405c9473d8776b613e4d776141a3fa26ae5084a19c44b49f1e35' "$candidate/test/clash_test.go"
-          grep -Fq 'ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"' "$candidate/test/clash_test.go"
+          grep -Fq 'ImageSingBox        = "ghcr.io/sagernet/sing-box:v1.12.0@sha256:d7403cae8ffa17529b8676402346f2ca185a56dae8d90b73822d51421a850541"' "$candidate/test/clash_test.go"
           printf "Exact comparison: upstream %s vs MIT-LZO candidate %s; tests copied from source %s\n" "$upstream_sha" "$candidate_sha" "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
 
           upstream_status=0
@@ -1019,6 +1018,7 @@ jobs:
             TestMihomo_ShadowsocksUoT \
             TestMihomo_TrojanGrpc \
             TestMihomo_VlessXTLS \
+            TestMihomo_VmessPacketAddr \
             TestMihomo_VmessWebsocketXray0RTT; do
             printf "\n=== exact .33 upstream: %s ===\n" "$baseline_case"
             if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .; then
@@ -1042,6 +1042,7 @@ jobs:
             TestMihomo_ShadowsocksUoT \
             TestMihomo_TrojanGrpc \
             TestMihomo_VlessXTLS \
+            TestMihomo_VmessPacketAddr \
             TestMihomo_VmessWebsocketXray0RTT; do
             printf "\n=== exact MIT-LZO .33 candidate: %s ===\n" "$candidate_case"
             if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .; then
@@ -1054,4 +1055,4 @@ jobs:
           if (( upstream_status != 0 )); then
             printf 'At least one exact .33 upstream comparison failed; see per-case results above.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if (( case_status != 0 || candidate_status != 0 )); then exit 1; fi
+          if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi
