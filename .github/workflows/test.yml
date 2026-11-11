@@ -625,7 +625,8 @@ jobs:
               $coreExit = $LASTEXITCODE
               $coreVersionOutput = $coreVersionOutput -join "`n"
               if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
-              $expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $($manifest.core.buildTime)"
+              $buildTimeText = ([DateTime]$manifest.core.buildTime).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+              $expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"
               if (-not $coreVersionOutput.StartsWith($expectedCoreVersion, [System.StringComparison]::Ordinal)) {
                 throw "Fresh custom core -v reported an unexpected version. Expected prefix: [$expectedCoreVersion]; actual: [$coreVersionOutput]"
               }

@@ -293,7 +293,9 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
         self.assertIn('$coreVersionOutput = & $stockCore -v 2>&1', block)
         self.assertIn('if ($coreExit -ne 0)', block)
-        self.assertIn('$expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $($manifest.core.buildTime)"', block)
+        self.assertIn('$buildTimeText = ([DateTime]$manifest.core.buildTime).ToUniversalTime()', block)
+        self.assertIn('ToString("yyyy-MM-ddTHH:mm:ss', block)
+        self.assertIn('$expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"', block)
         self.assertIn('StartsWith($expectedCoreVersion', block)
         self.assertIn('Native core process smoke passed', block)
         self.assertLess(block.index('if ($stagedHash -ne $manifest.core.sha256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
