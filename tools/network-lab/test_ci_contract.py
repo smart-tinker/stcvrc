@@ -301,6 +301,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93", workflow)
         scan_job = workflow.split("\n  vulnerability-scan:\n", 1)[1].split("\n  source:\n", 1)[0]
         self.assertNotIn(r"\\n", scan_job)
+        self.assertNotIn("runner.temp", scan_job)
+        self.assertIn("RUNNER_TEMP", scan_job)
         self.assertEqual(scan_job.count("continue-on-error: true"), 3)
         self.assertIn("Enforce all three vulnerability scans", scan_job)
         source_job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
