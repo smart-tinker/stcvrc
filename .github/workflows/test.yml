@@ -453,7 +453,7 @@ jobs:
           binary_size="$(stat -c %s "$binary")"
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
             "$source_sha" "$binary_sha" "$binary_size" | tee -a "$GITHUB_STEP_SUMMARY"
-          test "$binary_sha" = 40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3
+          test "$binary_sha" = d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87
           test -z "$(git -C "$core_source" status --porcelain)"
           python3 -B "$PR_SOURCE/candidates/cvr-2.5.10/verify-artifacts.py" \
             --artifacts "$RUNNER_TEMP/cvr-public-inputs" --core "$binary" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -506,7 +506,7 @@ jobs:
           $go = Join-Path $goRoot 'go\bin\go.exe'
           if (-not (Test-Path -LiteralPath $go)) { throw 'Go toolchain missing after extraction' }
           $goVersion = (& $go version).Trim()
-          if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch 'go1\.26\.10') { throw 'Unexpected Go toolchain version' }
+          if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch 'go1\.26\.11') { throw 'Unexpected Go toolchain version' }
           $env:PATH = "$(Split-Path -Parent $go);$env:PATH"
           $env:GOENV = 'off'
           $env:GOTOOLCHAIN = 'local'
@@ -559,8 +559,8 @@ jobs:
           $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
           $coreSize = (Get-Item -LiteralPath $core).Length
           Write-Host "Fresh Windows/amd64 candidate SHA256: $coreHash; $coreSize bytes"
-          if ($coreHash -ne '40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3') { throw 'fresh native Windows core SHA256 mismatch' }
-          if ($coreSize -ne 61235712) { throw 'fresh native Windows core size mismatch' }
+          if ($coreHash -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') { throw 'fresh native Windows core SHA256 mismatch' }
+          if ($coreSize -ne 61238272) { throw 'fresh native Windows core size mismatch' }
           Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.11, SHA256 $coreHash, $coreSize bytes."
 
@@ -734,8 +734,8 @@ jobs:
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
-          test "$binary_sha" = 40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3
-          test "$binary_size" = 61235712
+          test "$binary_sha" = d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87
+          test "$binary_size" = 61238272
           test -z "$(git -C "$core_source" status --porcelain)"
           printf 'RC_BINARY=%s\nRC_BINARY_SHA=%s\nRC_BINARY_SIZE=%s\n' \
             "$binary" "$binary_sha" "$binary_size" >> "$GITHUB_ENV"

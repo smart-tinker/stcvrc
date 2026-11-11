@@ -67,7 +67,7 @@ if ($manifest.repository -ne 'clash-verge-rev/clash-verge-rev' -or (@($manifest.
     throw 'Unexpected pinned CVR release pair.'
 }
 $coreSha = ([string]$manifest.core.sha256).ToLowerInvariant()
-if ($coreSha -ne '40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3') {
+if ($coreSha -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') {
     throw 'Unexpected fresh STCVRC core pin.'
 }
 if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf) -or

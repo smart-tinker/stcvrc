@@ -53,7 +53,7 @@ the GUI, service, helper or stock core.
 | CVR 2.5.10 | Official installer/source refs in `inputs.json` |
 | Recovery CVR 2.5.8 | Official installer/source refs in `inputs.json` |
 | Custom STCVRC core | MIT-LZO source `086a62c3ce9a77f650786ae2eae92b68909d49e1`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8` |
-| Fresh Windows executable | SHA256 `40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3`; CI measures and records its size |
+| Fresh Windows executable | SHA256 `d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87`; CI measures and records its size |
 
 The RC manifest must record the clean verifier/docs commit separately from
 `coreSourceCommit`. Bind it to the verifier, inputs, measured receipt,

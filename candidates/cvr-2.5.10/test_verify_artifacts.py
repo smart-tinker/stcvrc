@@ -258,11 +258,11 @@ class CandidateSourceContractTests(unittest.TestCase):
         self.assertEqual(core['upstreamCommit'], '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8')
         self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261111')
         self.assertEqual(core['buildTime'], '2026-11-11T00:00:00Z')
-        self.assertEqual(core['goVersion'], '1.26.10')
-        self.assertEqual(core['goArchiveSha256'], 'ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5')
+        self.assertEqual(core['goVersion'], '1.26.11')
+        self.assertEqual(core['goArchiveSha256'], '9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec')
         self.assertEqual(core['target'], 'windows/amd64')
         self.assertEqual(core['tags'], ['with_gvisor'])
-        self.assertEqual(core['sha256'], '40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3')
+        self.assertEqual(core['sha256'], 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87')
         self.assertNotIn('size', core)
 
 
