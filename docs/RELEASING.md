@@ -50,6 +50,7 @@ Deployment is tracked per target only after stable acceptance and separate autho
 ## Project gates
 
 - [CVR 2.5.10 candidate and native acceptance](https://github.com/smart-tinker/stcvrc/issues/3)
+- [Xray 26.10.31 planned Linux maintenance](https://github.com/smart-tinker/stcvrc/issues/4)
 - [Dependency license and provenance review](https://github.com/smart-tinker/stcvrc/issues/7)
 - [GitHub checks and repository protections](https://github.com/smart-tinker/stcvrc/issues/23)
 - [CI and release workflow hardening](https://github.com/smart-tinker/stcvrc/issues/6)
