@@ -70,9 +70,12 @@ jobs:
           cd "$RUNNER_TEMP/source"
           go version
           timeout 240s go test -p=2 -mod=readonly -count=1 -timeout=180s ./transport/openvpn
-          timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261111
+          build_time=2026-11-11T00:00:00Z
+          ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
+          GOOS=linux GOARCH=amd64 timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" \
             -o "$RUNNER_TEMP/core-linux" .
-          GOOS=windows GOARCH=amd64 timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
+          GOOS=windows GOARCH=amd64 timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" \
             -o "$RUNNER_TEMP/core-windows.exe" .
           timeout 90s go mod verify
           printf 'Fresh Linux core SHA256: %s\n' "$(sha256sum "$RUNNER_TEMP/core-linux" | awk '{print $1}')" | tee -a "$GITHUB_STEP_SUMMARY"
