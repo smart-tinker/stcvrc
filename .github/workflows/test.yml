@@ -953,8 +953,8 @@ jobs:
                     printf '%s\n' \
             'Known unresolved integration cases are excluded; see https://github.com/smart-tinker/stcvrc/issues/25.' \
             'This is not a full-suite pass.' \
-            'Skipped: TestMihomo_Hysteria, TestMihomo_ShadowsocksUoT, TestMihomo_TrojanGrpc, TestMihomo_VlessXTLS, TestMihomo_VmessPacketAddr, TestMihomo_VmessWebsocketXray0RTT' >> "$GITHUB_STEP_SUMMARY"
-          go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VlessXTLS|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)$' ./...
+            'Skipped: TestMihomo_Hysteria, TestMihomo_ShadowsocksUoT, TestMihomo_TrojanGrpc, TestMihomo_VmessPacketAddr, TestMihomo_VmessWebsocketXray0RTT' >> "$GITHUB_STEP_SUMMARY"
+          go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)$' ./...
           go mod verify
 
       - name: Run each issue-25 protocol case independently
@@ -1018,6 +1018,7 @@ jobs:
             TestMihomo_Hysteria \
             TestMihomo_ShadowsocksUoT \
             TestMihomo_TrojanGrpc \
+            TestMihomo_VlessXTLS \
             TestMihomo_VmessWebsocketXray0RTT; do
             printf "\n=== exact .33 upstream: %s ===\n" "$baseline_case"
             if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .; then

@@ -414,7 +414,7 @@ class CIContractTests(unittest.TestCase):
 
     def test_issue25_legacy_vless_xtls_is_an_explicit_unsupported_assertion(self):
         source = (ROOT / "test/vless_test.go").read_text(encoding="utf-8")
-        case = source.split("func TestMihomo_VlessXTLS", 1)[1].split("\\nfunc ", 1)[0]
+        case = source.split("func TestMihomo_VlessXTLS", 1)[1].split("\nfunc ", 1)[0]
         self.assertIn('Flow:           "xtls-rprx-direct"', case)
         self.assertIn('assert.ErrorContains(t, err, "unsupported xtls flow type: xtls-rprx-direct")', case)
         self.assertNotIn("startContainer(", case)
