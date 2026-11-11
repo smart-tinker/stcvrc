@@ -657,7 +657,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
-      github.ref == 'refs/heads/codex/cvr-2.5.9-release-cycle-20261102'
+      github.ref == 'refs/heads/main'
     needs:
       - source
       - profile-contract
