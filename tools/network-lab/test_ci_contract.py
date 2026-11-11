@@ -366,7 +366,7 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(candidate=name):
                 self.assertIn(name, job)
         self.assertIn("candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1", job)
-        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', job)
+        self.assertIn('run_v33_case "$candidate_case" -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', job)
 
     def test_hysteria_udp_runs_on_both_exact_33_comparisons(self):
         self.assertIn('if os.Getenv("STCVRC_COMPARE_V33_HYSTERIA_UDP") == "1"', HYSTERIA_TESTS)
@@ -402,8 +402,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("TestMihomo_VmessPacketAddr", baseline_cases)
         self.assertIn("TestMihomo_VlessXTLS", candidate_cases)
         self.assertIn("TestMihomo_VmessPacketAddr", candidate_cases)
-        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .', step)
-        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', step)
+        self.assertIn('run_v33_case "$baseline_case" -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .', step)
+        self.assertIn('run_v33_case "$candidate_case" -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', step)
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"', step)
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-candidate-go-cache"', step)
         self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$upstream/test"', step)
@@ -431,11 +431,14 @@ class CIContractTests(unittest.TestCase):
                 self.assertEqual(settings.get("finalRules"), expected)
 
 
-    def test_hysteria_uses_bounded_tcp_echo(self):
+    def test_hysteria_uses_bounded_echoes(self):
         case = HYSTERIA_TESTS.split("func TestMihomo_Hysteria", 1)[1].split(chr(10) + "}", 1)[0]
-        self.assertIn("shortcut: Hysteria TCP only while the pinned server rejects UDP setup at :0; restore UDP smoke after compatible fixture evidence", case)
+        self.assertIn("shortcut: run UDP only in the exact .33 comparison; the .29 baseline retains TCP coverage.", case)
         self.assertIn("testPingPongWithConn", case)
-        self.assertNotIn("testPingPongWithPacketConn", case)
+        udp_guard = 'if os.Getenv("STCVRC_COMPARE_V33_HYSTERIA_UDP") == "1" {'
+        self.assertIn(udp_guard, case)
+        udp = case.split(udp_guard, 1)[1]
+        self.assertIn("testPingPongWithPacketConn", udp)
         self.assertNotIn("testSuit", case)
         self.assertNotIn("testLargeData", case)
 
