@@ -230,5 +230,11 @@ SOFTWARE.""",
         self.assertIn("Permission is hereby granted, free of charge, to any person obtaining a copy", chacha_section)
 
 
+    def test_codeql_disables_overlay_and_dependency_cache(self):
+        codeql = (ROOT / ".github" / "workflows" / "codeql.yml").read_text(encoding="utf-8")
+        self.assertIn("CODEQL_OVERLAY_DATABASE_MODE: none", codeql)
+        self.assertIn("dependency-caching: false", codeql)
+        self.assertNotIn("actions/cache", codeql)
+
 if __name__ == "__main__":
     unittest.main()
