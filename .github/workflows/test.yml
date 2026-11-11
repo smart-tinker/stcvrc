@@ -46,7 +46,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  vulnerability-scan:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      GOPATH: ${{ runner.temp }}/govuln-gopath
+      GOMODCACHE: ${{ runner.temp }}/govuln-modcache
+      GOCACHE: ${{ runner.temp }}/govuln-cache
+      GOBIN: ${{ runner.temp }}/govuln-bin
+    steps:
+      - name: Fetch exact sources without credentials
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CANDIDATE_SOURCE_SHA: 92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          for pair in "source:$SOURCE_SHA" "candidate:$CANDIDATE_SOURCE_SHA"; do
+            name="${pair%%:*}"
+            sha="${pair#*:}"
+            git init --quiet "$GITHUB_WORKSPACE/$name"
+            git -C "$GITHUB_WORKSPACE/$name" fetch --quiet --depth=1 \
+              https://github.com/smart-tinker/stcvrc.git "$sha"
+            git -C "$GITHUB_WORKSPACE/$name" checkout --quiet --detach FETCH_HEAD
+            test "$(git -C "$GITHUB_WORKSPACE/$name" rev-parse HEAD)" = "$sha"
+          done
+
+      - name: Install checksum-pinned Go 1.26.10
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/govuln-go"
+          cd "$RUNNER_TEMP/govuln-go"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+          tar -xzf go.tar.gz
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE" "$GOBIN"
+          printf '%s\n' "$RUNNER_TEMP/govuln-go/go/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned govulncheck
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          printf '%s\n' "$GOBIN" >> "$GITHUB_PATH"
+          "$GOBIN/govulncheck" -version
+
+      - id: source_scan
+        name: Scan current source
+        working-directory: source
+        continue-on-error: true
+        run: govulncheck ./...
+
+      - id: test_scan
+        name: Scan the nested test module
+        working-directory: source/test
+        continue-on-error: true
+        run: govulncheck -test ./...
+
+      - id: candidate_scan
+        name: Scan selected .33 source
+        working-directory: candidate
+        continue-on-error: true
+        run: govulncheck ./...
+
+      - name: Enforce all three vulnerability scans
+        if: always()
+        env:
+          SOURCE_SCAN: ${{ steps.source_scan.outcome }}
+          TEST_SCAN: ${{ steps.test_scan.outcome }}
+          CANDIDATE_SCAN: ${{ steps.candidate_scan.outcome }}
+        run: |
+          set -euo pipefail
+          printf 'root=%s test=%s candidate=%s\n' "$SOURCE_SCAN" "$TEST_SCAN" "$CANDIDATE_SCAN"
+          [[ "$SOURCE_SCAN" == success && "$TEST_SCAN" == success && "$CANDIDATE_SCAN" == success ]]
+
   source:
+    needs: vulnerability-scan
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
