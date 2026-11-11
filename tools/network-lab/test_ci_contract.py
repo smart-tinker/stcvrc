@@ -20,6 +20,10 @@ DEPENDABOT = DEPENDABOT_PATH.read_text() if DEPENDABOT_PATH.is_file() else ""
 
 
 class CIContractTests(unittest.TestCase):
+    def test_codeql_caching_is_disabled(self):
+        self.assertIn("CODEQL_OVERLAY_DATABASE_MODE: none", WORKFLOWS["codeql.yml"])
+        self.assertIn("dependency-caching: false", WORKFLOWS["codeql.yml"])
+
     def test_runner_and_review_gates(self):
         self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04"])
         self.assertIn("timeout-minutes: 20", WORKFLOW)
