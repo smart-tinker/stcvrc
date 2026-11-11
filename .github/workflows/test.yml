@@ -946,6 +946,8 @@ jobs:
           go mod verify
 
       - name: Run each issue-25 protocol case independently
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         working-directory: source/test
         run: |
           set -euo pipefail
