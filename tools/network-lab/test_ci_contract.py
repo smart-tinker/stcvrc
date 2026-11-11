@@ -12,6 +12,9 @@ SCRIPT = (HERE / "ci.sh").read_text()
 WINDOWS = (HERE / "windows.py").read_text(encoding="utf-8")
 SS_TESTS = (ROOT / "test/ss_test.go").read_text()
 CLASH_TESTS = (ROOT / "test/clash_test.go").read_text()
+HYSTERIA_TESTS = (ROOT / "test/hysteria_test.go").read_text()
+SINGBOX_CONFIG_PATH = ROOT / "test/config/sing-box-shadowsocks.json"
+SINGBOX_CONFIG = SINGBOX_CONFIG_PATH.read_text(encoding="utf-8") if SINGBOX_CONFIG_PATH.is_file() else ""
 DEPENDABOT_PATH = ROOT / ".github/dependabot.yml"
 DEPENDABOT = DEPENDABOT_PATH.read_text() if DEPENDABOT_PATH.is_file() else ""
 
@@ -307,11 +310,11 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 30", job)
         self.assertIn("working-directory: source/test", job)
         self.assertIn("go mod tidy", job)
-        skip = "^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)"
-        expected = "go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='" + skip + chr(36) + "' ./..."
+        expected = "go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./..."
         self.assertIn(expected, job)
-        self.assertIn("https://github.com/smart-tinker/stcvrc/issues/25", job)
-        self.assertIn("This is not a full-suite pass", job)
+        self.assertNotIn("-skip=", job)
+        self.assertIn("Full nested test-module suite completed from clean Go caches.", job)
+        self.assertNotIn("This is not a full-suite pass", job)
         self.assertIn("go mod verify", job)
 
 
@@ -355,6 +358,8 @@ class CIContractTests(unittest.TestCase):
             "TestMihomo_Hysteria",
             "TestMihomo_ShadowsocksUoT",
             "TestMihomo_TrojanGrpc",
+            "TestMihomo_VlessXTLS",
+            "TestMihomo_VmessPacketAddr",
             "TestMihomo_VmessWebsocketXray0RTT",
         )
         for name in candidate_cases:
@@ -378,13 +383,16 @@ class CIContractTests(unittest.TestCase):
             "TestMihomo_TrojanGrpc",
             "TestMihomo_VmessWebsocketXray0RTT",
             "TestMihomo_VlessXTLS",
+            "TestMihomo_VmessPacketAddr",
         ):
             with self.subTest(name=name):
                 self.assertIn(name, step)
         baseline_cases = step.split("for baseline_case in \\\n", 1)[1].split("; do", 1)[0]
         candidate_cases = step.split("for candidate_case in \\\n", 1)[1].split("; do", 1)[0]
         self.assertIn("TestMihomo_VlessXTLS", baseline_cases)
+        self.assertIn("TestMihomo_VmessPacketAddr", baseline_cases)
         self.assertIn("TestMihomo_VlessXTLS", candidate_cases)
+        self.assertIn("TestMihomo_VmessPacketAddr", candidate_cases)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .', step)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', step)
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"', step)
@@ -394,9 +402,11 @@ class CIContractTests(unittest.TestCase):
 
     def test_issue25_selected_xray_fixtures_use_digest_pinned_image(self):
         uot = SS_TESTS.split("func TestMihomo_ShadowsocksUoT", 1)[1].split("\nfunc ", 1)[0]
-        self.assertIn("Image:        ImageXray", uot)
-        self.assertNotIn("ImageVless", uot)
-        self.assertIn('ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"', CLASH_TESTS)
+        self.assertIn("Image:        ImageSingBox", uot)
+        self.assertNotIn("ImageXray", uot)
+        self.assertIn('sing-box-shadowsocks.json', uot)
+        self.assertIn('ImageSingBox        = "ghcr.io/sagernet/sing-box:v1.12.0@sha256:d7403cae8ffa17529b8676402346f2ca185a56dae8d90b73822d51421a850541"', CLASH_TESTS)
+        self.assertTrue(SINGBOX_CONFIG, "missing pinned sing-box UoT server fixture")
 
     def test_issue25_xray_fixtures_allow_only_loopback_probe_endpoint(self):
         expected = [{
@@ -405,12 +415,44 @@ class CIContractTests(unittest.TestCase):
             "port": "10001",
             "ip": ["127.0.0.1/32"],
         }]
-        for name in ("trojan-grpc.json", "vmess-ws-xray-0rtt.json", "xray-shadowsocks.json"):
+        for name in ("trojan-grpc.json", "vmess-ws-xray-0rtt.json"):
             with self.subTest(config=name):
                 config = json.loads((ROOT / "test/config" / name).read_text(encoding="utf-8"))
                 settings = config["outbounds"][0].get("settings", {})
                 self.assertEqual(settings.get("finalRules"), expected)
 
+
+    def test_hysteria_uses_bounded_tcp_and_udp_echo_smokes(self):
+        case = HYSTERIA_TESTS.split("func TestMihomo_Hysteria", 1)[1].split(chr(10) + "}", 1)[0]
+        self.assertIn("shortcut: bound Hysteria to TCP/UDP echo; restore bulk stress after repeatable hosted-runner evidence", case)
+        self.assertIn("testPingPongWithConn", case)
+        self.assertIn("testPingPongWithPacketConn", case)
+        self.assertNotIn("testSuit", case)
+        self.assertNotIn("testLargeData", case)
+
+    def test_issue25_uot_fixture_blocks_external_egress(self):
+        self.assertTrue(SINGBOX_CONFIG, "missing pinned sing-box UoT server fixture")
+        if not SINGBOX_CONFIG:
+            return
+        config = json.loads(SINGBOX_CONFIG)
+        self.assertEqual(config["inbounds"][0]["type"], "shadowsocks")
+        self.assertEqual(config["inbounds"][0]["listen_port"], 10002)
+        self.assertEqual(config["inbounds"][0]["method"], "aes-128-gcm")
+        self.assertEqual(config["route"]["rules"], [{
+            "network": ["tcp", "udp"],
+            "ip_cidr": ["127.0.0.1/32"],
+            "port": 10001,
+            "outbound": "direct",
+        }])
+        self.assertEqual(config["route"]["final"], "block")
+
+    def test_issue25_exact_upstream_failures_fail_the_job(self):
+        job = WORKFLOWS["test.yml"].split(chr(10) + "  test-module:" + chr(10), 1)[1]
+        step = job.split("      - name: Run each issue-25 protocol case independently", 1)[1]
+        self.assertIn(
+            "if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi",
+            step,
+        )
 
     def test_issue25_legacy_vless_xtls_is_an_explicit_unsupported_assertion(self):
         source = (ROOT / "test/vless_test.go").read_text(encoding="utf-8")
