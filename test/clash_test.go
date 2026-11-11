@@ -31,7 +31,7 @@ const (
 	ImageShadowsocks     = "mritd/shadowsocks:latest"
 	ImageShadowsocksRust = "ghcr.io/shadowsocks/ssserver-rust:latest"
 	ImageVmess           = "v2fly/v2fly-core:v4.45.2"
-	ImageVmessLatest     = "sagernet/v2fly-core:latest"
+	ImageVmessLatest     = "sagernet/v2fly-core@sha256:327cb91a0428738b4fc0ca9d8bc43b88f194423eec7dd924c3714454320a5c7b"
 	ImageVless           = "teddysun/xray:latest"
 	ImageTrojan          = "trojangfw/trojan:latest"
 	ImageTrojanGo        = "p4gefau1t/trojan-go:latest"
@@ -100,6 +100,7 @@ func init() {
 		ImageShadowsocks,
 		ImageShadowsocksRust,
 		ImageVmess,
+		ImageVmessLatest,
 		ImageVless,
 		ImageTrojan,
 		ImageTrojanGo,
