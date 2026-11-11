@@ -488,5 +488,12 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(job=job_name):
                 self.assertIn('go version -m "$binary"', section)
 
+
+    def test_current_source_binary_modules_are_recorded(self):
+        source_job = WORKFLOWS["test.yml"].split("\\n  source:\\n", 1)[1].split("\\n  profile-contract:\\n", 1)[0]
+        self.assertIn('go version -m "$RUNNER_TEMP/core-linux" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
+        self.assertIn('go version -m "$RUNNER_TEMP/core-windows.exe" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
+
+
 if __name__ == "__main__":
     unittest.main()
