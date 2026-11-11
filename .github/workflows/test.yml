@@ -936,6 +936,7 @@ jobs:
           go mod verify
 
       - name: Run each issue-25 protocol case independently
+        working-directory: source/test
         run: |
           set -euo pipefail
           export GOPATH="$RUNNER_TEMP/issue-25-go-path"
