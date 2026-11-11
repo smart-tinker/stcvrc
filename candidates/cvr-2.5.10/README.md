@@ -5,7 +5,6 @@ This preparation checks the official CVR 2.5.10 update and 2.5.8 recovery
 installers against a freshly built STCVRC 1.19.33 MIT-LZO Windows core from the
 exact source commit pinned in `inputs.json`. CI does not reuse a previously
 published core executable or change the accepted release table.
-
 The repository-wide release lifecycle is described in [docs/RELEASING.md](../../docs/RELEASING.md); this file remains the specific CVR bundle contract.
 
 ## CI and offline artifact verification
