@@ -132,7 +132,7 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(pins, {
             "SOURCE_COMMIT": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
             "CORE_SHA256": "a3ff2bdb717fdfe760dab98450ac381d568cbeb459a36799dcb9e3cff06d10ac",
-            "GO_SHA256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+            "GO_SHA256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
             "XRAY_ZIP_SHA256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
             "XRAY_SHA256": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
         })
@@ -311,7 +311,7 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn(r"\\n", scan_job)
         self.assertNotIn("runner.temp", scan_job)
         self.assertIn("RUNNER_TEMP", scan_job)
-        self.assertEqual(scan_job.count("continue-on-error: true"), 3)
+        self.assertEqual(scan_job.count("continue-on-error: true"), 4)
         self.assertIn("Enforce all three vulnerability scans", scan_job)
         source_job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
         self.assertIn("    needs: vulnerability-scan", source_job)

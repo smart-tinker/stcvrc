@@ -453,7 +453,7 @@ jobs:
           binary_size="$(stat -c %s "$binary")"
           test "$binary_sha" = 40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
-            "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
+            "$source_sha" "$binary_sha" "$binary_size" | tee -a "$GITHUB_STEP_SUMMARY"
           test -z "$(git -C "$core_source" status --porcelain)"
           python3 -B "$PR_SOURCE/candidates/cvr-2.5.10/verify-artifacts.py" \
             --artifacts "$RUNNER_TEMP/cvr-public-inputs" --core "$binary" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -558,6 +558,7 @@ jobs:
           }
           $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
           $coreSize = (Get-Item -LiteralPath $core).Length
+          Write-Host "Fresh Windows/amd64 candidate SHA256: $coreHash; $coreSize bytes"
           if ($coreHash -ne '40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3') { throw 'fresh native Windows core SHA256 mismatch' }
           if ($coreSize -ne 61235712) { throw 'fresh native Windows core size mismatch' }
           Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
