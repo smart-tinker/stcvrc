@@ -241,10 +241,11 @@ SOFTWARE.""",
         license_job = workflow[workflow.index("  license-audit:"):]
         for required in (
             "- name: Verify pinned MetaCubeX chacha MIT license provenance",
-            "github.com/metacubex/chacha v0.1.5",
+            "awk '$1 == \"github.com/metacubex/chacha\" { if ($2 != \"v0.1.5\") exit 1; found++ } END { if (found != 1) exit 1 }' \"$candidate_source/go.mod\"",
+
             "07294f500ca8384015f6cc21311de7b6f093607d",
             "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
-            "git diff --name-status",
+            "git -C \"$chacha\" diff --name-status",
             ":(exclude)LICENSE",
             "MIT License",
             "Copyright (c) 2016 Andreas Auernhammer",
