@@ -152,7 +152,7 @@ class CIContractTests(unittest.TestCase):
     def test_windows_installer_update_hash_matches_candidate_manifest(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
         manifest = json.loads((ROOT / "candidates/cvr-2.5.10/inputs.json").read_text(encoding="utf-8"))
-        pinned = re.search(r"\\$coreSha -ne '([0-9a-f]{64})'", script)
+        pinned = re.search(r"\$coreSha -ne '([0-9a-f]{64})'", script)
         self.assertIsNotNone(pinned)
         self.assertEqual(pinned.group(1), manifest["core"]["sha256"])
 
