@@ -289,5 +289,17 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("go mod verify", job)
 
 
+
+    def test_vulnerability_scan_covers_exact_root_candidate_and_test_modules(self):
+        workflow = WORKFLOWS["test.yml"]
+        self.assertIn("  vulnerability-scan:\\n", workflow)
+        self.assertIn("golang.org/x/vuln/cmd/govulncheck@v1.1.4", workflow)
+        self.assertGreaterEqual(workflow.count("govulncheck"), 3)
+        self.assertIn("SOURCE_SHA", workflow)
+        self.assertIn("CANDIDATE_SOURCE_SHA", workflow)
+        self.assertIn("working-directory: source/test", workflow)
+        self.assertIn("92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
