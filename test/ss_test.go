@@ -284,7 +284,7 @@ func TestMihomo_ShadowsocksUoT(t *testing.T) {
 	configPath := C.Path.Resolve("xray-shadowsocks.json")
 
 	cfg := &container.Config{
-		Image:        ImageVless,
+		Image:        ImageXray,
 		ExposedPorts: defaultExposedPorts,
 	}
 	hostCfg := &container.HostConfig{
