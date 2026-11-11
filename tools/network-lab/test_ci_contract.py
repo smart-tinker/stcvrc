@@ -307,7 +307,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 30", job)
         self.assertIn("working-directory: source/test", job)
         self.assertIn("go mod tidy", job)
-        skip = "^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VlessXTLS|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)"
+        skip = "^(TestMihomo_Hysteria|TestMihomo_ShadowsocksUoT|TestMihomo_TrojanGrpc|TestMihomo_VmessPacketAddr|TestMihomo_VmessWebsocketXray0RTT)"
         expected = "go test -p=1 -v -mod=readonly -count=1 -timeout=25m -skip='" + skip + chr(36) + "' ./..."
         self.assertIn(expected, job)
         self.assertIn("https://github.com/smart-tinker/stcvrc/issues/25", job)
@@ -377,9 +377,14 @@ class CIContractTests(unittest.TestCase):
             "TestMihomo_ShadowsocksUoT",
             "TestMihomo_TrojanGrpc",
             "TestMihomo_VmessWebsocketXray0RTT",
+            "TestMihomo_VlessXTLS",
         ):
             with self.subTest(name=name):
                 self.assertIn(name, step)
+        baseline_cases = step.split("for baseline_case in \\\n", 1)[1].split("; do", 1)[0]
+        candidate_cases = step.split("for candidate_case in \\\n", 1)[1].split("; do", 1)[0]
+        self.assertIn("TestMihomo_VlessXTLS", baseline_cases)
+        self.assertIn("TestMihomo_VlessXTLS", candidate_cases)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .', step)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', step)
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"', step)
@@ -405,6 +410,14 @@ class CIContractTests(unittest.TestCase):
                 config = json.loads((ROOT / "test/config" / name).read_text(encoding="utf-8"))
                 settings = config["outbounds"][0].get("settings", {})
                 self.assertEqual(settings.get("finalRules"), expected)
+
+
+    def test_issue25_legacy_vless_xtls_is_an_explicit_unsupported_assertion(self):
+        source = (ROOT / "test/vless_test.go").read_text(encoding="utf-8")
+        case = source.split("func TestMihomo_VlessXTLS", 1)[1].split("\\nfunc ", 1)[0]
+        self.assertIn('Flow:           "xtls-rprx-direct"', case)
+        self.assertIn('assert.ErrorContains(t, err, "unsupported xtls flow type: xtls-rprx-direct")', case)
+        self.assertNotIn("startContainer(", case)
 
 
 if __name__ == "__main__":
