@@ -379,15 +379,15 @@ class CIContractTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertIn(name, step)
-        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{baseline_case\}$" .', step)
-        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{candidate_case\}$" .', step)
+        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .', step)
+        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', step)
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"', step)
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-candidate-go-cache"', step)
         self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$upstream/test"', step)
         self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"', step)
 
     def test_issue25_selected_xray_fixtures_use_digest_pinned_image(self):
-        uot = SS_TESTS.split("func TestMihomo_ShadowsocksUoT", 1)[1].split("\\nfunc ", 1)[0]
+        uot = SS_TESTS.split("func TestMihomo_ShadowsocksUoT", 1)[1].split("\nfunc ", 1)[0]
         self.assertIn("Image:        ImageXray", uot)
         self.assertNotIn("ImageVless", uot)
         self.assertIn('ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"', CLASH_TESTS)
