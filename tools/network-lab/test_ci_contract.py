@@ -349,6 +349,17 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, job)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=25m -run="^${case_name}$" .', job)
+        candidate_cases = (
+            "TestMihomo_Hysteria",
+            "TestMihomo_ShadowsocksUoT",
+            "TestMihomo_TrojanGrpc",
+            "TestMihomo_VmessWebsocketXray0RTT",
+        )
+        for name in candidate_cases:
+            with self.subTest(candidate=name):
+                self.assertIn(name, job)
+        self.assertIn("candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1", job)
+        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', job)
 
 if __name__ == "__main__":
     unittest.main()
