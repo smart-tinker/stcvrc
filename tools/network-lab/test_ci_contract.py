@@ -478,5 +478,16 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn("startContainer(", case)
 
 
+    def test_candidate_and_rc_builds_report_embedded_go_modules(self):
+        workflow = WORKFLOWS["test.yml"]
+        for job_name, next_job in (
+            ("cvr-2-5-10-package", "cvr-windows-payload"),
+            ("assemble-draft-rc", "test-module"),
+        ):
+            section = workflow.split(f"\\n  {job_name}:\\n", 1)[1].split(f"\\n  {next_job}:\\n", 1)[0]
+            with self.subTest(job=job_name):
+                self.assertIn('go version -m "$binary"', section)
+
+
 if __name__ == "__main__":
     unittest.main()
