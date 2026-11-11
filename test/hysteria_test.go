@@ -15,7 +15,7 @@ func TestMihomo_Hysteria(t *testing.T) {
 	cfg := &container.Config{
 		Image:        ImageHysteria,
 		ExposedPorts: defaultExposedPorts,
-		Cmd:          []string{"server"},
+		Cmd:          []string{"server", "--config", "/config.json"},
 	}
 	hostCfg := &container.HostConfig{
 		PortBindings: defaultPortBindings,
