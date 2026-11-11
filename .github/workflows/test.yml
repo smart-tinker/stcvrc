@@ -1006,7 +1006,7 @@ jobs:
             TestMihomo_TrojanGrpc \
             TestMihomo_VmessWebsocketXray0RTT; do
             printf "\n=== exact .33 upstream: %s ===\n" "$baseline_case"
-            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{baseline_case\}$" .; then
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .; then
               printf "upstream %s: PASS\n" "$baseline_case" >> "$GITHUB_STEP_SUMMARY"
             else
               upstream_status=1
@@ -1028,7 +1028,7 @@ jobs:
             TestMihomo_TrojanGrpc \
             TestMihomo_VmessWebsocketXray0RTT; do
             printf "\n=== exact MIT-LZO .33 candidate: %s ===\n" "$candidate_case"
-            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{candidate_case\}$" .; then
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .; then
               printf "candidate %s: PASS\n" "$candidate_case" >> "$GITHUB_STEP_SUMMARY"
             else
               candidate_status=1
