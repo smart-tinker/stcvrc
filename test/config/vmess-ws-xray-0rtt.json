@@ -1,0 +1,43 @@
+{
+    "inbounds": [
+        {
+            "port": 10002,
+            "listen": "0.0.0.0",
+            "protocol": "vmess",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "b831381d-6324-4d53-ad4f-8cda48b30811"
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": "/?ed=2048"
+                }
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "settings": {
+                "finalRules": [
+                    {
+                        "action": "allow",
+                        "network": "tcp,udp",
+                        "port": "10001",
+                        "ip": [
+                            "127.0.0.1/32"
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+    "log": {
+        "loglevel": "debug"
+    }
+}

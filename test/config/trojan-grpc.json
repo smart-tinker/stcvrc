@@ -31,7 +31,19 @@
     ],
     "outbounds": [
         {
-            "protocol": "freedom"
+            "protocol": "freedom",
+            "settings": {
+                "finalRules": [
+                    {
+                        "action": "allow",
+                        "network": "tcp,udp",
+                        "port": "10001",
+                        "ip": [
+                            "127.0.0.1/32"
+                        ]
+                    }
+                ]
+            }
         }
     ],
     "log": {

@@ -9,10 +9,14 @@ name: STCVRC source checks
       - go.sum
       - component/ca/ca-certificates.crt
       - .github/workflows/**
+      - .github/dependabot.yml
+      - .github/ISSUE_TEMPLATE/**
+      - .github/PULL_REQUEST_TEMPLATE.md
       - README.md
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - test/**
       - candidates/cvr-2.5.10/**
   pull_request:
     branches: [main]
@@ -23,10 +27,14 @@ name: STCVRC source checks
       - go.sum
       - component/ca/ca-certificates.crt
       - .github/workflows/**
+      - .github/dependabot.yml
+      - .github/ISSUE_TEMPLATE/**
+      - .github/PULL_REQUEST_TEMPLATE.md
       - README.md
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - test/**
       - candidates/cvr-2.5.10/**
   workflow_dispatch: {}
 
@@ -38,7 +46,105 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  vulnerability-scan:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+    steps:
+      - name: Fetch exact sources without credentials
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          CANDIDATE_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          for pair in "source:$SOURCE_SHA" "baseline:$BASE_SHA" "candidate:$CANDIDATE_SOURCE_SHA"; do
+            name="${pair%%:*}"
+            sha="${pair#*:}"
+            git init --quiet "$GITHUB_WORKSPACE/$name"
+            git -C "$GITHUB_WORKSPACE/$name" fetch --quiet --depth=1 \
+              https://github.com/smart-tinker/stcvrc.git "$sha"
+            git -C "$GITHUB_WORKSPACE/$name" checkout --quiet --detach FETCH_HEAD
+            test "$(git -C "$GITHUB_WORKSPACE/$name" rev-parse HEAD)" = "$sha"
+          done
+
+      - name: Install checksum-pinned Go 1.26.11
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/govuln-go"
+          cd "$RUNNER_TEMP/govuln-go"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec | sha256sum --check --status
+          tar -xzf go.tar.gz
+          mkdir -p "$RUNNER_TEMP/govuln-gopath" "$RUNNER_TEMP/govuln-modcache" "$RUNNER_TEMP/govuln-cache" "$RUNNER_TEMP/govuln-bin"
+          {
+            printf 'GOPATH=%s\n' "$RUNNER_TEMP/govuln-gopath"
+            printf 'GOMODCACHE=%s\n' "$RUNNER_TEMP/govuln-modcache"
+            printf 'GOCACHE=%s\n' "$RUNNER_TEMP/govuln-cache"
+            printf 'GOBIN=%s\n' "$RUNNER_TEMP/govuln-bin"
+          } >> "$GITHUB_ENV"
+          printf '%s\n' "$RUNNER_TEMP/govuln-go/go/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned govulncheck
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          printf '%s\n' "$GOBIN" >> "$GITHUB_PATH"
+          "$GOBIN/govulncheck" -version
+
+      - id: baseline_scan
+        name: Report findings on the exact main base
+        working-directory: baseline
+        continue-on-error: true
+        run: govulncheck -tags=with_gvisor ./...
+
+      - id: source_scan
+        name: Scan current source with release build tags
+        working-directory: source
+        continue-on-error: true
+        run: govulncheck -tags=with_gvisor ./...
+
+      - id: test_scan
+        name: Scan the nested test module
+        working-directory: source/test
+        continue-on-error: true
+        run: govulncheck -tags=with_gvisor -test ./...
+
+      - id: candidate_scan
+        name: Scan selected .33 source
+        working-directory: candidate
+        continue-on-error: true
+        run: govulncheck -tags=with_gvisor ./...
+
+      - name: Enforce all three vulnerability scans
+        if: always()
+        env:
+          BASELINE_SCAN: ${{ steps.baseline_scan.outcome }}
+          SOURCE_SCAN: ${{ steps.source_scan.outcome }}
+          TEST_SCAN: ${{ steps.test_scan.outcome }}
+          CANDIDATE_SCAN: ${{ steps.candidate_scan.outcome }}
+        run: |
+          set -euo pipefail
+          printf 'root=%s test=%s candidate=%s\n' "$SOURCE_SCAN" "$TEST_SCAN" "$CANDIDATE_SCAN"
+          [[ "$SOURCE_SCAN" == success && "$TEST_SCAN" == success && "$CANDIDATE_SCAN" == success ]]
+
   source:
+    needs: vulnerability-scan
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
@@ -76,8 +182,8 @@ jobs:
           mkdir "$RUNNER_TEMP/ci-tools"
           cd "$RUNNER_TEMP/ci-tools"
           curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
-            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
-          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec | sha256sum --check --status
           tar -xzf go.tar.gz
           curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
             https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o actionlint.tar.gz
@@ -133,8 +239,8 @@ jobs:
           mkdir "$RUNNER_TEMP/profile-ci-tools"
           cd "$RUNNER_TEMP/profile-ci-tools"
           curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
-            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
-          printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
+            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec | sha256sum --check --status
           tar -xzf go.tar.gz
           printf '%s\n' "$RUNNER_TEMP/profile-ci-tools/go/bin" >> "$GITHUB_PATH"
 
@@ -142,7 +248,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           V29_SOURCE_SHA: 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
-          V33_SOURCE_SHA: 92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          V33_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -302,10 +408,10 @@ jobs:
       - name: Build fresh MIT-LZO source and verify the official installer pair
         run: |
           set -euo pipefail
-          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          source_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
           upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           core_source="$RUNNER_TEMP/cvr-mit-lzo-source"
-          go_dir="$RUNNER_TEMP/toolchain-go1.26.10"
+          go_dir="$RUNNER_TEMP/toolchain-go1.26.11"
           mkdir -p "$core_source" "$go_dir"
           git -C "$core_source" init --quiet
           git -C "$core_source" remote add origin https://github.com/smart-tinker/stcvrc.git
@@ -316,8 +422,8 @@ jobs:
           test "$(git -C "$core_source" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_sha"
 
           curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
-            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
-          printf '%s  %s\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 "$go_dir/go.tar.gz" | sha256sum --check --status
+            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
+          printf '%s  %s\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec "$go_dir/go.tar.gz" | sha256sum --check --status
           tar -xzf "$go_dir/go.tar.gz" -C "$go_dir"
           export PATH="$go_dir/go/bin:$PATH"
           export GOENV=off GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off
@@ -325,7 +431,7 @@ jobs:
           export GOPATH="$RUNNER_TEMP/cvr-gopath" GOMODCACHE="$RUNNER_TEMP/cvr-modcache" GOCACHE="$RUNNER_TEMP/cvr-gocache"
           export GOFLAGS='-mod=readonly -p=2'
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
-          test "$(go version | awk '{print $3}')" = "go1.26.10"
+          test "$(go version | awk '{print $3}')" = "go1.26.11"
           cd "$core_source"
           go list -m all > "$RUNNER_TEMP/cvr-modules.txt"
           grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$RUNNER_TEMP/cvr-modules.txt"
@@ -336,17 +442,19 @@ jobs:
           go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
           go mod verify
 
-          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
-          build_time=2026-11-09T00:00:00Z
+
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261111
+          build_time=2026-11-11T00:00:00Z
           ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
           binary="$RUNNER_TEMP/verge-mihomo-mit-lzo.exe"
           GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          go version -m "$binary"
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
-          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
-            "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
+            "$source_sha" "$binary_sha" "$binary_size" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$binary_sha" = d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87
           test -z "$(git -C "$core_source" status --porcelain)"
           python3 -B "$PR_SOURCE/candidates/cvr-2.5.10/verify-artifacts.py" \
             --artifacts "$RUNNER_TEMP/cvr-public-inputs" --core "$binary" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -389,17 +497,17 @@ jobs:
       - name: Fresh native Windows core build
         run: |
           $ErrorActionPreference = 'Stop'
-          $goZip = Join-Path $env:RUNNER_TEMP 'go1.26.10.windows-amd64.zip'
-          & curl.exe --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error https://go.dev/dl/go1.26.10.windows-amd64.zip -o $goZip
+          $goZip = Join-Path $env:RUNNER_TEMP 'go1.26.11.windows-amd64.zip'
+          & curl.exe --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error https://go.dev/dl/go1.26.11.windows-amd64.zip -o $goZip
           if ($LASTEXITCODE -ne 0) { throw 'Go toolchain download failed' }
           $goHash = (Get-FileHash -LiteralPath $goZip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($goHash -ne '7ecd2d7260e82c59bcbd7f1077a07cee2dea607295b858df67195a1e4e09629b') { throw 'Go toolchain SHA256 mismatch' }
+          if ($goHash -ne '71ae086f0137e665f855a811cc119152b6a783e0bbc1b906e709f46d80141eb0') { throw 'Go toolchain SHA256 mismatch' }
           $goRoot = Join-Path $env:RUNNER_TEMP 'go-toolchain'
           Expand-Archive -LiteralPath $goZip -DestinationPath $goRoot
           $go = Join-Path $goRoot 'go\bin\go.exe'
           if (-not (Test-Path -LiteralPath $go)) { throw 'Go toolchain missing after extraction' }
           $goVersion = (& $go version).Trim()
-          if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch 'go1\.26\.10') { throw 'Unexpected Go toolchain version' }
+          if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch 'go1\.26\.11') { throw 'Unexpected Go toolchain version' }
           $env:PATH = "$(Split-Path -Parent $go);$env:PATH"
           $env:GOENV = 'off'
           $env:GOTOOLCHAIN = 'local'
@@ -418,7 +526,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'candidate git init failed' }
           git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
           if ($LASTEXITCODE -ne 0) { throw 'candidate git remote failed' }
-          $sourceSha = '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93'
+          $sourceSha = '086a62c3ce9a77f650786ae2eae92b68909d49e1'
           git -C $source fetch --quiet --depth=1 --no-tags origin $sourceSha
           if ($LASTEXITCODE -ne 0) { throw 'candidate source fetch failed' }
           git -C $source checkout --quiet --detach FETCH_HEAD
@@ -438,8 +546,8 @@ jobs:
             if ($modules | Where-Object { $_ -match '^github.com/rasky/go-lzo ' }) { throw 'GPL-only LZO dependency remains' }
             & $go mod verify
             if ($LASTEXITCODE -ne 0) { throw 'go mod verify failed' }
-            $version = '1.19.33-STCVRC-candidate-mit-lzo-20261109'
-            $buildTime = '2026-11-09T00:00:00Z'
+            $version = '1.19.33-STCVRC-candidate-mit-lzo-20261111'
+            $buildTime = '2026-11-11T00:00:00Z'
             $ldflags = "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$buildTime"
             $core = Join-Path $env:RUNNER_TEMP 'verge-mihomo-fresh-windows.exe'
             & $go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags $ldflags -o $core .
@@ -451,10 +559,11 @@ jobs:
           }
           $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
           $coreSize = (Get-Item -LiteralPath $core).Length
-          if ($coreHash -ne 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf') { throw 'fresh native Windows core SHA256 mismatch' }
-          if ($coreSize -ne 61143552) { throw 'fresh native Windows core size mismatch' }
+          Write-Host "Fresh Windows/amd64 candidate SHA256: $coreHash; $coreSize bytes"
+          if ($coreHash -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') { throw 'fresh native Windows core SHA256 mismatch' }
+          if ($coreSize -ne 61238272) { throw 'fresh native Windows core size mismatch' }
           Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.10, SHA256 $coreHash, $coreSize bytes."
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.11, SHA256 $coreHash, $coreSize bytes."
 
       - name: Test fresh Windows candidate over loopback
         run: |
@@ -528,8 +637,10 @@ jobs:
               $coreExit = $LASTEXITCODE
               $coreVersionOutput = $coreVersionOutput -join "`n"
               if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
-              if ($coreVersionOutput -notmatch '^Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64 with go1\.26\.10 2026-11-09T00:00:00Z') {
-                throw 'Fresh custom core -v reported an unexpected version'
+              $buildTimeText = ([DateTime]$manifest.core.buildTime).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+              $expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"
+              if (-not $coreVersionOutput.StartsWith($expectedCoreVersion, [System.StringComparison]::Ordinal)) {
+                throw "Fresh custom core -v reported an unexpected version. Expected prefix: [$expectedCoreVersion]; actual: [$coreVersionOutput]"
               }
               Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The final 2.5.8 install and 2.5.10 /UPDATE smoke is monitored for GUI, service and stock-core process starts."
             }
@@ -582,10 +693,10 @@ jobs:
       - name: Build the pinned MIT-LZO core from exact source
         run: |
           set -euo pipefail
-          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          source_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
           upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           core_source="$RUNNER_TEMP/rc-core-source"
-          go_dir="$RUNNER_TEMP/rc-go1.26.10"
+          go_dir="$RUNNER_TEMP/rc-go1.26.11"
           mkdir -p "$core_source" "$go_dir"
           git -C "$core_source" init --quiet
           git -C "$core_source" remote add origin https://github.com/smart-tinker/stcvrc.git
@@ -596,8 +707,8 @@ jobs:
           test "$(git -C "$core_source" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_sha"
 
           curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
-            https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
-          printf '%s  %s\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 "$go_dir/go.tar.gz" | sha256sum --check --status
+            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
+          printf '%s  %s\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec "$go_dir/go.tar.gz" | sha256sum --check --status
           tar -xzf "$go_dir/go.tar.gz" -C "$go_dir"
           export PATH="$go_dir/go/bin:$PATH"
           export GOENV=off GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off
@@ -605,7 +716,7 @@ jobs:
           export GOPATH="$RUNNER_TEMP/rc-gopath" GOMODCACHE="$RUNNER_TEMP/rc-modcache" GOCACHE="$RUNNER_TEMP/rc-gocache"
           export GOFLAGS='-mod=readonly -p=2'
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
-          test "$(go version | awk '{print $3}')" = go1.26.10
+          test "$(go version | awk '{print $3}')" = go1.26.11
           cd "$core_source"
           go list -m all > "$RUNNER_TEMP/rc-modules.txt"
           grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$RUNNER_TEMP/rc-modules.txt"
@@ -616,16 +727,17 @@ jobs:
           go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
           go mod verify
 
-          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
-          build_time=2026-11-09T00:00:00Z
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261111
+          build_time=2026-11-11T00:00:00Z
           ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
           binary="$RUNNER_TEMP/verge-mihomo.exe"
           GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          go version -m "$binary"
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
-          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
-          test "$binary_size" = 61143552
+          test "$binary_sha" = d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87
+          test "$binary_size" = 61238272
           test -z "$(git -C "$core_source" status --porcelain)"
           printf 'RC_BINARY=%s\nRC_BINARY_SHA=%s\nRC_BINARY_SIZE=%s\n' \
             "$binary" "$binary_sha" "$binary_size" >> "$GITHUB_ENV"
@@ -771,4 +883,188 @@ jobs:
             printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\n'
             printf 'Manifest creator run: %s; current verifier run: %s\n' "$creator_run_id" "$RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
+  test-module:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private &&
+      github.event_name != 'workflow_dispatch' &&
+      (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch the exact source revision
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          source="$GITHUB_WORKSPACE/source"
+          git init --quiet "$source"
+          git -C "$source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source" rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f "$source/test/go.mod"
+          printf 'Exact test source: %s\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Require live Docker log streaming for protocol diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("source/test/docker_test.go").read_text(encoding="utf-8")
+          start = source.index("ContainerAttachOptions{")
+          end = source.index("})", start)
+          if "Stream: true" not in source[start:end]:
+              raise SystemExit("ContainerAttach must stream live protocol-server logs")
+          PY
+
+      - name: Install checksum-pinned Go 1.26.11
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/test-go"
+          cd "$RUNNER_TEMP/test-go"
+          curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
+            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o go.tar.gz
+          printf '%s  go.tar.gz\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec | sha256sum --check --status
+          tar -xzf go.tar.gz
+          printf '%s\n' "$RUNNER_TEMP/test-go/go/bin" >> "$GITHUB_PATH"
+
+      - name: Run the full protocol module suite from clean Go caches
+        working-directory: source/test
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/test-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/test-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/test-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go version
+          go mod tidy
+          git -C "$GITHUB_WORKSPACE/source" diff --exit-code -- test/go.mod test/go.sum
+          go test -p=1 -v -mod=readonly -count=1 -timeout=25m ./...
+          go mod verify
+          printf '%s\n' \
+            'Full nested test-module suite completed from clean Go caches.' \
+            'Issue #25 selected protocol cases are also compared on exact .33 upstream and candidate sources.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run each issue-25 protocol case independently
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        working-directory: source/test
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/issue-25-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          case_status=0
+          for case_name in \
+            TestMihomo_Hysteria \
+            TestMihomo_ShadowsocksUoT \
+            TestMihomo_TrojanGrpc \
+            TestMihomo_VlessXTLS \
+            TestMihomo_VmessPacketAddr \
+            TestMihomo_VmessWebsocketXray0RTT; do
+            printf '\n=== %s ===\n' "$case_name"
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=25m -run="^${case_name}$" .; then
+              printf '%s: PASS\n' "$case_name" >> "$GITHUB_STEP_SUMMARY"
+            else
+              case_status=1
+              printf '%s: FAIL\n' "$case_name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
+          candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
+          upstream="$RUNNER_TEMP/issue-25-upstream"
+          candidate="$RUNNER_TEMP/issue-25-candidate"
+          git init --quiet "$upstream"
+          git -C "$upstream" remote add origin https://github.com/MetaCubeX/mihomo.git
+          git -C "$upstream" fetch --quiet --depth=1 --no-tags origin "$upstream_sha"
+          git -C "$upstream" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$upstream" rev-parse HEAD)" = "$upstream_sha"
+          git init --quiet "$candidate"
+          git -C "$candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$candidate" fetch --quiet --depth=1 --no-tags origin "$candidate_sha"
+          git -C "$candidate" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$candidate" rev-parse HEAD)" = "$candidate_sha"
+          rm -rf "$upstream/test" "$candidate/test"
+          cp -a "$GITHUB_WORKSPACE/source/test" "$upstream/test"
+          cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"
+          diff -qr "$upstream/test" "$candidate/test"
+          grep -Fq 'tobyxdd/hysteria@sha256:4c8c92ba4b9b405c9473d8776b613e4d776141a3fa26ae5084a19c44b49f1e35' "$candidate/test/clash_test.go"
+          grep -Fq 'ImageSingBox        = "ghcr.io/sagernet/sing-box:v1.12.0@sha256:d7403cae8ffa17529b8676402346f2ca185a56dae8d90b73822d51421a850541"' "$candidate/test/clash_test.go"
+          printf "Exact comparison: upstream %s vs MIT-LZO candidate %s; tests copied from source %s\n" "$upstream_sha" "$candidate_sha" "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+          run_v33_case() {
+            local case_name="$1"
+            shift
+            if [[ "$case_name" == "TestMihomo_Hysteria" ]]; then
+              STCVRC_COMPARE_V33_HYSTERIA_UDP=1 go test "$@"
+            else
+              go test "$@"
+            fi
+          }
+
+          upstream_status=0
+          cd "$upstream/test"
+          export GOPATH="$RUNNER_TEMP/issue-25-upstream-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-upstream-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go mod tidy
+          go mod verify
+          for baseline_case in \
+            TestMihomo_Hysteria \
+            TestMihomo_ShadowsocksUoT \
+            TestMihomo_TrojanGrpc \
+            TestMihomo_VlessXTLS \
+            TestMihomo_VmessPacketAddr \
+            TestMihomo_VmessWebsocketXray0RTT; do
+            printf "\n=== exact .33 upstream: %s ===\n" "$baseline_case"
+            if run_v33_case "$baseline_case" -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${baseline_case}$" .; then
+              printf "upstream %s: PASS\n" "$baseline_case" >> "$GITHUB_STEP_SUMMARY"
+            else
+              upstream_status=1
+              printf "upstream %s: FAIL\n" "$baseline_case" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          candidate_status=0
+          cd "$candidate/test"
+          export GOPATH="$RUNNER_TEMP/issue-25-candidate-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-candidate-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-candidate-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go mod tidy
+          go mod verify
+          for candidate_case in \
+            TestMihomo_Hysteria \
+            TestMihomo_ShadowsocksUoT \
+            TestMihomo_TrojanGrpc \
+            TestMihomo_VlessXTLS \
+            TestMihomo_VmessPacketAddr \
+            TestMihomo_VmessWebsocketXray0RTT; do
+            printf "\n=== exact MIT-LZO .33 candidate: %s ===\n" "$candidate_case"
+            if run_v33_case "$candidate_case" -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .; then
+              printf "candidate %s: PASS\n" "$candidate_case" >> "$GITHUB_STEP_SUMMARY"
+            else
+              candidate_status=1
+              printf "candidate %s: FAIL\n" "$candidate_case" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if (( upstream_status != 0 )); then
+            printf 'At least one exact .33 upstream comparison failed; see per-case results above.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi

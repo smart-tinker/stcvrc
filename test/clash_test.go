@@ -31,13 +31,14 @@ const (
 	ImageShadowsocks     = "mritd/shadowsocks:latest"
 	ImageShadowsocksRust = "ghcr.io/shadowsocks/ssserver-rust:latest"
 	ImageVmess           = "v2fly/v2fly-core:v4.45.2"
-	ImageVmessLatest     = "sagernet/v2fly-core:latest"
+	ImageVmessLatest     = "sagernet/v2fly-core@sha256:327cb91a0428738b4fc0ca9d8bc43b88f194423eec7dd924c3714454320a5c7b"
 	ImageVless           = "teddysun/xray:latest"
 	ImageTrojan          = "trojangfw/trojan:latest"
 	ImageTrojanGo        = "p4gefau1t/trojan-go:latest"
 	ImageSnell           = "ghcr.io/icpz/snell-server:latest"
-	ImageXray            = "teddysun/xray:latest"
-	ImageHysteria        = "tobyxdd/hysteria:latest"
+	ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"
+	ImageHysteria        = "tobyxdd/hysteria@sha256:4c8c92ba4b9b405c9473d8776b613e4d776141a3fa26ae5084a19c44b49f1e35"
+	ImageSingBox        = "ghcr.io/sagernet/sing-box:v1.12.0@sha256:d7403cae8ffa17529b8676402346f2ca185a56dae8d90b73822d51421a850541"
 )
 
 var (
@@ -100,12 +101,14 @@ func init() {
 		ImageShadowsocks,
 		ImageShadowsocksRust,
 		ImageVmess,
+		ImageVmessLatest,
 		ImageVless,
 		ImageTrojan,
 		ImageTrojanGo,
 		ImageSnell,
 		ImageXray,
 		ImageHysteria,
+		ImageSingBox,
 	}
 
 	for _, image := range images {

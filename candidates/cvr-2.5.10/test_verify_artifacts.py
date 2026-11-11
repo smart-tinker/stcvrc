@@ -254,15 +254,15 @@ class CandidateSourceContractTests(unittest.TestCase):
     def test_core_is_pinned_to_fresh_mit_lzo_candidate(self):
         manifest = json.loads((SCRIPT.with_name('inputs.json')).read_text(encoding='utf-8'))
         core = manifest['core']
-        self.assertEqual(core['sourceCommit'], '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93')
+        self.assertEqual(core['sourceCommit'], '086a62c3ce9a77f650786ae2eae92b68909d49e1')
         self.assertEqual(core['upstreamCommit'], '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8')
-        self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261109')
-        self.assertEqual(core['buildTime'], '2026-11-09T00:00:00Z')
-        self.assertEqual(core['goVersion'], '1.26.10')
-        self.assertEqual(core['goArchiveSha256'], 'ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5')
+        self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261111')
+        self.assertEqual(core['buildTime'], '2026-11-11T00:00:00Z')
+        self.assertEqual(core['goVersion'], '1.26.11')
+        self.assertEqual(core['goArchiveSha256'], '9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec')
         self.assertEqual(core['target'], 'windows/amd64')
         self.assertEqual(core['tags'], ['with_gvisor'])
-        self.assertEqual(core['sha256'], 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf')
+        self.assertEqual(core['sha256'], 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87')
         self.assertNotIn('size', core)
 
 
@@ -293,7 +293,10 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
         self.assertIn('$coreVersionOutput = & $stockCore -v 2>&1', block)
         self.assertIn('if ($coreExit -ne 0)', block)
-        self.assertIn(r'Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64', block)
+        self.assertIn('$buildTimeText = ([DateTime]$manifest.core.buildTime).ToUniversalTime()', block)
+        self.assertIn('ToString("yyyy-MM-ddTHH:mm:ss', block)
+        self.assertIn('$expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"', block)
+        self.assertIn('StartsWith($expectedCoreVersion', block)
         self.assertIn('Native core process smoke passed', block)
         self.assertLess(block.index('if ($stagedHash -ne $manifest.core.sha256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
 
