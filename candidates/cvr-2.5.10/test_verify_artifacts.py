@@ -311,8 +311,8 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
 class DraftRCAssemblyGateTests(unittest.TestCase):
     def test_draft_rc_assembly_is_manual_on_main(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
-        assembly = workflow.split('  assemble-draft-rc:\\n', 1)[1]
-        condition = assembly.split('    needs:\\n', 1)[0]
+        assembly = workflow.split('  assemble-draft-rc:\n', 1)[1]
+        condition = assembly.split('    needs:\n', 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", condition)
         self.assertIn("github.ref == 'refs/heads/main'", condition)
 
