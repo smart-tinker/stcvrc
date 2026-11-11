@@ -361,5 +361,28 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1", job)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', job)
 
+    def test_issue25_compares_the_same_cases_on_exact_33_sources(self):
+        job = WORKFLOWS["test.yml"].split(chr(10) + "  test-module:" + chr(10), 1)[1]
+        step = job.split("      - name: Run each issue-25 protocol case independently", 1)[1]
+        self.assertIn("upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8", step)
+        self.assertIn("candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1", step)
+        self.assertIn("https://github.com/MetaCubeX/mihomo.git", step)
+        self.assertIn('test "$(git -C "$upstream" rev-parse HEAD)" = "$upstream_sha"', step)
+        self.assertIn('test "$(git -C "$candidate" rev-parse HEAD)" = "$candidate_sha"', step)
+        for name in (
+            "TestMihomo_Hysteria",
+            "TestMihomo_ShadowsocksUoT",
+            "TestMihomo_TrojanGrpc",
+            "TestMihomo_VmessWebsocketXray0RTT",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, step)
+        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{baseline_case\}$" .', step)
+        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{candidate_case\}$" .', step)
+        self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"', step)
+        self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-candidate-go-cache"', step)
+        self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$upstream/test"', step)
+        self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"', step)
+
 if __name__ == "__main__":
     unittest.main()
