@@ -369,6 +369,10 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8", step)
         self.assertIn("candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1", step)
         self.assertIn("https://github.com/MetaCubeX/mihomo.git", step)
+        self.assertIn(
+            "        env:\\n          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
+            step,
+        )
         self.assertIn('test "$(git -C "$upstream" rev-parse HEAD)" = "$upstream_sha"', step)
         self.assertIn('test "$(git -C "$candidate" rev-parse HEAD)" = "$candidate_sha"', step)
         for name in (
