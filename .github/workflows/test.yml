@@ -1041,6 +1041,7 @@ jobs:
             TestMihomo_Hysteria \
             TestMihomo_ShadowsocksUoT \
             TestMihomo_TrojanGrpc \
+            TestMihomo_VlessXTLS \
             TestMihomo_VmessWebsocketXray0RTT; do
             printf "\n=== exact MIT-LZO .33 candidate: %s ===\n" "$candidate_case"
             if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .; then
