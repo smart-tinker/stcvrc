@@ -15,7 +15,7 @@
                 "network": "ws",
                 "security": "none",
                 "wsSettings": {
-                    "maxEarlyData": 128,
+                    "maxEarlyData": 2048,
                     "earlyDataHeaderName": "Sec-WebSocket-Protocol"
                 }
             }
