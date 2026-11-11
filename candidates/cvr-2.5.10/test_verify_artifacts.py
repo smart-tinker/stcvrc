@@ -318,7 +318,7 @@ class DraftRCAssemblyGateTests(unittest.TestCase):
 
     def test_draft_rc_assembly_uses_new_rc6_tag_instead_of_stale_rc5(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
-        assembly = workflow.split('  assemble-draft-rc:\\n', 1)[1]
+        assembly = workflow.split('  assemble-draft-rc:\n', 1)[1]
         self.assertIn('tag=stcvrc-1.19.33-rc.6', assembly)
         self.assertIn('--title "STCVRC 1.19.33 RC6 — CVR 2.5.10 candidate"', assembly)
 
