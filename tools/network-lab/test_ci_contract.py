@@ -368,6 +368,15 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1", job)
         self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^${candidate_case}$" .', job)
 
+    def test_hysteria_udp_runs_on_both_exact_33_comparisons(self):
+        self.assertIn('if os.Getenv("STCVRC_COMPARE_V33_HYSTERIA_UDP") == "1"', HYSTERIA_TESTS)
+        job = WORKFLOWS["test.yml"].split(chr(10) + "  test-module:" + chr(10), 1)[1]
+        step = job.split("      - name: Run each issue-25 protocol case independently", 1)[1]
+        self.assertIn("run_v33_case() {", step)
+        self.assertIn('STCVRC_COMPARE_V33_HYSTERIA_UDP=1 go test "$@"', step)
+        self.assertIn('if run_v33_case "$baseline_case"', step)
+        self.assertIn('if run_v33_case "$candidate_case"', step)
+
     def test_issue25_compares_the_same_cases_on_exact_33_sources(self):
         job = WORKFLOWS["test.yml"].split(chr(10) + "  test-module:" + chr(10), 1)[1]
         step = job.split("      - name: Run each issue-25 protocol case independently", 1)[1]
