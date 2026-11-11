@@ -400,7 +400,7 @@ class CIContractTests(unittest.TestCase):
             "port": "10001",
             "ip": ["127.0.0.1/32"],
         }]
-        for name in ("trojan-grpc.json", "vmess-ws-xray-0rtt.json"):
+        for name in ("trojan-grpc.json", "vmess-ws-xray-0rtt.json", "xray-shadowsocks.json"):
             with self.subTest(config=name):
                 config = json.loads((ROOT / "test/config" / name).read_text(encoding="utf-8"))
                 settings = config["outbounds"][0].get("settings", {})
