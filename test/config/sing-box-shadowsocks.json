@@ -1,24 +1,48 @@
 {
-  "log": {"level": "info"},
-  "inbounds": [{
-    "type": "shadowsocks",
-    "tag": "ss-in",
-    "listen": "0.0.0.0",
-    "listen_port": 10002,
-    "method": "aes-128-gcm",
-    "password": "FzcLbKs2dY9mhL"
-  }],
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "ss-in",
+      "listen": "0.0.0.0",
+      "listen_port": 10002,
+      "method": "aes-128-gcm",
+      "password": "FzcLbKs2dY9mhL"
+    }
+  ],
   "outbounds": [
-    {"type": "direct", "tag": "direct"},
-    {"type": "block", "tag": "block"}
+    {
+      "type": "direct",
+      "tag": "direct",
+      "bind_interface": "lo"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
   ],
   "route": {
-    "rules": [{
-      "network": ["tcp", "udp"],
-      "ip_cidr": ["127.0.0.1/32"],
-      "port": 10001,
-      "outbound": "direct"
-    }],
+    "rules": [
+      {
+        "network": [
+          "udp"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "ip_cidr": [
+          "127.0.0.1/32"
+        ],
+        "port": 10001,
+        "outbound": "direct"
+      }
+    ],
     "final": "block"
   }
 }

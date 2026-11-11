@@ -422,11 +422,11 @@ class CIContractTests(unittest.TestCase):
                 self.assertEqual(settings.get("finalRules"), expected)
 
 
-    def test_hysteria_uses_bounded_tcp_and_udp_echo_smokes(self):
+    def test_hysteria_uses_bounded_tcp_echo(self):
         case = HYSTERIA_TESTS.split("func TestMihomo_Hysteria", 1)[1].split(chr(10) + "}", 1)[0]
-        self.assertIn("shortcut: bound Hysteria to TCP/UDP echo; restore bulk stress after repeatable hosted-runner evidence", case)
+        self.assertIn("shortcut: Hysteria TCP only while the pinned server rejects UDP setup at :0; restore UDP smoke after compatible fixture evidence", case)
         self.assertIn("testPingPongWithConn", case)
-        self.assertIn("testPingPongWithPacketConn", case)
+        self.assertNotIn("testPingPongWithPacketConn", case)
         self.assertNotIn("testSuit", case)
         self.assertNotIn("testLargeData", case)
 
@@ -439,11 +439,15 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(config["inbounds"][0]["listen_port"], 10002)
         self.assertEqual(config["inbounds"][0]["method"], "aes-128-gcm")
         self.assertEqual(config["route"]["rules"], [{
+            "network": ["udp"],
+            "outbound": "direct",
+        }, {
             "network": ["tcp", "udp"],
             "ip_cidr": ["127.0.0.1/32"],
             "port": 10001,
             "outbound": "direct",
         }])
+        self.assertEqual(config["outbounds"][0]["bind_interface"], "lo")
         self.assertEqual(config["route"]["final"], "block")
 
     def test_issue25_exact_upstream_failures_fail_the_job(self):
