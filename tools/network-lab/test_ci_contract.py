@@ -39,7 +39,7 @@ class CIContractTests(unittest.TestCase):
         release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
         self.assertIn("github.event_name == 'workflow_dispatch'", release_job)
         self.assertIn("github.repository == 'smart-tinker/stcvrc'", release_job)
-        self.assertIn("github.ref == 'refs/heads/codex/cvr-2.5.9-release-cycle-20261102'", release_job)
+        self.assertIn("github.ref == 'refs/heads/main'", release_job)
         self.assertIn("runs-on: ubuntu-24.04", release_job)
         self.assertIn("permissions:\n      contents: write", release_job)
         self.assertIn("!github.event.repository.private", release_job)
