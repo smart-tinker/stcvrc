@@ -751,7 +751,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          tag=stcvrc-1.19.33-rc.5
+          tag=stcvrc-1.19.33-rc.6
           repo=smart-tinker/stcvrc
           manifest="$RUNNER_TEMP/RC-MANIFEST.json"
           notes="$RUNNER_TEMP/RC-NOTES.md"
@@ -793,7 +793,7 @@ jobs:
           manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           PY
           cat > "$notes" <<'EOF'
-          This is a draft, unpublished STCVRC 1.19.33 RC5 candidate.
+          This is a draft, unpublished STCVRC 1.19.33 RC6 candidate.
           It pins official CVR 2.5.8 recovery and CVR 2.5.10 update inputs.
           The Windows core is rebuilt from the pinned MIT-LZO source and identified by RC-MANIFEST.json.
           A disposable Windows runner completed the pinned 2.5.8 install, 2.5.10 /UPDATE, and recovery to 2.5.8.
@@ -804,7 +804,7 @@ jobs:
           release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           if [[ -z "$release_id" ]]; then
             gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
-              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC5 — CVR 2.5.10 candidate" --notes-file "$notes"
+              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC6 — CVR 2.5.10 candidate" --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
           [[ "$release_id" =~ ^[0-9]+$ ]]
@@ -812,7 +812,7 @@ jobs:
           test "$(gh api "$api" --jq .draft)" = true
           test "$(gh api "$api" --jq .prerelease)" = true
           test "$(gh api "$api" --jq .tag_name)" = "$tag"
-          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC5 — CVR 2.5.10 candidate"
+          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC6 — CVR 2.5.10 candidate"
           release_target="$(gh api "$api" --jq .target_commitish)"
           test "$release_target" = "$HEAD_SHA"
           assets_api="$api/assets"
