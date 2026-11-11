@@ -15,6 +15,7 @@ STCVRC is a temporary, minimal downstream core for stock Clash Verge Rev (CVR), 
 - Linux labs, cross-builds, fixture tests and source review do not establish native Windows service/TUN/DNS, long-session, corporate-auth or user acceptance. State untested boundaries explicitly.
 
 ## Review and handoff
+- Follow the [release process](docs/RELEASING.md); a passing CI job or draft release alone does not authorize publication or deployment.
 - Use checkable DoD: criterion → verification method → expected observation → evidence link. Link existing acceptance and license work instead of opening parallel tasks.
 - Separate implemented, tested, merged, published, accepted and deployed. Use `Refs` while acceptance gates remain; do not close an issue solely because a PR merged.
 - Before handoff re-read actual PR head/status/checks. Maintain one current summary and link historical evidence rather than append conflicting “final” sections.
