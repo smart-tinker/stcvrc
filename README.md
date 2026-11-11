@@ -97,3 +97,6 @@ project and source history for the complete contributor record.
 This software is released under the GPL-3.0 license. As required by the
 upstream license notice, the downstream project name does not contain the word
 `mihomo`.
+
+Dependency-license inventory and binary/source provenance evidence are tracked
+in [docs/license-audit.md](docs/license-audit.md).
