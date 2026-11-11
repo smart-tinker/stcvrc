@@ -82,7 +82,6 @@ core_sha256="$(sha256sum "$work/core" | awk '{print $1}')"
 printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
 test "$core_sha256" = "$CORE_SHA256"
 [[ "$core_sha256" =~ ^[0-9a-f]{64}$ ]]
-printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
 test -z "$(git status --porcelain)"
 "$work/core" -v | grep -F "$VERSION"
 version_output="$("$work/xray" version)"
