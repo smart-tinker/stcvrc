@@ -81,16 +81,16 @@
     }
   ],
   "core": {
-    "sourceCommit": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
+    "sourceCommit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
     "upstreamCommit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
-    "version": "1.19.33-STCVRC-candidate-mit-lzo-20261109",
-    "buildTime": "2026-11-09T00:00:00Z",
+    "version": "1.19.33-STCVRC-candidate-mit-lzo-20261111",
+    "buildTime": "2026-11-11T00:00:00Z",
     "goVersion": "1.26.10",
     "goArchiveSha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
     "target": "windows/amd64",
     "tags": [
       "with_gvisor"
     ],
-    "sha256": "c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf"
+    "sha256": "40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3"
   }
 }

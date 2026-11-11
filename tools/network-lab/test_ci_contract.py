@@ -130,8 +130,8 @@ class CIContractTests(unittest.TestCase):
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
         self.assertEqual(pins, {
-            "SOURCE_COMMIT": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
-            "CORE_SHA256": "dce11f5ad306e80d4ac768daf744a88a412be06162ed228059b6b084842c2e56",
+            "SOURCE_COMMIT": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
+            "CORE_SHA256": "a3ff2bdb717fdfe760dab98450ac381d568cbeb459a36799dcb9e3cff06d10ac",
             "GO_SHA256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
             "XRAY_ZIP_SHA256": "e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214",
             "XRAY_SHA256": "cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1",
@@ -239,7 +239,7 @@ class CIContractTests(unittest.TestCase):
 
 
     def test_failover_labs_use_fresh_mit_lzo_source_on_linux_and_windows(self):
-        source_sha = "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93"
+        source_sha = "086a62c3ce9a77f650786ae2eae92b68909d49e1"
         manifest = json.loads((HERE.parents[1] / "candidates/cvr-2.5.10/inputs.json").read_text())
         self.assertEqual(manifest["core"]["sourceCommit"], source_sha)
         self.assertIn(f"readonly SOURCE_COMMIT={source_sha}", SCRIPT)
@@ -255,15 +255,15 @@ class CIContractTests(unittest.TestCase):
             chr(10) + "  assemble-draft-rc:" + chr(10), 1
         )[0]
         self.assertIn("Fresh native Windows core build", job)
-        self.assertIn("$sourceSha = '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93'", job)
+        self.assertIn("$sourceSha = '086a62c3ce9a77f650786ae2eae92b68909d49e1'", job)
         self.assertIn("Test fresh Windows candidate over loopback", job)
         self.assertLess(job.index("Fresh native Windows core build"),
                         job.index("Test fresh Windows candidate over loopback"))
         self.assertIn("STCVRC_CORE_PATH", job)
         self.assertIn("python windows.py", job)
         self.assertNotIn("  windows-exe-lab:", WORKFLOW)
-        self.assertIn("readonly VERSION=1.19.33-STCVRC-candidate-mit-lzo-20261109", SCRIPT)
-        self.assertIn("readonly BUILD_TIME=2026-11-09T00:00:00Z", SCRIPT)
+        self.assertIn("readonly VERSION=1.19.33-STCVRC-candidate-mit-lzo-20261111", SCRIPT)
+        self.assertIn("readonly BUILD_TIME=2026-11-11T00:00:00Z", SCRIPT)
         self.assertIn("github.com/anchore/go-lzo v0.1.1", SCRIPT)
         self.assertIn("github.com/rasky/go-lzo", SCRIPT)
         self.assertIn("core_sha256=", SCRIPT)
@@ -298,7 +298,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("SOURCE_SHA", workflow)
         self.assertIn("CANDIDATE_SOURCE_SHA", workflow)
         self.assertIn("working-directory: source/test", workflow)
-        self.assertIn("92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93", workflow)
+        self.assertIn("086a62c3ce9a77f650786ae2eae92b68909d49e1", workflow)
         scan_job = workflow.split("\n  vulnerability-scan:\n", 1)[1].split("\n  source:\n", 1)[0]
         self.assertNotIn(r"\\n", scan_job)
         self.assertNotIn("runner.temp", scan_job)

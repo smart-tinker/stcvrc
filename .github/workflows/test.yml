@@ -65,7 +65,7 @@ jobs:
       - name: Fetch exact sources without credentials
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          CANDIDATE_SOURCE_SHA: 92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          CANDIDATE_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -239,7 +239,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           V29_SOURCE_SHA: 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
-          V33_SOURCE_SHA: 92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          V33_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -399,7 +399,7 @@ jobs:
       - name: Build fresh MIT-LZO source and verify the official installer pair
         run: |
           set -euo pipefail
-          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          source_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
           upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           core_source="$RUNNER_TEMP/cvr-mit-lzo-source"
           go_dir="$RUNNER_TEMP/toolchain-go1.26.10"
@@ -433,15 +433,15 @@ jobs:
           go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
           go mod verify
 
-          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
-          build_time=2026-11-09T00:00:00Z
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261111
+          build_time=2026-11-11T00:00:00Z
           ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
           binary="$RUNNER_TEMP/verge-mihomo-mit-lzo.exe"
           GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
-          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
+          test "$binary_sha" = 40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
             "$source_sha" "$binary_sha" "$binary_size" >> "$GITHUB_STEP_SUMMARY"
           test -z "$(git -C "$core_source" status --porcelain)"
@@ -515,7 +515,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'candidate git init failed' }
           git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
           if ($LASTEXITCODE -ne 0) { throw 'candidate git remote failed' }
-          $sourceSha = '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93'
+          $sourceSha = '086a62c3ce9a77f650786ae2eae92b68909d49e1'
           git -C $source fetch --quiet --depth=1 --no-tags origin $sourceSha
           if ($LASTEXITCODE -ne 0) { throw 'candidate source fetch failed' }
           git -C $source checkout --quiet --detach FETCH_HEAD
@@ -535,8 +535,8 @@ jobs:
             if ($modules | Where-Object { $_ -match '^github.com/rasky/go-lzo ' }) { throw 'GPL-only LZO dependency remains' }
             & $go mod verify
             if ($LASTEXITCODE -ne 0) { throw 'go mod verify failed' }
-            $version = '1.19.33-STCVRC-candidate-mit-lzo-20261109'
-            $buildTime = '2026-11-09T00:00:00Z'
+            $version = '1.19.33-STCVRC-candidate-mit-lzo-20261111'
+            $buildTime = '2026-11-11T00:00:00Z'
             $ldflags = "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$buildTime"
             $core = Join-Path $env:RUNNER_TEMP 'verge-mihomo-fresh-windows.exe'
             & $go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags $ldflags -o $core .
@@ -548,8 +548,8 @@ jobs:
           }
           $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
           $coreSize = (Get-Item -LiteralPath $core).Length
-          if ($coreHash -ne 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf') { throw 'fresh native Windows core SHA256 mismatch' }
-          if ($coreSize -ne 61143552) { throw 'fresh native Windows core size mismatch' }
+          if ($coreHash -ne '40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3') { throw 'fresh native Windows core SHA256 mismatch' }
+          if ($coreSize -ne 61235712) { throw 'fresh native Windows core size mismatch' }
           Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.10, SHA256 $coreHash, $coreSize bytes."
 
@@ -625,7 +625,7 @@ jobs:
               $coreExit = $LASTEXITCODE
               $coreVersionOutput = $coreVersionOutput -join "`n"
               if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
-              if ($coreVersionOutput -notmatch '^Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64 with go1\.26\.10 2026-11-09T00:00:00Z') {
+              if ($coreVersionOutput -notmatch '^Mihomo Meta 1\.19\.33-STCVRC-candidate-mit-lzo-20261109 windows amd64 with go1\.26\.10 2026-11-11T00:00:00Z') {
                 throw 'Fresh custom core -v reported an unexpected version'
               }
               Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The final 2.5.8 install and 2.5.10 /UPDATE smoke is monitored for GUI, service and stock-core process starts."
@@ -679,7 +679,7 @@ jobs:
       - name: Build the pinned MIT-LZO core from exact source
         run: |
           set -euo pipefail
-          source_sha=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
+          source_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
           upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           core_source="$RUNNER_TEMP/rc-core-source"
           go_dir="$RUNNER_TEMP/rc-go1.26.10"
@@ -713,16 +713,16 @@ jobs:
           go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
           go mod verify
 
-          version=1.19.33-STCVRC-candidate-mit-lzo-20261109
-          build_time=2026-11-09T00:00:00Z
+          version=1.19.33-STCVRC-candidate-mit-lzo-20261111
+          build_time=2026-11-11T00:00:00Z
           ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
           binary="$RUNNER_TEMP/verge-mihomo.exe"
           GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
-          test "$binary_sha" = c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf
-          test "$binary_size" = 61143552
+          test "$binary_sha" = 40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3
+          test "$binary_size" = 61235712
           test -z "$(git -C "$core_source" status --porcelain)"
           printf 'RC_BINARY=%s\nRC_BINARY_SHA=%s\nRC_BINARY_SIZE=%s\n' \
             "$binary" "$binary_sha" "$binary_size" >> "$GITHUB_ENV"

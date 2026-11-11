@@ -254,15 +254,15 @@ class CandidateSourceContractTests(unittest.TestCase):
     def test_core_is_pinned_to_fresh_mit_lzo_candidate(self):
         manifest = json.loads((SCRIPT.with_name('inputs.json')).read_text(encoding='utf-8'))
         core = manifest['core']
-        self.assertEqual(core['sourceCommit'], '92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93')
+        self.assertEqual(core['sourceCommit'], '086a62c3ce9a77f650786ae2eae92b68909d49e1')
         self.assertEqual(core['upstreamCommit'], '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8')
-        self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261109')
-        self.assertEqual(core['buildTime'], '2026-11-09T00:00:00Z')
+        self.assertEqual(core['version'], '1.19.33-STCVRC-candidate-mit-lzo-20261111')
+        self.assertEqual(core['buildTime'], '2026-11-11T00:00:00Z')
         self.assertEqual(core['goVersion'], '1.26.10')
         self.assertEqual(core['goArchiveSha256'], 'ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5')
         self.assertEqual(core['target'], 'windows/amd64')
         self.assertEqual(core['tags'], ['with_gvisor'])
-        self.assertEqual(core['sha256'], 'c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf')
+        self.assertEqual(core['sha256'], '40efda02a4cee3cca323dd0506f43ce6bf4b5320a94d1f74a334c22ea27e02e3')
         self.assertNotIn('size', core)
 
 
