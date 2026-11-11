@@ -1209,6 +1209,33 @@ jobs:
             printf 'Candidate patch-origin base recorded in source.json: %s\n' "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patchSource"]["base"])' "$candidate/candidates/v1.19.33-20261022/source.json")"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify pinned MetaCubeX chacha MIT license provenance
+        run: |
+          set -euo pipefail
+          candidate_source="$RUNNER_TEMP/source-1.19.33-mit-lzo"
+          grep -Fqx 'github.com/metacubex/chacha v0.1.5' "$candidate_source/go.mod"
+
+          chacha="$RUNNER_TEMP/chacha-license-source"
+          pinned_commit="07294f500ca8384015f6cc21311de7b6f093607d"
+          license_commit="7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"
+          git init --quiet "$chacha"
+          git -C "$chacha" remote add origin https://github.com/MetaCubeX/chacha.git
+          git -C "$chacha" fetch --quiet --depth=1 --no-tags origin refs/tags/v0.1.5
+          test "$(git -C "$chacha" rev-parse 'FETCH_HEAD^{commit}')" = "$pinned_commit"
+          git -C "$chacha" fetch --quiet --depth=2 --no-tags origin "$license_commit"
+          test "$(git -C "$chacha" rev-parse 'FETCH_HEAD^{commit}')" = "$license_commit"
+          test "$(git -C "$chacha" show -s --format=%P "$license_commit")" = "$pinned_commit"
+          test "$(git -C "$chacha" diff --name-status "$pinned_commit" "$license_commit")" = "$(printf 'A\tLICENSE')"
+          git -C "$chacha" diff --quiet "$pinned_commit" "$license_commit" -- . ':(exclude)LICENSE'
+
+          license_file="$(git -C "$chacha" show "$license_commit:LICENSE")"
+          grep -Fqx 'MIT License' <<< "$license_file"
+          grep -Fqx 'Copyright (c) 2016 Andreas Auernhammer' <<< "$license_file"
+          grep -Fqx 'Copyright (c) 2025 MetaCubex' <<< "$license_file"
+          license_sha="$(git -C "$chacha" show "$license_commit:LICENSE" | sha256sum | awk '{print $1}')"
+          printf 'Pinned chacha tag commit: %s\nImmediate license commit: %s\nOnly added file: LICENSE\nMIT license SHA256: %s\n' \
+            "$pinned_commit" "$license_commit" "$license_sha" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Fresh builds and license inventories for all source lines
         run: |
           set -euo pipefail
