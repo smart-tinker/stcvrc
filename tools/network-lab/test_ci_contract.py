@@ -317,5 +317,20 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("    needs: vulnerability-scan", source_job)
 
 
+    def test_issue25_unresolved_protocol_cases_run_individually(self):
+        job = WORKFLOWS["test.yml"].split("\\n  test-module:\\n", 1)[1]
+        self.assertIn("Run each issue-25 protocol case independently", job)
+        for name in (
+            "TestMihomo_Hysteria",
+            "TestMihomo_ShadowsocksUoT",
+            "TestMihomo_TrojanGrpc",
+            "TestMihomo_VlessXTLS",
+            "TestMihomo_VmessPacketAddr",
+            "TestMihomo_VmessWebsocketXray0RTT",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, job)
+        self.assertIn('go test -p=1 -v -mod=readonly -count=1 -timeout=25m -run="^${case_name}$" .', job)
+
 if __name__ == "__main__":
     unittest.main()
