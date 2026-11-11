@@ -61,10 +61,6 @@ jobs:
       GOTOOLCHAIN: local
       GOWORK: 'off'
       GOTELEMETRY: 'off'
-      GOPATH: ${{ runner.temp }}/govuln-gopath
-      GOMODCACHE: ${{ runner.temp }}/govuln-modcache
-      GOCACHE: ${{ runner.temp }}/govuln-cache
-      GOBIN: ${{ runner.temp }}/govuln-bin
     steps:
       - name: Fetch exact sources without credentials
         env:
@@ -93,7 +89,13 @@ jobs:
             https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o go.tar.gz
           printf '%s  go.tar.gz\n' ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 | sha256sum --check --status
           tar -xzf go.tar.gz
-          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE" "$GOBIN"
+          mkdir -p "$RUNNER_TEMP/govuln-gopath" "$RUNNER_TEMP/govuln-modcache" "$RUNNER_TEMP/govuln-cache" "$RUNNER_TEMP/govuln-bin"
+          {
+            printf 'GOPATH=%s\n' "$RUNNER_TEMP/govuln-gopath"
+            printf 'GOMODCACHE=%s\n' "$RUNNER_TEMP/govuln-modcache"
+            printf 'GOCACHE=%s\n' "$RUNNER_TEMP/govuln-cache"
+            printf 'GOBIN=%s\n' "$RUNNER_TEMP/govuln-bin"
+          } >> "$GITHUB_ENV"
           printf '%s\n' "$RUNNER_TEMP/govuln-go/go/bin" >> "$GITHUB_PATH"
 
       - name: Install pinned govulncheck
