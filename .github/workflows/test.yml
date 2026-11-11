@@ -971,7 +971,7 @@ jobs:
           done
           candidate_status=0
           printf "\n=== exact .33 MIT-LZO candidate: TestMihomo_Hysteria ===\n"
-          candidate_sha=44a11d1b1a4143f6c09fcceaa3356480cafa0698
+          candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
           candidate="$RUNNER_TEMP/issue-25-candidate"
           git init --quiet "$candidate"
           git -C "$candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
