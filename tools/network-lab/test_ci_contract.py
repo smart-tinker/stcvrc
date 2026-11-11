@@ -141,6 +141,22 @@ class CIContractTests(unittest.TestCase):
         self.assertIn('--check-tls-rejection', SCRIPT)
         self.assertNotIn('build-windows.ps1', SCRIPT)
 
+    def test_candidate_go_toolchain_matches_fresh_rebuilds(self):
+        manifest = json.loads((ROOT / "candidates/cvr-2.5.10/inputs.json").read_text(encoding="utf-8"))
+        version = manifest["core"]["goVersion"]
+        go_pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
+        package_job = WORKFLOWS["test.yml"].split("\n  cvr-2-5-10-package:\n", 1)[1].split("\n  cvr-windows-payload:\n", 1)[0]
+        windows_job = WORKFLOWS["test.yml"].split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
+        linux_archive = re.search(r"https://go\.dev/dl/go([0-9.]+)\.linux-amd64\.tar\.gz", package_job)
+        windows_archive = re.search(r"https://go\.dev/dl/go([0-9.]+)\.windows-amd64\.zip", windows_job)
+        self.assertIsNotNone(linux_archive)
+        self.assertIsNotNone(windows_archive)
+        self.assertEqual(version, linux_archive.group(1))
+        self.assertEqual(version, windows_archive.group(1))
+        self.assertEqual(manifest["core"]["goArchiveSha256"], go_pins["GO_SHA256"])
+        self.assertIn(re.escape("go" + version), windows_job)
+
+
     def test_build_temporaries_and_cleanup_are_scoped(self):
         self.assertIn('${RUNNER_TEMP:-$HERE}/stcvrc-ci.XXXXXXXX', SCRIPT)
         self.assertIn('export TMPDIR="$work/tmp" GOTMPDIR="$work/tmp"', SCRIPT)

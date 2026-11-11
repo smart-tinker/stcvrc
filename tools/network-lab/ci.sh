@@ -78,8 +78,9 @@ timeout 90s "$work/go/bin/go" mod verify
 timeout 600s "$work/go/bin/go" build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
   -ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$VERSION -X github.com/metacubex/mihomo/constant.BuildTime=$BUILD_TIME" \
   -o "$work/core" .
-printf '%s  %s\n' "$CORE_SHA256" "$work/core" | sha256sum --check --status
-core_sha256="$CORE_SHA256"
+core_sha256="$(sha256sum "$work/core" | awk '{print $1}')"
+printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
+test "$core_sha256" = "$CORE_SHA256"
 [[ "$core_sha256" =~ ^[0-9a-f]{64}$ ]]
 printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
 test -z "$(git status --porcelain)"
