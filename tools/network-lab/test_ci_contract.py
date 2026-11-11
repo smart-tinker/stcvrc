@@ -403,7 +403,7 @@ class CIContractTests(unittest.TestCase):
         for name in ("trojan-grpc.json", "vmess-ws-xray-0rtt.json"):
             with self.subTest(config=name):
                 config = json.loads((ROOT / "test/config" / name).read_text(encoding="utf-8"))
-                settings = config["outbounds"][0]["settings"]
+                settings = config["outbounds"][0].get("settings", {})
                 self.assertEqual(settings.get("finalRules"), expected)
 
 
