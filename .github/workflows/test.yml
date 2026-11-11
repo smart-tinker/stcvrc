@@ -433,6 +433,31 @@ jobs:
           go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
           go mod verify
 
+      - name: Run each issue-25 protocol case independently
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/issue-25-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          case_status=0
+          for case_name in \
+            TestMihomo_Hysteria \
+            TestMihomo_ShadowsocksUoT \
+            TestMihomo_TrojanGrpc \
+            TestMihomo_VlessXTLS \
+            TestMihomo_VmessPacketAddr \
+            TestMihomo_VmessWebsocketXray0RTT; do
+            printf '\n=== %s ===\n' "$case_name"
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=25m -run="^${case_name}$" .; then
+              printf '%s: PASS\n' "$case_name" >> "$GITHUB_STEP_SUMMARY"
+            else
+              case_status=1
+              printf '%s: FAIL\n' "$case_name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          exit "$case_status"
+
           version=1.19.33-STCVRC-candidate-mit-lzo-20261111
           build_time=2026-11-11T00:00:00Z
           ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
