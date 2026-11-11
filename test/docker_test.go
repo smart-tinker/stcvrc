@@ -33,6 +33,7 @@ func startContainer(cfg *container.Config, hostCfg *container.HostConfig, name s
 		Stdout: true,
 		Stderr: true,
 		Logs:   true,
+		Stream: true,
 	})
 	if err != nil {
 		return "", err
