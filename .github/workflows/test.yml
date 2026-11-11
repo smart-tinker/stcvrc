@@ -980,20 +980,8 @@ jobs:
           test "$(git -C "$candidate" rev-parse HEAD)" = "$candidate_sha"
           rm -rf "$candidate/test"
           cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"
-          python3 - "$candidate/test/clash_test.go" "$candidate/test/hysteria_test.go" <<'PY'
-          from pathlib import Path
-          import sys
-
-          replacements = (
-              (Path(sys.argv[1]), "tobyxdd/hysteria:latest", "tobyxdd/hysteria@sha256:4c8c92ba4b9b405c9473d8776b613e4d776141a3fa26ae5084a19c44b49f1e35"),
-              (Path(sys.argv[2]), 'Cmd:          []string{"server"},', 'Cmd:          []string{"server", "--config", "/config.json"},'),
-          )
-          for path, old, new in replacements:
-              content = path.read_text()
-              if content.count(old) != 1:
-                  raise SystemExit(f"expected one pinned-fixture edit in {path}")
-              path.write_text(content.replace(old, new, 1))
-          PY
+          grep -Fq 'tobyxdd/hysteria@sha256:4c8c92ba4b9b405c9473d8776b613e4d776141a3fa26ae5084a19c44b49f1e35' "$candidate/test/clash_test.go"
+          grep -Fq 'Cmd:          []string{"server", "--config", "/config.json"},' "$candidate/test/hysteria_test.go"
           printf "Fresh candidate source: %s\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
           sha256sum "$candidate/test/clash_test.go" "$candidate/test/hysteria_test.go"
           cd "$candidate/test"
@@ -1004,20 +992,23 @@ jobs:
           cp go.mod "$RUNNER_TEMP/issue-25-candidate-test.go.mod"
           cp go.sum "$RUNNER_TEMP/issue-25-candidate-test.go.sum"
           go mod tidy
+          manifest_changed=0
           if ! cmp -s go.mod "$RUNNER_TEMP/issue-25-candidate-test.go.mod" || ! cmp -s go.sum "$RUNNER_TEMP/issue-25-candidate-test.go.sum"; then
             echo "Candidate test module dependency manifests changed during tidy" >&2
             diff -u "$RUNNER_TEMP/issue-25-candidate-test.go.mod" go.mod || true
             diff -u "$RUNNER_TEMP/issue-25-candidate-test.go.sum" go.sum || true
-            candidate_status=1
+            manifest_changed=1
           fi
           go mod verify
-          if (( candidate_status == 0 )); then
-            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run='^TestMihomo_Hysteria
- .; then
+          if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^TestMihomo_Hysteria$" .; then
+            if (( manifest_changed == 0 )); then
               printf "Hysteria on MIT-LZO .33 candidate %s: PASS\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
             else
+              printf "Hysteria on MIT-LZO .33 candidate %s: PASS; test-module manifest update required\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
               candidate_status=1
-              printf "Hysteria on MIT-LZO .33 candidate %s: FAIL\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
             fi
+          else
+            candidate_status=1
+            printf "Hysteria on MIT-LZO .33 candidate %s: FAIL\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
           fi
           if (( case_status != 0 || candidate_status != 0 )); then exit 1; fi
