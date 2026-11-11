@@ -318,7 +318,7 @@ class CIContractTests(unittest.TestCase):
 
 
     def test_issue25_unresolved_protocol_cases_run_individually(self):
-        job = WORKFLOWS["test.yml"].split("\\n  test-module:\\n", 1)[1]
+        job = WORKFLOWS["test.yml"].split(chr(10) + "  test-module:" + chr(10), 1)[1]
         self.assertIn("Run each issue-25 protocol case independently", job)
         for name in (
             "TestMihomo_Hysteria",
