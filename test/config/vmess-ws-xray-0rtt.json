@@ -25,5 +25,8 @@
             "protocol": "freedom",
             "settings": {}
         }
-    ]
+    ],
+    "log": {
+        "loglevel": "debug"
+    }
 }
