@@ -969,45 +969,73 @@ jobs:
               printf '%s: FAIL\n' "$case_name" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
-          candidate_status=0
-          printf "\n=== exact .33 MIT-LZO candidate: TestMihomo_Hysteria ===\n"
+
+          upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
           candidate_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
+          upstream="$RUNNER_TEMP/issue-25-upstream"
           candidate="$RUNNER_TEMP/issue-25-candidate"
+          git init --quiet "$upstream"
+          git -C "$upstream" remote add origin https://github.com/MetaCubeX/mihomo.git
+          git -C "$upstream" fetch --quiet --depth=1 --no-tags origin "$upstream_sha"
+          git -C "$upstream" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$upstream" rev-parse HEAD)" = "$upstream_sha"
           git init --quiet "$candidate"
           git -C "$candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
           git -C "$candidate" fetch --quiet --depth=1 --no-tags origin "$candidate_sha"
           git -C "$candidate" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$candidate" rev-parse HEAD)" = "$candidate_sha"
-          rm -rf "$candidate/test"
+          rm -rf "$upstream/test" "$candidate/test"
+          cp -a "$GITHUB_WORKSPACE/source/test" "$upstream/test"
           cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"
+          diff -qr "$upstream/test" "$candidate/test"
           grep -Fq 'tobyxdd/hysteria@sha256:4c8c92ba4b9b405c9473d8776b613e4d776141a3fa26ae5084a19c44b49f1e35' "$candidate/test/clash_test.go"
-          grep -Fq 'Cmd:          []string{"server", "--config", "/config.json"},' "$candidate/test/hysteria_test.go"
-          printf "Fresh candidate source: %s\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
-          sha256sum "$candidate/test/clash_test.go" "$candidate/test/hysteria_test.go"
+          grep -Fq 'ImageXray            = "teddysun/xray@sha256:fbb9f2878eadb50b78ce362f8dff0f19fd4c72a02f21678b37b5f811737c52cc"' "$candidate/test/clash_test.go"
+          printf "Exact comparison: upstream %s vs MIT-LZO candidate %s; tests copied from source %s\n" "$upstream_sha" "$candidate_sha" "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+          upstream_status=0
+          cd "$upstream/test"
+          export GOPATH="$RUNNER_TEMP/issue-25-upstream-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-upstream-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-upstream-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go mod tidy
+          go mod verify
+          for baseline_case in \
+            TestMihomo_Hysteria \
+            TestMihomo_ShadowsocksUoT \
+            TestMihomo_TrojanGrpc \
+            TestMihomo_VmessWebsocketXray0RTT; do
+            printf "\n=== exact .33 upstream: %s ===\n" "$baseline_case"
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{baseline_case\}$" .; then
+              printf "upstream %s: PASS\n" "$baseline_case" >> "$GITHUB_STEP_SUMMARY"
+            else
+              upstream_status=1
+              printf "upstream %s: FAIL\n" "$baseline_case" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          candidate_status=0
           cd "$candidate/test"
           export GOPATH="$RUNNER_TEMP/issue-25-candidate-go-path"
           export GOMODCACHE="$RUNNER_TEMP/issue-25-candidate-go-modcache"
           export GOCACHE="$RUNNER_TEMP/issue-25-candidate-go-cache"
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
-          cp go.mod "$RUNNER_TEMP/issue-25-candidate-test.go.mod"
-          cp go.sum "$RUNNER_TEMP/issue-25-candidate-test.go.sum"
           go mod tidy
-          manifest_changed=0
-          if ! cmp -s go.mod "$RUNNER_TEMP/issue-25-candidate-test.go.mod" || ! cmp -s go.sum "$RUNNER_TEMP/issue-25-candidate-test.go.sum"; then
-            echo "Candidate test module dependency manifests changed during tidy" >&2
-            diff -u "$RUNNER_TEMP/issue-25-candidate-test.go.mod" go.mod || true
-            diff -u "$RUNNER_TEMP/issue-25-candidate-test.go.sum" go.sum || true
-            manifest_changed=1
-          fi
           go mod verify
-          if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^TestMihomo_Hysteria$" .; then
-            if (( manifest_changed == 0 )); then
-              printf "Hysteria on MIT-LZO .33 candidate %s: PASS\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
+          for candidate_case in \
+            TestMihomo_Hysteria \
+            TestMihomo_ShadowsocksUoT \
+            TestMihomo_TrojanGrpc \
+            TestMihomo_VmessWebsocketXray0RTT; do
+            printf "\n=== exact MIT-LZO .33 candidate: %s ===\n" "$candidate_case"
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=10m -run="^$\{candidate_case\}$" .; then
+              printf "candidate %s: PASS\n" "$candidate_case" >> "$GITHUB_STEP_SUMMARY"
             else
-              printf "Hysteria on MIT-LZO .33 candidate %s: PASS; test-module manifests resolved against exact candidate source\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
+              candidate_status=1
+              printf "candidate %s: FAIL\n" "$candidate_case" >> "$GITHUB_STEP_SUMMARY"
             fi
-          else
-            candidate_status=1
-            printf "Hysteria on MIT-LZO .33 candidate %s: FAIL\n" "$candidate_sha" >> "$GITHUB_STEP_SUMMARY"
+          done
+          if (( upstream_status != 0 )); then
+            printf 'At least one exact .33 upstream comparison failed; see per-case results above.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
           if (( case_status != 0 || candidate_status != 0 )); then exit 1; fi
