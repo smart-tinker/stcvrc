@@ -65,6 +65,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## MetaCubeX source license evidence for candidate 1.19.33
+
+The fresh Windows/amd64 `with_gvisor` inventory for source `086a62c3ce9a77f650786ae2eae92b68909d49e1` reports these root modules as `Unknown`. At the exact upstream commits below, each repository has a root `LICENSE` with the same Git blob SHA `3e3e29e359d205307555aa41f19fb2a8415de885`. The text names nekohasekai (2022) and permits use under GNU GPL version 3 or, at the recipient's option, any later version. The scanner's `Unknown` rows remain recorded in CI; this source-file evidence is for review and is not a legal-compliance conclusion.
+
+| Module version in candidate | Exact upstream commit | Pinned upstream LICENSE |
+| --- | --- | --- |
+| `github.com/metacubex/sing v0.5.8` | `1dd5bcee2b112766b8f030eb51f3db2f245996ed` | [LICENSE](https://github.com/MetaCubeX/sing/blob/1dd5bcee2b112766b8f030eb51f3db2f245996ed/LICENSE) |
+| `github.com/metacubex/sing-mux v0.3.12` | `714fc2e099f227b7b4bc5a62880bcb5d3c8d5b2f` | [LICENSE](https://github.com/MetaCubeX/sing-mux/blob/714fc2e099f227b7b4bc5a62880bcb5d3c8d5b2f/LICENSE) |
+| `github.com/metacubex/sing-quic v0.0.0-20260904234848-1c242664697a` | `1c242664697a441b01cfaf67bdbb7bb0d532745e` | [LICENSE](https://github.com/MetaCubeX/sing-quic/blob/1c242664697a441b01cfaf67bdbb7bb0d532745e/LICENSE) |
+| `github.com/metacubex/sing-shadowsocks v0.2.13` | `028e27cf15b05d39a96ae78c5b21e6d7c3b4b740` | [LICENSE](https://github.com/MetaCubeX/sing-shadowsocks/blob/028e27cf15b05d39a96ae78c5b21e6d7c3b4b740/LICENSE) |
+| `github.com/metacubex/sing-shadowsocks2 v0.2.8` | `706d31e8c9a7f1d9ab94c58b326abde7026fd9cc` | [LICENSE](https://github.com/MetaCubeX/sing-shadowsocks2/blob/706d31e8c9a7f1d9ab94c58b326abde7026fd9cc/LICENSE) |
+| `github.com/metacubex/sing-tun v0.4.28` | `a128d0c3c8001e041725fa67ff3b521502298f17` | [LICENSE](https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/LICENSE) |
+| `github.com/metacubex/sing-vmess v0.2.5` | `9b7fdbf462a5cf6366628631ef426c1a91f5df82` | [LICENSE](https://github.com/MetaCubeX/sing-vmess/blob/9b7fdbf462a5cf6366628631ef426c1a91f5df82/LICENSE) |
+| `github.com/metacubex/fswatch v0.1.1` | `6aacc3bbe574cb676e7e1348cc7722da3420bfe1` | [LICENSE](https://github.com/MetaCubeX/fswatch/blob/6aacc3bbe574cb676e7e1348cc7722da3420bfe1/LICENSE) |
+
 ## Remaining review
 
 This draft does not cover the full dependency inventory, EasyTier LGPL/WASM source mapping, the .33 patch-origin discrepancy, or human review of distribution and source-offer obligations.
