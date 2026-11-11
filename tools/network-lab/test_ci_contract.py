@@ -10,6 +10,8 @@ WORKFLOWS = {path.name: path.read_text() for path in
              (ROOT / ".github/workflows").glob("*.y*ml")}
 SCRIPT = (HERE / "ci.sh").read_text()
 WINDOWS = (HERE / "windows.py").read_text(encoding="utf-8")
+SS_TESTS = (ROOT / "test/ss_test.go").read_text()
+CLASH_TESTS = (ROOT / "test/clash_test.go").read_text()
 DEPENDABOT_PATH = ROOT / ".github/dependabot.yml"
 DEPENDABOT = DEPENDABOT_PATH.read_text() if DEPENDABOT_PATH.is_file() else ""
 
@@ -383,6 +385,12 @@ class CIContractTests(unittest.TestCase):
         self.assertIn('GOCACHE="$RUNNER_TEMP/issue-25-candidate-go-cache"', step)
         self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$upstream/test"', step)
         self.assertIn('cp -a "$GITHUB_WORKSPACE/source/test" "$candidate/test"', step)
+
+    def test_issue25_selected_xray_fixtures_use_digest_pinned_image(self):
+        uot = SS_TESTS.split("func TestMihomo_ShadowsocksUoT", 1)[1].split("\\nfunc ", 1)[0]
+        self.assertIn("Image:        ImageXray", uot)
+        self.assertNotIn("ImageVless", uot)
+        self.assertRegex(CLASH_TESTS, r'ImageXray\\s+= "teddysun/xray@sha256:[0-9a-f]{64}"')
 
 if __name__ == "__main__":
     unittest.main()
