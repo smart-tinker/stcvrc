@@ -210,6 +210,8 @@ jobs:
             -o "$RUNNER_TEMP/core-linux" .
           GOOS=windows GOARCH=amd64 timeout 300s go build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
             -o "$RUNNER_TEMP/core-windows.exe" .
+          go version -m "$RUNNER_TEMP/core-linux" | tee -a "$GITHUB_STEP_SUMMARY"
+          go version -m "$RUNNER_TEMP/core-windows.exe" | tee -a "$GITHUB_STEP_SUMMARY"
           timeout 90s go mod verify
           test -z "$(git status --porcelain)"
           printf '\nCurrent-source tests and Linux/Windows compilation passed. These are CI builds, not release artifacts.\n' >> "$GITHUB_STEP_SUMMARY"
