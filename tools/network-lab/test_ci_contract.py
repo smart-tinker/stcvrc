@@ -299,6 +299,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("CANDIDATE_SOURCE_SHA", workflow)
         self.assertIn("working-directory: source/test", workflow)
         self.assertIn("92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93", workflow)
+        source_job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
+        self.assertIn("    needs: vulnerability-scan", source_job)
 
 
 if __name__ == "__main__":
