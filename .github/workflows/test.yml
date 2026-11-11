@@ -82,6 +82,18 @@ jobs:
             test "$(git -C "$GITHUB_WORKSPACE/$name" rev-parse HEAD)" = "$sha"
           done
 
+      - name: Require live Docker log streaming for protocol diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("source/test/docker_test.go").read_text(encoding="utf-8")
+          start = source.index("ContainerAttachOptions{")
+          end = source.index("})", start)
+          if "Stream: true" not in source[start:end]:
+              raise SystemExit("ContainerAttach must stream live protocol-server logs")
+          PY
+
       - name: Install checksum-pinned Go 1.26.11
         run: |
           set -euo pipefail
