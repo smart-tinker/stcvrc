@@ -149,6 +149,14 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn('rm -rf /tmp', SCRIPT)
 
 
+    def test_windows_installer_update_hash_matches_candidate_manifest(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        manifest = json.loads((ROOT / "candidates/cvr-2.5.10/inputs.json").read_text(encoding="utf-8"))
+        pinned = re.search(r"\\$coreSha -ne '([0-9a-f]{64})'", script)
+        self.assertIsNotNone(pinned)
+        self.assertEqual(pinned.group(1), manifest["core"]["sha256"])
+
+
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]
         job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
