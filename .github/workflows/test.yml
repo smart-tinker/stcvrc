@@ -449,6 +449,7 @@ jobs:
           binary="$RUNNER_TEMP/verge-mihomo-mit-lzo.exe"
           GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          go version -m "$binary"
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
           printf 'Fresh candidate source: %s\nFresh Windows/amd64 SHA256: %s\nMeasured size: %s bytes\n' \
@@ -732,6 +733,7 @@ jobs:
           binary="$RUNNER_TEMP/verge-mihomo.exe"
           GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
             go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
+          go version -m "$binary"
           binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
           binary_size="$(stat -c %s "$binary")"
           test "$binary_sha" = d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87
