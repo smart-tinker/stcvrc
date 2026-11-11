@@ -42,6 +42,8 @@ The release contains the STCVRC core only. Obtain Clash Verge Rev from its
 and recovery installers against a freshly built MIT-LZO STCVRC 1.19.33 core in
 GitHub Actions. Native acceptance and stable publication remain separate gates.
 
+See [the release process](docs/RELEASING.md) for current draft, RC, stable, and deployment gates.
+
 ## Reproducible Windows build
 
 ```powershell
