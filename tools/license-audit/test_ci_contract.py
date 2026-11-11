@@ -30,13 +30,14 @@ class DistributionAuditContractTests(unittest.TestCase):
                 "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
             },
             "candidate-1.19.33-mit-lzo": {
-                "distribution_status": "unpublished-candidate",
-                "release_tag": None,
-                "asset_sha256": None,
-                "source_commit": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
+                "distribution_status": "draft-prerelease",
+                "release_id": 441941273,
+                "release_tag": "stcvrc-1.19.33-rc.6",
+                "asset_sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
+                "source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
                 "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
-                "go_version": "1.26.10",
-                "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+                "go_version": "1.26.11",
+                "go_sha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
             },
         }
         self.assertEqual(set(variants), set(expected))
@@ -50,13 +51,13 @@ class DistributionAuditContractTests(unittest.TestCase):
             self.assertEqual(item["build"]["tags"], ["with_gvisor"])
             self.assertEqual(item["build"]["cgo_enabled"], 0)
 
-    def test_unpublished_mit_lzo_candidate_records_two_identical_fresh_builds(self):
+    def test_draft_rc6_mit_lzo_candidate_records_two_identical_fresh_builds(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = next(item for item in manifest["variants"] if item["id"] == "candidate-1.19.33-mit-lzo")
         self.assertEqual(
             candidate["fresh_build_evidence"],
             {
-                "sha256": "c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf",
+                "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
                 "runs": [
                     "https://github.com/smart-tinker/stcvrc/actions/runs/42723333952",
                     "https://github.com/smart-tinker/stcvrc/actions/runs/42726584980",
@@ -127,6 +128,7 @@ class DistributionAuditContractTests(unittest.TestCase):
 
     def test_incomplete_and_unknown_report_status_survives_summary_pipeline(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("license-audit:", workflow)
         report_start = workflow.index("            local report_status=0")
         report_pipeline_end = workflow.index('            } | tee -a "$GITHUB_STEP_SUMMARY"', report_start)
         save_start = workflow.index("            local save_status=0", report_pipeline_end)
@@ -140,18 +142,18 @@ class DistributionAuditContractTests(unittest.TestCase):
         self.assertIn('tolower($3) == "unknown"', report_section, "unclassified license rows must require manual review")
 
 
-    def test_unpublished_mit_lzo_candidate_pins_exact_source_and_build(self):
+    def test_draft_rc6_mit_lzo_candidate_pins_exact_source_and_build(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
-        self.assertEqual(candidate["distribution_status"], "unpublished-candidate")
-        self.assertEqual(candidate["source_commit"], "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93")
+        self.assertEqual(candidate["distribution_status"], "draft-prerelease")
+        self.assertEqual(candidate["source_commit"], "086a62c3ce9a77f650786ae2eae92b68909d49e1")
         self.assertEqual(candidate["upstream_commit"], "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8")
-        self.assertEqual(candidate["go_version"], "1.26.10")
-        self.assertEqual(candidate["go_sha256"], "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5")
+        self.assertEqual(candidate["go_version"], "1.26.11")
+        self.assertEqual(candidate["go_sha256"], "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec")
         self.assertEqual(candidate["build"]["source"], "fresh-checkout")
         self.assertEqual(candidate["build"]["target"], "windows/amd64")
-        self.assertEqual(candidate["build"]["version"], "1.19.33-STCVRC-candidate-mit-lzo-20261109")
-        self.assertEqual(candidate["build"]["build_time"], "2026-11-09T00:00:00Z")
+        self.assertEqual(candidate["build"]["version"], "1.19.33-STCVRC-candidate-mit-lzo-20261111")
+        self.assertEqual(candidate["build"]["build_time"], "2026-11-11T00:00:00Z")
         self.assertEqual(candidate["lzo_decoder"], {
             "module": "github.com/anchore/go-lzo",
             "version": "v0.1.1",
@@ -159,19 +161,20 @@ class DistributionAuditContractTests(unittest.TestCase):
             "license": "MIT",
             "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE",
         })
-        self.assertIsNone(candidate["asset_sha256"])
-        self.assertIsNone(candidate["release_tag"])
+        self.assertEqual(candidate["asset_sha256"], "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87")
+        self.assertEqual(candidate["release_id"], 441941273)
+        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.6")
 
-    def test_license_ci_builds_the_exact_unpublished_mit_lzo_source(self):
+    def test_license_ci_builds_the_exact_draft_rc6_mit_lzo_source(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         for required in (
             "candidate-1.19.33-mit-lzo",
-            "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
+            "086a62c3ce9a77f650786ae2eae92b68909d49e1",
             "github.com/anchore/go-lzo v0.1.1",
             "github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=",
             "github.com/rasky/go-lzo",
             '$1 == "github.com/anchore/go-lzo" && $3 == "MIT"',
-            "No published reference asset; candidate SHA256 is recorded only",
+            "Reference release asset SHA256",
         ):
             self.assertIn(required, workflow)
 

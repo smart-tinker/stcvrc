@@ -4,7 +4,7 @@
 
 ## github.com/anchore/go-lzo v0.1.1
 
-Source: [upstream LICENSE](https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE). The unpublished 1.19.33 candidate pins this module at v0.1.1 and verifies its Go module checksum in GitHub Actions.
+Source: [upstream LICENSE](https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE). The current draft RC6 candidate pins this module at v0.1.1 and verifies its Go module checksum in GitHub Actions.
 
 The following is the complete MIT license text from that pinned upstream version:
 

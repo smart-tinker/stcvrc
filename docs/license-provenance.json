@@ -156,16 +156,16 @@
     },
     {
       "id": "candidate-1.19.33-mit-lzo",
-      "distribution_status": "unpublished-candidate",
-      "release_tag": null,
-      "release_url": null,
+      "distribution_status": "draft-prerelease",
+      "release_tag": "stcvrc-1.19.33-rc.6",
+      "release_url": "https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.6",
       "asset": "verge-mihomo.exe",
-      "asset_sha256": null,
-      "source_commit": "92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93",
+      "asset_sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
+      "source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
       "upstream_tag": "v1.19.33",
       "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
-      "go_version": "1.26.10",
-      "go_sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+      "go_version": "1.26.11",
+      "go_sha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
       "lzo_decoder": {
         "module": "github.com/anchore/go-lzo",
         "version": "v0.1.1",
@@ -182,24 +182,35 @@
         "tags": [
           "with_gvisor"
         ],
-        "version": "1.19.33-STCVRC-candidate-mit-lzo-20261109",
-        "build_time": "2026-11-09T00:00:00Z",
+        "version": "1.19.33-STCVRC-candidate-mit-lzo-20261111",
+        "build_time": "2026-11-11T00:00:00Z",
         "flags": [
           "-mod=readonly",
           "-p=2",
           "-tags=with_gvisor",
           "-trimpath",
           "-buildvcs=false",
-          "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-candidate-mit-lzo-20261109 -X github.com/metacubex/mihomo/constant.BuildTime=2026-11-09T00:00:00Z"
+          "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-candidate-mit-lzo-20261111 -X github.com/metacubex/mihomo/constant.BuildTime=2026-11-11T00:00:00Z"
         ]
       },
       "fresh_build_evidence": {
-        "sha256": "c00707e061c91fd5bfa5b3a88653597b00ae1ffad39ba33221e5c8cad1eefcbf",
+        "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
         "runs": [
-          "https://github.com/smart-tinker/stcvrc/actions/runs/42723333952",
-          "https://github.com/smart-tinker/stcvrc/actions/runs/42726584980"
+          "https://github.com/smart-tinker/stcvrc/actions/runs/43016768459",
+          "https://github.com/smart-tinker/stcvrc/actions/runs/43057665817"
         ]
-      }
+      },
+      "release_id": 441941273,
+      "release_assets": [
+        {
+          "name": "RC-MANIFEST.json",
+          "sha256": "69d678d8a40f0eb26491d6b1a731bdd077563be170e759133e9ad4e0be8235a9"
+        },
+        {
+          "name": "verge-mihomo.exe",
+          "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"
+        }
+      ]
     }
   ]
 }

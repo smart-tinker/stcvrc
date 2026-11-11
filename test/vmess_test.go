@@ -398,7 +398,7 @@ func TestMihomo_VmessWebsocketXray0RTT(t *testing.T) {
 	hostCfg := &container.HostConfig{
 		PortBindings: defaultPortBindings,
 		Binds: []string{
-			fmt.Sprintf("%s:/etc/xray/config.json", C.Path.Resolve("vmess-ws-0rtt.json")),
+			fmt.Sprintf("%s:/etc/xray/config.json", C.Path.Resolve("vmess-ws-xray-0rtt.json")),
 		},
 	}
 

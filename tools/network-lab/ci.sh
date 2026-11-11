@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly SOURCE_COMMIT=92107a2605e19df0cb0d8b7bb08aa9ffb6b7ee93
-readonly CORE_SHA256=dce11f5ad306e80d4ac768daf744a88a412be06162ed228059b6b084842c2e56
-readonly GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+readonly SOURCE_COMMIT=086a62c3ce9a77f650786ae2eae92b68909d49e1
+readonly CORE_SHA256=d40adc330243b201d4bf060ad23f9fb9fbbd90aba846d295be842663bed5aa99
+readonly GO_SHA256=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
 readonly XRAY_ZIP_SHA256=e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214
 readonly XRAY_SHA256=cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1
-readonly VERSION=1.19.33-STCVRC-candidate-mit-lzo-20261109
-readonly BUILD_TIME=2026-11-09T00:00:00Z
+readonly VERSION=1.19.33-STCVRC-candidate-mit-lzo-20261111
+readonly BUILD_TIME=2026-11-11T00:00:00Z
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 
@@ -37,7 +37,7 @@ cd "$HERE"
 python3 -m unittest discover -v -p 'test_*.py'
 
 curl --fail --location --proto '=https' --retry 2 --max-time 120 --silent --show-error \
-  https://go.dev/dl/go1.26.10.linux-amd64.tar.gz -o "$work/go.tar.gz"
+  https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o "$work/go.tar.gz"
 printf '%s  %s\n' "$GO_SHA256" "$work/go.tar.gz" | sha256sum --check --status
 tar -xzf "$work/go.tar.gz" -C "$work"
 
@@ -78,10 +78,10 @@ timeout 90s "$work/go/bin/go" mod verify
 timeout 600s "$work/go/bin/go" build -p=2 -mod=readonly -tags=with_gvisor -trimpath -buildvcs=false \
   -ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$VERSION -X github.com/metacubex/mihomo/constant.BuildTime=$BUILD_TIME" \
   -o "$work/core" .
-printf '%s  %s\n' "$CORE_SHA256" "$work/core" | sha256sum --check --status
-core_sha256="$CORE_SHA256"
-[[ "$core_sha256" =~ ^[0-9a-f]{64}$ ]]
+core_sha256="$(sha256sum "$work/core" | awk '{print $1}')"
 printf 'Fresh Linux/amd64 candidate SHA256: %s\n' "$core_sha256"
+test "$core_sha256" = "$CORE_SHA256"
+[[ "$core_sha256" =~ ^[0-9a-f]{64}$ ]]
 test -z "$(git status --porcelain)"
 "$work/core" -v | grep -F "$VERSION"
 version_output="$("$work/xray" version)"

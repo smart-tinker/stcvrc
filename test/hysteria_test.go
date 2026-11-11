@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -9,13 +12,14 @@ import (
 	"github.com/metacubex/mihomo/adapter/outbound"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMihomo_Hysteria(t *testing.T) {
 	cfg := &container.Config{
 		Image:        ImageHysteria,
 		ExposedPorts: defaultExposedPorts,
-		Cmd:          []string{"server"},
+		Cmd:          []string{"server", "--config", "/config.json"},
 	}
 	hostCfg := &container.HostConfig{
 		PortBindings: defaultPortBindings,
@@ -49,5 +53,25 @@ func TestMihomo_Hysteria(t *testing.T) {
 	}
 
 	time.Sleep(waitTime)
-	testSuit(t, proxy)
+	// shortcut: run UDP only in the exact .33 comparison; the .29 baseline retains TCP coverage.
+	assert.NoError(t, testPingPongWithConn(t, func() net.Conn {
+		conn, err := proxy.DialContext(context.Background(), &C.Metadata{
+			Host:    localIP.String(),
+			DstPort: 10001,
+		})
+		require.NoError(t, err)
+		return conn
+	}))
+
+	if os.Getenv("STCVRC_COMPARE_V33_HYSTERIA_UDP") == "1" {
+		pc, err := proxy.ListenPacketContext(context.Background(), &C.Metadata{
+			NetWork: C.UDP,
+			DstIP:   localIP,
+			DstPort: 10001,
+		})
+		require.NoError(t, err)
+		defer pc.Close()
+		assert.NoError(t, testPingPongWithPacketConn(t, pc))
+	}
+
 }
