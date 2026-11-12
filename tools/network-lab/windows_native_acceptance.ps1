@@ -84,7 +84,11 @@ function Invoke-CvrCommand {
     while ($true) {
         $reply = Receive-CdpMessage
         if ($reply.id -ne $script:cdpId) { continue }
-        if ($reply.result.exceptionDetails) { throw "CVR Tauri command $Command failed: $($reply.result.exceptionDetails.text)" }
+        if ($reply.result.exceptionDetails) {
+            $details = $reply.result.exceptionDetails
+            $detailsJson = ConvertTo-Json -InputObject $details -Compress -Depth 12
+            throw "CVR Tauri command $Command failed: $($details.text); exception=$($details.exception.description); details=$detailsJson"
+        }
         if ($reply.result.result.PSObject.Properties.Name -contains 'value') { return $reply.result.result.value }
         return $null
     }
