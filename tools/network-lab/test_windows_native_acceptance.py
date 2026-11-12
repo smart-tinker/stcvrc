@@ -93,7 +93,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_fake_ip_resolver_marker_follows_application_and_recovery_traffic(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         fixture = source.split("function Test-FixtureTraffic", 1)[1].split("function Test-RejectedFixture", 1)[0]
-        self.assertLess(fixture.index("Invoke-TunHttp"), fixture.index("Assert-DnsResolver"))
+        self.assertLess(fixture.index("Assert-DnsResolver"), fixture.index("Invoke-TunHttp"))
         self.assertIn("Get-DnsReceiveDiagnostics", source)
         recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split("\n    } else {", 1)[0]
         self.assertIn("Assert-SelectedSidecarProfileReady", recovery)
