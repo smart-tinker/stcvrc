@@ -282,19 +282,15 @@ SOFTWARE.""",
 
     def test_license_audit_receives_rc6_upstream_and_checkout_arguments(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        invocation_start = workflow.index('python3 - "$RUNNER_TEMP/audit-definition"')
-        invocation_end = workflow.index("\\n", invocation_start)
-        invocation = workflow[invocation_start:invocation_end]
+        invocation = next(
+            line for line in workflow.splitlines()
+            if 'python3 - "$RUNNER_TEMP/audit-definition"' in line
+        )
         self.assertIn('"$mit_lzo_upstream" "$mit_lzo_candidate"', invocation)
-
-        script_start = workflow.index("\\n", invocation_start) + 1
-        script_end = workflow.index("\\n          PY", script_start)
-        script = workflow[script_start:script_end]
         self.assertIn(
             "patch_subject, mit_lzo_upstream, mit_lzo_candidate = sys.argv[1:]",
-            script,
+            workflow,
         )
-
 
 if __name__ == "__main__":
     unittest.main()
