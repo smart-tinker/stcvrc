@@ -90,7 +90,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         bundle["rust"]["standard_library"]["supplemental_notices"] = [{
             "name": "COPYRIGHT-library.html",
             "text": text,
-            "sha256": "a" * 64,
+            "sha256": "66d9c3344388f00327404d6c75d147e65369c98698e5354b2716a0db9dda3320",
             "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
             "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
             "source_path": "COPYRIGHT-library.html",
