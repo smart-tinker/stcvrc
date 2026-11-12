@@ -228,7 +228,7 @@
         "transport/openvpn/push.go": "ecc465a7b1dfdd1f376574b0822eefb182678f38",
         "transport/openvpn/push_keepalive_test.go": "d394c40178ffd1219a390f237599dece84bae261",
         "transport/openvpn/push_retry_test.go": "687b450436d1890b5d8df126e102d4d481dc7843",
-        "transport/openvpn/rekey_test.go": "87117ad10a903e79a5210ee45a41e67faa15674"
+        "transport/openvpn/rekey_test.go": "87117ad10a903e79a5210ee45a41e67faa15674f"
       }
     }
   ]
