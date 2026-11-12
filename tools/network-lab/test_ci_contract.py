@@ -237,7 +237,7 @@ class CIContractTests(unittest.TestCase):
             "Register-CimIndicationEvent",
             "Win32_ProcessStartTrace",
             "verge-mihomo-alpha.exe",
-            "$nativeIntervals",
+            "$script:nativeIntervals",
             "TIME_CREATED",
             "NativePhase",
             "Invoke-NativePhase -Phase seed",
