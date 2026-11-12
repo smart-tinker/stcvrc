@@ -787,6 +787,11 @@ jobs:
           EOF
           release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           if [[ -z "$release_id" ]]; then
+            tag_refs="$(gh api "repos/$repo/git/matching-refs/tags/$tag" --jq '.[].ref')"
+            if grep -Fxq "refs/tags/$tag" <<<"$tag_refs"; then
+              printf 'Protected tag already exists without a release; refusing to reuse it.\n' >&2
+              exit 1
+            fi
             gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
               --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC7 — CVR 2.5.10 candidate" --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
