@@ -559,7 +559,7 @@ function Assert-VerifiedRuntimeDnsListener {
     if ($script:nativePhase -eq 'exercise') { Assert-LiveCoreIdentity } else { Assert-LiveSidecarCoreIdentity }
     $expectedPid = [int]$script:verifiedCorePid
     if ($expectedPid -le 0) { throw 'The verified service core has no process ID for DNS listener ownership.' }
-    $allowedAddresses = if ($Address.Contains(':')) { @($Address, '::') } else { @($Address, '0.0.0.0') }
+    $allowedAddresses = @($Address)
     $endpointText = '{0}:{1}' -f $Address, $Port
     try {
         $listeners = @(Get-NetUDPEndpoint -LocalPort $Port -ErrorAction Stop | Where-Object { $allowedAddresses -contains [string]$_.LocalAddress })
@@ -570,7 +570,7 @@ function Assert-VerifiedRuntimeDnsListener {
     $ownerPids = @($listeners | ForEach-Object { [int]$_.OwningProcess } | Sort-Object -Unique)
     if (-not $listeners.Count -or $ownerPids.Count -ne 1 -or $ownerPids[0] -ne $expectedPid) {
         $diagnostics = Get-DnsReceiveDiagnostics -FixtureName $FixtureName -TargetAddress $Address -TargetPort $Port -ExpectedResolver $ExpectedResolver
-        throw "Runtime DNS endpoint $endpointText is not owned by the verified service core PID $expectedPid; diagnostics=$diagnostics"
+        throw "Runtime DNS endpoint $endpointText has no exact-address UDP listener owned by the verified service core PID $expectedPid; diagnostics=$diagnostics"
     }
     Write-Host "Verified runtime DNS UDP endpoint $endpointText is owned by source-matched service core PID $expectedPid."
 }
@@ -880,7 +880,8 @@ function Test-RejectedFixture {
         [ValidateSet('profile','app')][string]$ExpectedResolver,
         [string]$Phase
     )
-    Test-FixtureTraffic -FixtureName $AllowedControlName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver $ExpectedResolver
+    $beforeControlName = 'pre-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName
+    Test-FixtureTraffic -FixtureName $beforeControlName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver $ExpectedResolver
     Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase positive control before reject"
     $routeBefore = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
         ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
@@ -954,7 +955,8 @@ function Test-RejectedFixture {
         }
     } catch { $phaseFailures.Add("post-reject service/route check: $($_.Exception.Message)") }
     try {
-        Test-FixtureTraffic -FixtureName $AllowedControlName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver $ExpectedResolver
+        $afterControlName = 'post-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName
+        Test-FixtureTraffic -FixtureName $afterControlName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver $ExpectedResolver
         Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase positive control after reject"
         $routeAfterControl = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
             ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)

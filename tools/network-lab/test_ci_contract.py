@@ -83,29 +83,42 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(release_job.count(token_env), 2)
         authorized_steps = (
             "Download only pinned public CVR inputs",
-            "Fresh native Windows core build",
-            "Rebuild the exact native Windows source and license package",
+            "Collect Windows source-built license package",
+            "Collect rebuilt native Windows license package",
             "Create and read back the draft RC release",
-            "Build exact source, test actual module graph and collect license package",
+            "Collect exact source-built license package",
         )
+
+        def step_block(step_name):
+            marker = f"      - name: {step_name}\n"
+            self.assertEqual(release_workflow.count(marker), 1)
+            start = release_workflow.index(marker) + len(marker)
+            remainder = release_workflow[start:]
+            boundaries = [
+                match.start()
+                for match in (
+                    re.search(r"(?m)^      - ", remainder),
+                    re.search(r"(?m)^  [a-z0-9_-]+:", remainder),
+                )
+                if match is not None
+            ]
+            step_end = min(boundaries, default=len(remainder))
+            return remainder[:step_end]
+
         for step_name in authorized_steps:
             with self.subTest(token_step=step_name):
-                marker = f"      - name: {step_name}\n"
-                self.assertEqual(release_workflow.count(marker), 1)
-                start = release_workflow.index(marker) + len(marker)
-                remainder = release_workflow[start:]
-                boundaries = [
-                    match.start()
-                    for match in (
-                        re.search(r"(?m)^      - ", remainder),
-                        re.search(r"(?m)^  [a-z0-9_-]+:", remainder),
-                    )
-                    if match is not None
-                ]
-                step_end = min(boundaries, default=len(remainder))
-                step = remainder[:step_end]
+                step = step_block(step_name)
                 self.assertEqual(step.count("GH_TOKEN:"), 1)
                 self.assertEqual(step.count(token_env), 1)
+        build_steps = (
+            "Fresh native Windows core build",
+            "Rebuild the exact native Windows source",
+            "Build exact source and test actual module graph",
+        )
+        for step_name in build_steps:
+            with self.subTest(token_free_build=step_name):
+                self.assertNotIn("GH_TOKEN:", step_block(step_name))
+        self.assertEqual(release_job.count("GH_TOKEN:"), 2)
         self.assertEqual(release_workflow.count("GH_TOKEN:"), len(authorized_steps))
         all_workflows = "\n".join(WORKFLOWS.values())
         self.assertEqual(all_workflows.count("GH_TOKEN:"), len(authorized_steps))

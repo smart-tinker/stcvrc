@@ -2,9 +2,9 @@
 
 The current workflow topology, required checks and draft-RC gate are documented in [RELEASING.md](../../docs/RELEASING.md). Work is tracked through [issue #6](https://github.com/smart-tinker/stcvrc/issues/6), Windows compatibility [#3](https://github.com/smart-tinker/stcvrc/issues/3), Linux maintenance [#4](https://github.com/smart-tinker/stcvrc/issues/4), license/source evidence [#7](https://github.com/smart-tinker/stcvrc/issues/7) and protocol integration [#25](https://github.com/smart-tinker/stcvrc/issues/25).
 
-All pull requests against main, including drafts and fork PRs, run all required checks without path filters. The exact PR head is fetched through the base repository's PR ref and verified before use. Main pushes and manual dispatch follow the triggers in each workflow; a skipped job is not PASS.
+All pull requests against main, including drafts and fork PRs, run all required checks without path filters. The exact PR source SHA is fetched and verified before use. Main pushes and manual dispatch follow the triggers in each workflow; a skipped job is not PASS.
 
-Only standard public GitHub-hosted `ubuntu-24.04` and `windows-2022` runners are used. New jobs do not create Actions artifacts or persistent cache. The built-in `github.token` is scoped to the steps that need GitHub API metadata or the explicitly gated draft writer; downloads of public source and binary assets do not receive it. No private profiles or custom secrets are required.
+Only standard public GitHub-hosted `ubuntu-24.04` and `windows-2022` runners are used. New jobs do not create Actions artifacts or persistent cache. The built-in `github.token` is scoped to metadata collection and the explicitly gated draft writer. Application builds and tests run in separate steps without it; public source and binary downloads do not receive an Authorization header. No private profiles or custom secrets are required.
 
 ## Fresh builds and acceptance
 
@@ -13,7 +13,7 @@ Tests do not download previous STCVRC release executables. Production source rev
 There are two distinct build paths:
 
 - [The Linux loopback helper](ci.sh) builds the pinned MIT-LZO comparison source and checks its expected digest. This is a narrow regression reference; it is not acceptance of a newer RC core or regenerated WASM.
-- [The RC source builder](../source-build/ci.sh) builds the selected current core, regenerates EasyTier Rust/WASM and Go bindings from exact public source, tests the actual dependency graph, and records source/input/output hashes in `build.json`. The Windows native job tests the EXE built in that same job. The manual assembler must rebuild matching native EXE/WASM bytes before it may create a draft.
+- [The RC source builder](../source-build/ci.sh) builds the selected current core, regenerates EasyTier Rust/WASM and Go bindings from exact public source, tests the actual dependency graph, and records source/input/output hashes in `build.json`. A [separate collector step](../source-build/collect.sh) inventories the recorded build and prepares its notices. The Windows native job tests the EXE built in that same job. The manual assembler must rebuild matching native EXE/WASM bytes before it may create a draft.
 
 Official pinned CVR installers, Xray and toolchains are test dependencies. Their verification does not establish that an STCVRC core works; the functional checks below do that.
 

@@ -282,7 +282,6 @@ print(text)
 PY
 # Cargo object files are no longer inputs once the generated WASM and core binaries are recorded.
 rm -rf -- "$easytier/target"
-python "$recipe/tools/license-audit/collect.py" --build-root "$root"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     printf '## Fresh source-built dependency and core\n\n'

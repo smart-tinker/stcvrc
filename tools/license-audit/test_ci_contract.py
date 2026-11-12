@@ -69,14 +69,27 @@ class DistributionAuditContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
         job = workflow.split("\n  license-audit:\n", 1)[1]
         builder = (ROOT / "tools/source-build/ci.sh").read_text(encoding="utf-8")
+        collector = (ROOT / "tools/source-build/collect.sh").read_text(encoding="utf-8")
+        build_step = job.split(
+            "\n      - name: Build exact source and test actual module graph\n", 1
+        )[1].split("\n      - name: Collect exact source-built license package\n", 1)[0]
+        collect_step = job.split(
+            "\n      - name: Collect exact source-built license package\n", 1
+        )[1].split("\n      - name: Remove disposable source, compiler and build directories\n", 1)[0]
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertIn("runs-on: ubuntu-24.04", job)
         self.assertNotRegex(job, r"(?m)^    permissions:")
-        self.assertIn('bash "$recipe/tools/source-build/ci.sh"', job)
-        self.assertIn('python "$recipe/tools/license-audit/collect.py" --build-root "$root"', builder)
+        self.assertIn('bash "$recipe/tools/source-build/ci.sh"', build_step)
+        self.assertNotIn("GH_TOKEN:", build_step)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", collect_step)
+        self.assertIn('helper="$recipe/tools/source-build/collect.sh"', collect_step)
+        self.assertIn('bash "$helper"', collect_step)
+        self.assertNotIn('python "$recipe/tools/license-audit/collect.py" --build-root "$root"', builder)
+        self.assertIn('python "$recipe/tools/license-audit/collect.py" --build-root "$root"', collector)
         self.assertIn('go test -tags=with_gvisor -count=1 -timeout=240s github.com/easytier/easytier/easytier-go/...', builder)
         self.assertIn('govulncheck -tags=with_gvisor ./...', builder)
-        for forbidden in ("actions/upload-artifact", "actions/cache", "secrets.", "GH_TOKEN", "releases/download"):
+        self.assertNotIn("GH_TOKEN", builder)
+        for forbidden in ("actions/upload-artifact", "actions/cache", "secrets.", "releases/download"):
             self.assertNotIn(forbidden, job)
         self.assertIn("tools/license-audit/**", workflow)
 

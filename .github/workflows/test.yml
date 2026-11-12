@@ -531,8 +531,6 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
 
       - name: Fresh native Windows core build
-        env:
-          GH_TOKEN: ${{ github.token }}
         id: build
         shell: bash
         run: |
@@ -563,6 +561,17 @@ jobs:
               outputs.write(f"core-sha256={entry['sha256']}\nwasm-sha256={report['wasm_sha256']}\n")
           PY
           exit "$build_status"
+      - name: Collect Windows source-built license package
+        if: ${{ success() && steps.build.outputs.core-sha256 != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          recipe="$(cygpath -u "$PR_SOURCE")"
+          helper="$recipe/tools/source-build/collect.sh"
+          bash -n "$helper"
+          bash "$helper"
       - name: Test fresh Windows candidate over loopback
         id: loopback
         if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' }}
@@ -679,9 +688,7 @@ jobs:
       NATIVE_CORE_SHA256: ${{ needs.cvr-windows-payload.outputs.core-sha256 }}
       NATIVE_WASM_SHA256: ${{ needs.cvr-windows-payload.outputs.wasm-sha256 }}
     steps:
-      - name: Rebuild the exact native Windows source and license package
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Rebuild the exact native Windows source
         run: |
           set -euo pipefail
           recipe="$(cygpath -u "$RUNNER_TEMP")/rc-pr-source"
@@ -694,6 +701,15 @@ jobs:
           test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
           bash "$recipe/tools/source-build/ci.sh"
           printf 'PR_SOURCE=%s\n' "$(cygpath -m "$recipe")" >> "$GITHUB_ENV"
+      - name: Collect rebuilt native Windows license package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          recipe="$(cygpath -u "$PR_SOURCE")"
+          helper="$recipe/tools/source-build/collect.sh"
+          bash -n "$helper"
+          bash "$helper"
 
       - name: Create and read back the draft RC release
         env:
@@ -1046,9 +1062,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Build exact source, test actual module graph and collect license package
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build exact source and test actual module graph
         run: |
           set -euo pipefail
           recipe="$RUNNER_TEMP/stcvrc-build-recipe"
@@ -1060,11 +1074,22 @@ jobs:
           git -C "$recipe" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
           bash -n "$recipe/tools/source-build/ci.sh"
+          bash -n "$recipe/tools/source-build/collect.sh"
           shellcheck "$recipe/tools/source-build/ci.sh"
+          shellcheck "$recipe/tools/source-build/collect.sh"
           if GITHUB_ACTIONS=false bash "$recipe/tools/source-build/ci.sh"; then exit 1; fi
           if GITHUB_REPOSITORY=example/untrusted bash "$recipe/tools/source-build/ci.sh"; then exit 1; fi
           test ! -e "$RUNNER_TEMP/stcvrc-source-built"
           bash "$recipe/tools/source-build/ci.sh"
+      - name: Collect exact source-built license package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          recipe="$RUNNER_TEMP/stcvrc-build-recipe"
+          helper="$recipe/tools/source-build/collect.sh"
+          bash -n "$helper"
+          bash "$helper"
       - name: Remove disposable source, compiler and build directories
         if: always()
         run: |
