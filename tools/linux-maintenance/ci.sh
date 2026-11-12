@@ -12,9 +12,17 @@ mkdir -m 700 -- "$root"
 cleanup() {
   rm -rf -- "$root"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 export PYTHONDONTWRITEBYTECODE=1
+unit_status=0
 python3 -m unittest discover \
   -s "$source_tree/tools/linux-maintenance" \
-  -p 'test_*.py' -v
-python3 "$source_tree/tools/linux-maintenance/systemd_counter_probe.py" "$root"
+  -p 'test_*.py' -v || unit_status=$?
+probe_status=0
+python3 "$source_tree/tools/linux-maintenance/systemd_counter_probe.py" "$root" || probe_status=$?
+if (( unit_status != 0 )); then
+  exit "$unit_status"
+fi
+exit "$probe_status"

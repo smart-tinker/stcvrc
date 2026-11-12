@@ -17,10 +17,19 @@ class Blocked(RuntimeError):
 def run(args, check=True):
     result = subprocess.run(args, text=True, capture_output=True)
     if check and result.returncode:
-        command = args[2] if args and args[0] == "sudo" and len(args) > 2 else args[0]
-        detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "no stderr"
-        detail = re.sub(r"/[^ \\t]+", "<path>", detail)[:160]
-        raise Blocked(f"required command {command} failed ({result.returncode}): {detail}")
+        command = " ".join(args)
+        runner_temp = os.getenv("RUNNER_TEMP", "")
+        if runner_temp:
+            command = command.replace(runner_temp, "<RUNNER_TEMP>")
+        stdout = result.stdout.strip().replace(runner_temp, "<RUNNER_TEMP>") if runner_temp else result.stdout.strip()
+        stderr = result.stderr.strip().replace(runner_temp, "<RUNNER_TEMP>") if runner_temp else result.stderr.strip()
+        payload = {
+            "command": command[:500],
+            "exit_code": result.returncode,
+            "stdout": stdout[:500],
+            "stderr": stderr[:500],
+        }
+        raise Blocked(json.dumps(payload, sort_keys=True))
     return result
 
 
