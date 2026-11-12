@@ -45,6 +45,17 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, source)
 
+    def test_runtime_dns_listener_requires_exact_loopback_and_core_owner(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        listener = source.split("function Assert-VerifiedRuntimeDnsListener", 1)[1].split(
+            "function Get-VerifiedRuntimeDnsEndpoint", 1
+        )[0]
+        self.assertIn("$allowedAddresses = @($Address)", listener)
+        self.assertNotIn("'0.0.0.0'", listener)
+        self.assertNotIn("'::'", listener)
+        self.assertIn("Get-DnsReceiveDiagnostics", listener)
+        self.assertIn("$ownerPids[0] -ne $expectedPid", listener)
+
     def test_reject_requires_quick_application_close_and_live_controls(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         reject = source.split("function Test-RejectedFixture", 1)[1].split("\n}", 1)[0]
@@ -66,12 +77,16 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, reject)
 
-        controls = "Test-FixtureTraffic -FixtureName $AllowedControlName"
-        self.assertEqual(reject.count(controls), 2)
-        self.assertLess(reject.index(controls), reject.index("$connectTask ="))
+        before_control = "Test-FixtureTraffic -FixtureName $beforeControlName"
+        after_control = "Test-FixtureTraffic -FixtureName $afterControlName"
+        self.assertEqual(reject.count(before_control), 1)
+        self.assertEqual(reject.count(after_control), 1)
+        self.assertIn("$beforeControlName = 'pre-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName", reject)
+        self.assertIn("$afterControlName = 'post-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName", reject)
+        self.assertLess(reject.index(before_control), reject.index("$connectTask ="))
         self.assertLess(reject.index("$connectTask ="), reject.index("$stream.Write($request"))
         self.assertLess(reject.index("$stream.Write($request"), reject.index("$stream.Read($responseBuffer"))
-        self.assertLess(reject.index("$stream.Read($responseBuffer"), reject.rindex(controls))
+        self.assertLess(reject.index("$stream.Read($responseBuffer"), reject.index(after_control))
         self.assertIn("-AllowedControlName 'native-fixture-b.invalid'", source)
         self.assertIn("-AllowedControlName 'native-fixture-a.invalid'", source)
 
