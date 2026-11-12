@@ -737,9 +737,11 @@ def _rust_rows(easytier, build, root, env, output_dir):
 
     sysroot = Path(_run([rustc, "--print", "sysroot"], easytier, env).strip())
     doc_root = sysroot / "share" / "doc" / "rust"
-    license_mit = _read(doc_root / "LICENSE-MIT", "Rust standard-library MIT text").decode("utf-8")
-    license_apache = _read(doc_root / "LICENSE-APACHE", "Rust standard-library Apache text").decode("utf-8")
-    copyright = _read(doc_root / "COPYRIGHT", "Rust standard-library copyright record").decode("utf-8")
+    # Rust's legal root overlay is not installed by rustup; use its exact compiler source.
+    rust_source = f"https://raw.githubusercontent.com/rust-lang/rust/{source_commit}"
+    license_mit = _fetch(f"{rust_source}/LICENSE-MIT").decode("utf-8")
+    license_apache = _fetch(f"{rust_source}/LICENSE-APACHE").decode("utf-8")
+    copyright = _fetch(f"{rust_source}/COPYRIGHT").decode("utf-8")
     library_copyright = _read(doc_root / "COPYRIGHT-library.html", "Rust standard-library third-party notices").decode("utf-8")
     rust_repo = "https://github.com/rust-lang/rust"
     standard = {
