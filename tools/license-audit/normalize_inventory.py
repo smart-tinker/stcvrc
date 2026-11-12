@@ -274,7 +274,8 @@ def _wintun_binding_component(go, graph):
             or "Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved." not in text
         ):
             raise AuditIncomplete("Wintun Go binding source header evidence is incomplete")
-    return component
+    # Keep full texts for the renderer; validation returns a text-free source record.
+    return records[0]
 
 
 def _go_components(bundle):
