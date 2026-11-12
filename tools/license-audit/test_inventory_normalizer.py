@@ -268,6 +268,36 @@ class ToolOutputNormalizationTests(unittest.TestCase):
             self.assertIn(hashlib.sha256(sources_bytes).hexdigest(), output.getvalue())
 
 
+    def test_rust_inventory_uses_observed_build_graph_not_feature_unified_metadata_edges(self):
+        bundle = load_bundle()
+        rust = bundle["rust"]
+        metadata = rust["metadata"]
+        package_id = "registry+https://github.com/rust-lang/crates.io-index#dev-feature-only@0.1.0"
+        metadata["packages"].append({
+            "id": package_id,
+            "name": "dev-feature-only",
+            "version": "0.1.0",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "manifest_path": "/cargo/registry/src/dev-feature-only-0.1.0/Cargo.toml",
+            "license": "MIT",
+        })
+        root = metadata["resolve"]["root"]
+        root_node = next(node for node in metadata["resolve"]["nodes"] if node["id"] == root)
+        root_node["deps"].append({
+            "name": "dev-feature-only",
+            "pkg": package_id,
+            "dep_kinds": [{"kind": None, "target": None}],
+        })
+        metadata["resolve"]["nodes"].append({"id": package_id, "deps": [], "features": []})
+        rust["runtime_package_ids"] = [
+            entry["package"]["id"] for entry in rust["about"]["crates"]
+        ]
+
+        inventory = normalize_inventory(bundle)
+
+        self.assertNotIn("dev-feature-only", {item["name"] for item in inventory["components"]})
+
+
     def test_normalizes_selected_go_and_rust_runtime_graphs(self):
         inventory = normalize_inventory(load_bundle())
         names = {item["name"] for item in inventory["components"]}
