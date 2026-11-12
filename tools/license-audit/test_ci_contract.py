@@ -253,5 +253,32 @@ SOFTWARE.""",
         ):
             self.assertIn(required, license_job)
 
+    def test_rc6_mit_lzo_manifest_maps_exact_upstream_source_delta(self):
+        manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
+        expected = {
+            "adapter/outbound/openvpn.go",
+            "adapter/outbound/openvpn_keepalive_test.go",
+            "adapter/outboundgroup/urltest.go",
+            "adapter/outboundgroup/urltest_test.go",
+            "go.mod",
+            "go.sum",
+            "transport/openvpn/client.go",
+            "transport/openvpn/control.go",
+            "transport/openvpn/keepalive.go",
+            "transport/openvpn/keepalive_lzo_test.go",
+            "transport/openvpn/keepalive_test.go",
+            "transport/openvpn/lzo.go",
+            "transport/openvpn/lzo_test.go",
+            "transport/openvpn/push.go",
+            "transport/openvpn/push_keepalive_test.go",
+            "transport/openvpn/push_retry_test.go",
+            "transport/openvpn/rekey_test.go",
+        }
+        self.assertEqual(set(candidate["upstream_delta_blobs"]), expected)
+        for path, blob_sha in candidate["upstream_delta_blobs"].items():
+            self.assertRegex(blob_sha, r"^[0-9a-f]{40}$", path)
+
+
 if __name__ == "__main__":
     unittest.main()
