@@ -575,7 +575,7 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'cvr-installer-payloads'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nThe pinned installers are extracted and then exercised in a clean install/update smoke on this disposable windows-2022 runner. The test does not launch the GUI or start the service."
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nPinned installers are extracted, then the disposable windows-2022 runner performs the install/update/native acceptance/recovery sequence. The acceptance launches the verified GUI and service and uses generic local fixtures only."
           foreach ($release in $manifest.releases) {
             $asset = $release.assets.installer
             if ([IO.Path]::GetFileName([string]$asset.name) -ne $asset.name -or $asset.file -ne $asset.name) { throw 'Unsafe installer filename' }
@@ -629,11 +629,11 @@ jobs:
               if (-not $coreVersionOutput.StartsWith($expectedCoreVersion, [System.StringComparison]::Ordinal)) {
                 throw "Fresh custom core -v reported an unexpected version. Expected prefix: [$expectedCoreVersion]; actual: [$coreVersionOutput]"
               }
-              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The final 2.5.8 install and 2.5.10 /UPDATE smoke is monitored for GUI, service and stock-core process starts."
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nThe SHA-verified freshly built 1.19.33 Windows/amd64 core passed its CLI -v identity check. This does not establish a live core, GUI, service, TUN, or DNS result; those are checked by the following native acceptance script."
             }
           }
 
-      - name: Install 2.5.8, update to 2.5.10, then recover to 2.5.8
+      - name: Install, native acceptance, then recover to 2.5.8
         run: |
           & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
 
