@@ -222,7 +222,7 @@ class CIContractTests(unittest.TestCase):
         job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
-        self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", job)
+        self.assertIn("Install, native acceptance, then recover to 2.5.8", job)
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
         for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "ci-update-preserve.yaml"):
             with self.subTest(required=required):
@@ -237,20 +237,24 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn("$profileRoot = Split-Path -Parent $profileDirectory", script)
 
 
-    def test_install_smoke_traces_forbidden_process_starts(self):
+    def test_native_acceptance_is_traced_and_only_alpha_is_forbidden(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
         for required in (
             "Register-CimIndicationEvent",
             "Win32_ProcessStartTrace",
-            "clash-verge.exe",
-            "clash-verge-service.exe",
-            "verge-mihomo.exe",
             "verge-mihomo-alpha.exe",
-            "Forbidden CVR process started during install smoke:",
+            "$nativeScript",
+            "Alpha core process started:",
+            "Native acceptance starts the verified GUI and service",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, script)
-
+        self.assertIn("& $nativeScript", script)
+        self.assertNotIn("Forbidden CVR process started during install smoke:", script)
+        self.assertIn("Start-Process -FilePath $guiPath", native)
+        self.assertIn("install_service", native)
+        self.assertNotIn("Assert-NoCvrProcesses", script[script.index("& $nativeScript"):])
 
     def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
@@ -266,7 +270,7 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, recovery_script)
         self.assertIn('throw "CVR $Phase did not preserve the synthetic profile marker."', script)
         self.assertIn('throw "Fresh candidate core was not restored after $Phase."', script)
-        self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", workflow)
+        self.assertIn("Install, native acceptance, then recover to 2.5.8", workflow)
 
 
     def test_rc7_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
