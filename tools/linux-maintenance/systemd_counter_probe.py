@@ -90,7 +90,7 @@ def require_systemd():
 def main():
     root = Path(sys.argv[1]).resolve()
     report = {"status": "BLOCKED", "scope": "transient-systemd-restart-counter-observation"}
-    unit = "stcvrc-ci-counter-" + re.sub(r"[^a-z0-9-]", "", os.getenv("GITHUB_RUN_ID", "local"))[-20:]
+    unit = "stcvrc-ci-counter-" + re.sub(r"[^a-z0-9-]", "", os.getenv("GITHUB_RUN_ID", "local"))[-20:] + ".service"
     marker = root / "restart-once.marker"
     try:
         report["systemd_version"] = require_systemd()
