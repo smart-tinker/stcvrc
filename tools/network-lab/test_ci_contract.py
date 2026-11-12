@@ -33,6 +33,25 @@ class CIContractTests(unittest.TestCase):
                     if in_pull_request and line.strip() == "paths:":
                         self.fail(f"{name} filters pull_request events by changed paths")
 
+    def test_every_workflow_reruns_when_pull_request_is_edited(self):
+        for name, workflow in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                pull_request_lines = []
+                in_pull_request = False
+                for line in workflow.splitlines():
+                    if line == "  pull_request:":
+                        in_pull_request = True
+                        continue
+                    if in_pull_request and line.startswith("  ") and not line.startswith("    ") and line.strip():
+                        break
+                    if in_pull_request:
+                        pull_request_lines.append(line)
+                types_line = next(
+                    (line.strip() for line in pull_request_lines if line.strip().startswith("types:")),
+                    "",
+                )
+                self.assertIn("edited", types_line, f"{name} must rerun when a PR is retargeted")
+
     def test_codeql_caching_is_disabled(self):
         self.assertIn("CODEQL_OVERLAY_DATABASE_MODE: none", WORKFLOWS["codeql.yml"])
         self.assertIn("dependency-caching: false", WORKFLOWS["codeql.yml"])
