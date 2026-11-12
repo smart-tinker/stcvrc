@@ -158,6 +158,20 @@ wasm_sha="$(sha256sum "$wasm" | awk '{print $1}')"
 grep -Fq 'Commit = "3463190838eb642ba8324c6a4011acdea52495a8"' internal/artifact/provenance.go
 grep -Fq "SHA256 = \"$wasm_sha\"" internal/artifact/provenance.go
 go mod verify
+if [[ "$host" == windows ]]; then
+  # The upstream unit fixture uses a Unix-rooted path, which is not absolute on Windows.
+  python - <<'PY'
+from pathlib import Path
+path = Path("cmd/update-wasm/main_test.go")
+text = path.read_text(encoding="utf-8")
+old_source = 'source := filepath.Join(string(filepath.Separator), "checkout")'
+old_cache = 'filepath.Join(string(filepath.Separator), "cache")'
+assert text.count(old_source) == 1 and text.count(old_cache) == 2
+text = text.replace(old_source, 'source := filepath.Join(t.TempDir(), "checkout")')
+text = text.replace(old_cache, 'filepath.Join(filepath.Dir(source), "cache")')
+path.write_bytes(text.encode("utf-8"))
+PY
+fi
 go test -count=1 -timeout=240s ./...
 printf 'Fresh WASM SHA256: %s\n' "$wasm_sha"
 git -C "$easytier" diff --name-only
@@ -214,7 +228,10 @@ from pathlib import Path
 recipe, output, wasm, modfile, easytier = map(Path, sys.argv[1:])
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 changed = subprocess.check_output(["git", "-C", str(easytier), "ls-files", "--modified", "--others", "--exclude-standard"], text=True).splitlines()
-assert all(path.startswith(("easytier-go/internal/artifact/", "easytier-go/proto/")) for path in changed), changed
+fixture_patch = "easytier-go/cmd/update-wasm/main_test.go"
+build_test_patches = [path for path in changed if path == fixture_patch]
+assert not build_test_patches or os.environ["STCVRC_BUILD_HOST"] == "windows/amd64"
+assert all(path.startswith(("easytier-go/internal/artifact/", "easytier-go/proto/")) or path == fixture_patch for path in changed), changed
 report = {
     "schema_version": 1,
     "status": "fresh-source-candidate-experiment; no release",
@@ -234,7 +251,8 @@ report = {
     "cargo_lock_sha256": digest(easytier/"Cargo.lock"),
     "wasm_sha256": digest(wasm),
     "modfile_sha256": digest(modfile),
-    "generated_easytier_files": {path: digest(easytier/path) for path in sorted(changed)},
+    "generated_easytier_files": {path: digest(easytier/path) for path in sorted(changed) if path != fixture_patch},
+    "build_test_only_patches": {path: digest(easytier/path) for path in build_test_patches},
     "go_version": "1.26.11",
     "rust_version": "1.95.0",
     "protoc_version": "35.1",
