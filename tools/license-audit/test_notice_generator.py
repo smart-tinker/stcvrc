@@ -71,6 +71,20 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(AuditIncomplete, "source"):
             generate_notices(inventory)
 
+    def test_rejects_a_missing_package_from_the_independent_dependency_graph(self):
+        inventory = inventory_fixture()
+        inventory["components"] = inventory["components"][:-1]
+
+        with self.assertRaisesRegex(AuditIncomplete, "coverage"):
+            generate_notices(inventory)
+
+    def test_rejects_an_unresolved_spdx_result(self):
+        inventory = inventory_fixture()
+        inventory["components"][0]["licenses"][0]["spdx"] = "NOASSERTION"
+
+        with self.assertRaisesRegex(AuditIncomplete, "license"):
+            generate_notices(inventory)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,9 @@
     "core_source_commit": "0000000000000000000000000000000000000000",
     "core_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
     "target": "windows/amd64",
-    "go_build_tags": ["with_gvisor"],
+    "go_build_tags": [
+      "with_gvisor"
+    ],
     "embedded_wasm": {
       "source_commit": "2222222222222222222222222222222222222222",
       "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
@@ -28,7 +30,9 @@
           "text": "Fixture-only MIT license text.\nCopyright (c) Example Go Authors\n"
         }
       ],
-      "copyrights": ["Copyright (c) Example Go Authors"]
+      "copyrights": [
+        "Copyright (c) Example Go Authors"
+      ]
     },
     {
       "ecosystem": "rust",
@@ -46,7 +50,9 @@
           "text": "Fixture-only Apache license text.\nCopyright (c) Example Rust Authors\n"
         }
       ],
-      "copyrights": ["Copyright (c) Example Rust Authors"]
+      "copyrights": [
+        "Copyright (c) Example Rust Authors"
+      ]
     }
   ],
   "build_tools": [
@@ -68,5 +74,9 @@
       ],
       "copyrights": []
     }
+  ],
+  "required_components": [
+    "go:example.invalid/go-widget@v1.2.3",
+    "rust:example-rust-crate@0.4.2"
   ]
 }
