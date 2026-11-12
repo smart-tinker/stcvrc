@@ -17,7 +17,15 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GO_H1 = re.compile(r"^h1:[A-Za-z0-9+/]{43}=$")
 _LICENSE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$")
 _EASYTIER_MODULE = "github.com/easytier/easytier/easytier-go"
+_EASYTIER_MODULE = "github.com/easytier/easytier/easytier-go"
 _EASYTIER_REPO = "https://github.com/EasyTier/EasyTier"
+_CORE_LICENSE_IDS = {
+    "LICENSE": {"GPL-3.0-only", "GPL-3.0-or-later"},
+    "transport/kcptun/LICENSE.md": {"MIT"},
+}
+_CORE_ATTRIBUTION_PATH = "transport/hysteria/conns/faketcp/LICENSE"
+_CORE_ATTRIBUTION_TEXT = "Grabbed from https://github.com/xtaci/tcpraw with modifications"
+_CORE_SOURCE_REPO = "https://github.com/MetaCubeX/mihomo"
 
 
 def _required(value, label):
@@ -155,6 +163,21 @@ def _go_graph(bundle):
     return go, graph
 
 
+def _go_report_version(module):
+    replacement = module.get("Replace")
+    if replacement is not None:
+        if not isinstance(replacement, dict):
+            raise AuditIncomplete("invalid selected Go module replacement")
+        version = replacement.get("Version")
+        if not version and str(replacement.get("Path", "")).startswith((".", "/")):
+            return "Unknown"
+    else:
+        version = module.get("Version")
+    if not isinstance(version, str) or not version:
+        return "Unknown"
+    return version.removesuffix("+incompatible")
+
+
 def _go_license_overrides(go, graph):
     overrides = go.get("manual_overrides", [])
     if not isinstance(overrides, list):
@@ -278,6 +301,94 @@ def _wintun_binding_component(go, graph):
     return records[0]
 
 
+def _core_source_component(go, build, core_path, core_version, rows):
+    if core_path != "github.com/metacubex/mihomo":
+        raise AuditIncomplete("unexpected main Mihomo module path")
+    commit = _required(build.get("core_source_commit"), "core source commit")
+    if not _COMMIT.fullmatch(commit):
+        raise AuditIncomplete("invalid exact core source commit")
+    expected_version = core_version or "Unknown"
+    licenses_by_path = {}
+    fake_name = core_path + "/transport/hysteria/conns/faketcp"
+    for row in rows:
+        name = _required(row.get("Name"), "main-module go-licenses name")
+        version = _required(row.get("Version"), "main-module go-licenses version")
+        if version != expected_version:
+            raise AuditIncomplete("go-licenses main-module version differs from the selected source")
+        spdx = row.get("LicenseName")
+        source_path = row.get("SourcePath")
+        if isinstance(spdx, str) and spdx.lower() in {"unknown", "noassertion", "unlicensed"}:
+            if name != fake_name or row.get("LicenseText") not in {"", _CORE_ATTRIBUTION_TEXT, _CORE_ATTRIBUTION_TEXT + "\n"}:
+                raise AuditIncomplete(f"unresolved Go license for main Mihomo package: {name}")
+            if source_path not in {None, "", _CORE_ATTRIBUTION_PATH}:
+                raise AuditIncomplete("unresolved main-module row maps to an unexpected source file")
+            continue
+        if source_path not in _CORE_LICENSE_IDS:
+            raise AuditIncomplete(f"unmapped go-licenses row for main Mihomo module: {name}")
+        if spdx not in _CORE_LICENSE_IDS[source_path]:
+            raise AuditIncomplete(f"unexpected SPDX classification for core source file: {source_path}")
+        if row.get("SourceRevision") != commit:
+            raise AuditIncomplete(f"core license source revision mismatch: {source_path}")
+        source_blob = _required(row.get("SourceGitBlob"), f"core source Git blob for {source_path}")
+        if not _COMMIT.fullmatch(source_blob):
+            raise AuditIncomplete(f"invalid core source Git blob: {source_path}")
+        if source_path in licenses_by_path:
+            raise AuditIncomplete(f"duplicate main-module license report row: {source_path}")
+        source_url = f"{_CORE_SOURCE_REPO}/blob/{commit}/{source_path}"
+        license_record = _license_record(
+            spdx,
+            row.get("LicenseText"),
+            source_url,
+            source_revision=commit,
+            source_path=source_path,
+            source_git_blob=source_blob,
+        )
+        licenses_by_path[source_path] = license_record
+
+    if set(licenses_by_path) != set(_CORE_LICENSE_IDS):
+        raise AuditIncomplete("go-licenses report does not cover every reviewed Mihomo license file")
+
+    notice_rows = go.get("core_source_notices")
+    if not isinstance(notice_rows, list) or len(notice_rows) != 1:
+        raise AuditIncomplete("missing exact faketcp attribution source record")
+    notice_row = notice_rows[0]
+    if not isinstance(notice_row, dict):
+        raise AuditIncomplete("invalid faketcp attribution source record")
+    if (
+        notice_row.get("source_path") != _CORE_ATTRIBUTION_PATH
+        or notice_row.get("source_revision") != commit
+        or not isinstance(notice_row.get("source_git_blob"), str)
+        or not _COMMIT.fullmatch(notice_row["source_git_blob"])
+        or not isinstance(notice_row.get("text"), str)
+        or notice_row["text"].strip() != _CORE_ATTRIBUTION_TEXT
+    ):
+        raise AuditIncomplete("faketcp attribution is not bound to the exact core source")
+    notice = {
+        "name": notice_row.get("name"),
+        "text": notice_row["text"],
+        "sha256": notice_row.get("sha256"),
+        "source_url": f"{_CORE_SOURCE_REPO}/blob/{commit}/{_CORE_ATTRIBUTION_PATH}",
+        "source_path": _CORE_ATTRIBUTION_PATH,
+        "source_revision": commit,
+        "source_git_blob": notice_row["source_git_blob"],
+    }
+    normalized_notice, notice_text = _supplemental_notice(notice, "Mihomo core")
+    if notice_text.strip() != _CORE_ATTRIBUTION_TEXT:
+        raise AuditIncomplete("faketcp source record is not an attribution-only notice")
+
+    return _component(
+        "go-source",
+        "runtime",
+        core_path,
+        f"source-{commit[:12]}",
+        f"{_CORE_SOURCE_REPO}/tree/{commit}",
+        {"algorithm": "git-commit", "value": commit},
+        [licenses_by_path[path] for path in sorted(licenses_by_path)],
+        copyrights=_copyright_lines([item["text"] for item in licenses_by_path.values()]),
+        supplemental_notices=[dict(normalized_notice, text=notice_text)],
+    )
+
+
 def _go_components(bundle):
     go, graph = _go_graph(bundle)
     build = bundle["build"]
@@ -285,11 +396,22 @@ def _go_components(bundle):
     rows = go.get("license_report")
     if not isinstance(rows, list):
         raise AuditIncomplete("missing go-licenses JSON report")
+    core_path = _required(go.get("core_module_path"), "core Go module path")
+    module_rows = _json_stream(go.get("modules_json"), "go list -m")
+    main_modules = [item for item in module_rows if item.get("Path") == core_path]
+    if len(main_modules) != 1:
+        raise AuditIncomplete("main Mihomo module is missing or duplicated in go list -m")
+    core_version = main_modules[0].get("Version") or "Unknown"
+
     by_module = {path: [] for path in graph}
+    core_rows = []
     for row in rows:
         if not isinstance(row, dict):
             raise AuditIncomplete("invalid go-licenses record")
         name = _required(row.get("Name"), "go-licenses package/module name")
+        if name == core_path or name.startswith(core_path + "/"):
+            core_rows.append(row)
+            continue
         candidates = [
             path for path in graph
             if name == path or name.startswith(path + "/")
@@ -297,8 +419,9 @@ def _go_components(bundle):
         if not candidates:
             raise AuditIncomplete(f"Go license report entry is outside the selected module graph: {name}")
         module_path = max(candidates, key=len)
+        expected_report_version = _go_report_version(graph[module_path])
         version = _required(row.get("Version"), f"go-licenses version for {module_path}")
-        if version != graph[module_path]["Version"]:
+        if version != expected_report_version:
             raise AuditIncomplete(f"go-licenses version mismatch for {module_path}")
         by_module[module_path].append(row)
 
@@ -412,6 +535,7 @@ def _go_components(bundle):
                 ]
         components.append(component)
 
+    components.append(_core_source_component(go, build, core_path, core_version, core_rows))
     components.append(_wintun_binding_component(go, graph))
 
     stdlib = go.get("stdlib_license")
