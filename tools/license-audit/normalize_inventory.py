@@ -186,6 +186,97 @@ def _go_license_overrides(go, graph):
     return by_key
 
 
+
+def _wintun_binding_component(go, graph):
+    module_path = "github.com/metacubex/sing-tun"
+    module = graph.get(module_path)
+    if not isinstance(module, dict):
+        raise AuditIncomplete("Wintun Go binding module is absent from the selected graph")
+    version = _required(module.get("Version"), "selected Wintun Go binding module version")
+    assets = go.get("embedded_assets")
+    if not isinstance(assets, list):
+        raise AuditIncomplete("missing embedded Wintun binary evidence")
+    matching_assets = [
+        item for item in assets
+        if isinstance(item, dict) and item.get("module") == module_path and item.get("module_version") == version
+    ]
+    if len(matching_assets) != 1:
+        raise AuditIncomplete("Wintun Go binding source is not uniquely tied to the selected embedded module")
+    revision = _required(matching_assets[0].get("source_revision"), "Wintun Go binding source revision")
+    if not _COMMIT.fullmatch(revision):
+        raise AuditIncomplete("invalid Wintun Go binding source revision")
+    package_paths = {
+        f"{module_path}/internal/wintun",
+        f"{module_path}/internal/wintun/memmod",
+    }
+    packages = _json_stream(go.get("packages_json"), "go list -deps")
+    selected = {}
+    for package in packages:
+        import_path = package.get("ImportPath")
+        if import_path in package_paths:
+            selected.setdefault(import_path, []).append(package)
+    if set(selected) != package_paths or any(len(items) != 1 for items in selected.values()):
+        raise AuditIncomplete("selected Go runtime graph omits or duplicates a Wintun binding package")
+    expected_files = set()
+    for package_path in sorted(package_paths):
+        package = selected[package_path][0]
+        package_module = package.get("Module")
+        if (
+            not isinstance(package_module, dict)
+            or package_module.get("Path") != module_path
+            or package_module.get("Version") != version
+        ):
+            raise AuditIncomplete(f"selected Wintun Go package has the wrong module source: {package_path}")
+        go_files = package.get("GoFiles", [])
+        cgo_files = package.get("CgoFiles", [])
+        if not isinstance(go_files, list) or not isinstance(cgo_files, list):
+            raise AuditIncomplete(f"invalid selected Go source files for {package_path}")
+        package_dir = package_path.removeprefix(module_path + "/")
+        for filename in set(go_files + cgo_files):
+            if not isinstance(filename, str) or not filename or Path(filename).name != filename:
+                raise AuditIncomplete(f"invalid selected Wintun Go source filename: {filename}")
+            expected_files.add(f"{package_dir}/{filename}")
+    if not expected_files:
+        raise AuditIncomplete("selected Wintun Go packages contain no source files")
+    records = go.get("additional_components")
+    if not isinstance(records, list) or len(records) != 1:
+        raise AuditIncomplete("missing separate Wintun Go binding license component")
+    _, component, licenses, supplemental = _component(records[0], "runtime")
+    if (
+        component["ecosystem"] != "go-source"
+        or component["name"] != "WireGuard Wintun Go bindings"
+        or component["version"] != version
+        or component["source_url"] != f"https://github.com/MetaCubeX/sing-tun/tree/{revision}/internal/wintun"
+        or component["source_digest"] != {"algorithm": "git-commit", "value": revision}
+    ):
+        raise AuditIncomplete("Wintun Go binding component is not tied to the selected module source")
+    if len(licenses) != 1 or licenses[0][0]["spdx"] != "MIT":
+        raise AuditIncomplete("Wintun Go bindings require their separate full MIT license")
+    license_record = licenses[0][0]
+    if (
+        not license_record.get("source_url", "").startswith("https://github.com/spdx/license-list-data/blob/")
+        or license_record.get("source_path") != "text/MIT.txt"
+        or not _COMMIT.fullmatch(license_record.get("source_revision", ""))
+        or not _COMMIT.fullmatch(license_record.get("source_git_blob", ""))
+        or "Permission is hereby granted" not in licenses[0][1]
+        or "THE SOFTWARE IS PROVIDED" not in licenses[0][1]
+    ):
+        raise AuditIncomplete("Wintun Go binding MIT license lacks pinned full-text source evidence")
+    if component["copyrights"] != ["Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved."]:
+        raise AuditIncomplete("Wintun Go binding copyright header is missing")
+    source_notices = component["supplemental_notices"]
+    if {item["source_path"] for item in source_notices} != expected_files:
+        raise AuditIncomplete("Wintun Go binding headers do not cover every selected source file")
+    for item, text in supplemental:
+        if (
+            item.get("source_revision") != revision
+            or "SPDX-License-Identifier: MIT" not in text
+            or "Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved." not in text
+        ):
+            raise AuditIncomplete("Wintun Go binding source header evidence is incomplete")
+    return component
+
+
 def _go_components(bundle):
     go, graph = _go_graph(bundle)
     build = bundle["build"]
@@ -319,6 +410,8 @@ def _go_components(bundle):
                     for item in override["supplemental_notices"]
                 ]
         components.append(component)
+
+    components.append(_wintun_binding_component(go, graph))
 
     stdlib = go.get("stdlib_license")
     if not isinstance(stdlib, dict):
@@ -778,7 +871,7 @@ def main():
     import argparse
     import hashlib
 
-    from generate_notices import generate_notices
+    from generate_notices import generate_notices, write_notice_outputs
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle")
@@ -789,10 +882,9 @@ def main():
     inventory = normalize_inventory(bundle)
     notices, sources = generate_notices(inventory)
     source_text = json.dumps(sources, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    Path(args.notices).write_text(notices, encoding="utf-8")
-    Path(args.sources).write_text(source_text, encoding="utf-8")
-    print(f"THIRD-PARTY-NOTICES.txt sha256={hashlib.sha256(notices.encode('utf-8')).hexdigest()}")
-    print(f"THIRD-PARTY-SOURCES.json sha256={hashlib.sha256(source_text.encode('utf-8')).hexdigest()}")
+    notices_sha, sources_sha = write_notice_outputs(notices, source_text, args.notices, args.sources)
+    print(f"THIRD-PARTY-NOTICES.txt sha256={notices_sha}")
+    print(f"THIRD-PARTY-SOURCES.json sha256={sources_sha}")
 
 
 if __name__ == "__main__":

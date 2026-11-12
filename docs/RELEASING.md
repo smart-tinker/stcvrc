@@ -28,6 +28,30 @@ retain their original evidence and limitations.
 
 ## Current CI responsibilities
 
+Each pull request runs ten standard hosted-runner jobs: nine Ubuntu jobs and
+one Windows job. Jobs connected by arrows wait for their prerequisites.
+No paid/self-hosted runner, Actions artifact upload, or persistent cache is used.
+
+```mermaid
+flowchart TD
+    PR[Pull request] --> V[Vulnerability scan · Ubuntu]
+    V --> S[Current source tests and builds · Ubuntu]
+    S --> L[Fresh .33 + WASM build and notices · Ubuntu]
+    PR --> P[Profiles and OpenVPN comparison · Ubuntu]
+    PR --> I[Official CVR package verification · Ubuntu]
+    I --> W[Fresh Windows core + WASM, GUI/service/TUN/DNS and recovery]
+    PR --> T[Full protocol module and isolated comparisons · Ubuntu]
+    PR --> N[Xray failover, MPTCP and systemd recovery · Ubuntu]
+    PR --> Q[CodeQL · Ubuntu]
+    PR --> D[Dependency review · Ubuntu]
+```
+
+A manual main-branch dispatch runs all seven source-workflow checks, then one
+additional Windows assembler. That assembler rebuilds from source and requires
+the same core/WASM digests as its successful native Windows acceptance job.
+The dispatch group cannot be canceled by an ordinary main push. Actual tag-ref
+state is checked after asset readback; an unpublished draft may have no tag ref.
+
 | Workflow/job | What it verifies | What it does not establish |
 | --- | --- | --- |
 | `STCVRC source checks` | Exact source tests/builds, actual selected dependency-graph tests and vulnerability checks, fresh WASM generation, runtime notices, candidate package inputs, and a disposable Windows 2.5.8 → 2.5.10 native acceptance/recovery sequence. The Windows job requires an actual GUI window, exercises Tauri commands and service-backed runtime, reloads two generic synthetic profiles A → B → A, checks fake-IP DNS and HTTP traffic through only 198.18.0.0/16, binds the live core path/SHA to the fresh source build, and compares default routes and physical DNS before/after. | Every GUI screen/control, external VPN endpoints, OpenVPN, arbitrary host drivers/profiles, or production deployment. It is one hosted Windows image and generic fixture coverage. |

@@ -232,5 +232,145 @@
       },
       "release_assembly_run": "https://github.com/smart-tinker/stcvrc/actions/runs/43183195076"
     }
-  ]
+  ],
+  "historical_release_instances": {
+    "metadata_source": "GitHub Releases API release/asset metadata; SHA256 digests are API claims, not fresh byte-download verification",
+    "checked_at": "2026-11-12",
+    "instances": [
+      {
+        "release_id": 357106919,
+        "tag": "v1.19.29-stcvrc.1",
+        "name": "STCVRC-v1.19.29-stcvrc.1",
+        "url": "https://github.com/smart-tinker/stcvrc/releases/tag/v1.19.29-stcvrc.1",
+        "metadata_api_url": "https://api.github.com/repos/smart-tinker/stcvrc/releases/357106919",
+        "target_commitish": "main",
+        "draft": false,
+        "prerelease": false,
+        "published_at": "2026-07-21T04:02:15Z",
+        "binary_variant_id": "accepted-1.19.29",
+        "assets": [
+          {
+            "id": 484224426,
+            "name": "SHA256SUMS.txt",
+            "size": 188,
+            "sha256": "713c97afdbd9a8af315059ca4f9e4f87b8b2aea83ed28a3383f361877fd04293",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/v1.19.29-stcvrc.1/SHA256SUMS.txt"
+          },
+          {
+            "id": 484224428,
+            "name": "STCVRC-v1.19.29-stcvrc.1-manifest.json",
+            "size": 2033,
+            "sha256": "4584bad3e14caa4edbfe06862dd8b925eaa06192fd7082b546666b43137721fd",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/v1.19.29-stcvrc.1/STCVRC-v1.19.29-stcvrc.1-manifest.json"
+          },
+          {
+            "id": 484224427,
+            "name": "verge-mihomo.exe",
+            "size": 47390208,
+            "sha256": "71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/v1.19.29-stcvrc.1/verge-mihomo.exe"
+          }
+        ]
+      },
+      {
+        "release_id": 420225655,
+        "tag": "stcvrc-1.19.33-rc.1",
+        "name": "STCVRC 1.19.33 RC1 (Windows x64)",
+        "url": "https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.1",
+        "metadata_api_url": "https://api.github.com/repos/smart-tinker/stcvrc/releases/420225655",
+        "target_commitish": "d888dfad5e785217778bb7515c931840d5307dd4",
+        "draft": false,
+        "prerelease": true,
+        "published_at": "2026-10-22T01:50:58Z",
+        "binary_variant_id": "candidate-1.19.33-rc.2",
+        "assets": [
+          {
+            "id": 664358326,
+            "name": "build-info.txt",
+            "size": 12630,
+            "sha256": "a10d476b34f479bd2503dbed36f0e52de473a845c79eee941c951c0a9c0bb848",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/build-info.txt"
+          },
+          {
+            "id": 664358327,
+            "name": "build-manifest.json",
+            "size": 2237,
+            "sha256": "22c1e97d192ff0f8ca78e59b2e63eab11044bef2e0080bd5a9d6054b29eadf58",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/build-manifest.json"
+          },
+          {
+            "id": 664358312,
+            "name": "SHA256SUMS",
+            "size": 328,
+            "sha256": "a4b01e294f8f5ad02a28c0ecfa63505f1be85847bb326f257a167a6067cc21fe",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/SHA256SUMS"
+          },
+          {
+            "id": 664358325,
+            "name": "source.json",
+            "size": 2582,
+            "sha256": "877dadff85adab33ba6b7aa76f8bf97d4c08e89a25c01f1409d8ab1f6e9cb3c4",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/source.json"
+          },
+          {
+            "id": 664358308,
+            "name": "verge-mihomo.exe",
+            "size": 61148160,
+            "sha256": "6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/verge-mihomo.exe"
+          }
+        ],
+        "same_binary_as_release_tag": "stcvrc-1.19.33-rc.2"
+      },
+      {
+        "release_id": 424118209,
+        "tag": "stcvrc-1.19.33-rc.2",
+        "name": "STCVRC 1.19.33 RC2 — Clash Verge Rev 2.5.8 compatibility",
+        "url": "https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.2",
+        "metadata_api_url": "https://api.github.com/repos/smart-tinker/stcvrc/releases/424118209",
+        "target_commitish": "d888dfad5e785217778bb7515c931840d5307dd4",
+        "draft": false,
+        "prerelease": true,
+        "published_at": "2026-10-26T10:39:32Z",
+        "binary_variant_id": "candidate-1.19.33-rc.2",
+        "assets": [
+          {
+            "id": 677834804,
+            "name": "build-info.txt",
+            "size": 12630,
+            "sha256": "a10d476b34f479bd2503dbed36f0e52de473a845c79eee941c951c0a9c0bb848",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.2/build-info.txt"
+          },
+          {
+            "id": 677835064,
+            "name": "build-manifest.json",
+            "size": 6496,
+            "sha256": "ce37dcae993281e7f2ada9e6d833fc6dd1b4611fce72d30da6eeee475378d8e5",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.2/build-manifest.json"
+          },
+          {
+            "id": 677835167,
+            "name": "SHA256SUMS",
+            "size": 328,
+            "sha256": "48fe7f4ab7ad9652dea4687ce5e5b1a790dbe05c61fb762475f0c0c800cc000f",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.2/SHA256SUMS"
+          },
+          {
+            "id": 677834503,
+            "name": "source.json",
+            "size": 2614,
+            "sha256": "aea8f72bc25ff2656f7c978a8b4783c4cd0cffb1e0ff95821e1704f7abb8281c",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.2/source.json"
+          },
+          {
+            "id": 677827137,
+            "name": "verge-mihomo.exe",
+            "size": 61148160,
+            "sha256": "6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7",
+            "url": "https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.2/verge-mihomo.exe"
+          }
+        ]
+      }
+    ]
+  }
 }

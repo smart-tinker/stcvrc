@@ -18,7 +18,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from generate_notices import AuditIncomplete, generate_notices
+from generate_notices import AuditIncomplete, generate_notices, write_notice_outputs
 from normalize_inventory import _copyright_lines, _json_stream, normalize_inventory
 
 
@@ -34,6 +34,39 @@ WINTUN_ARCHIVE_PATH = "wintun/bin/amd64/wintun.dll"
 WINTUN_TERMS_PATH = "wintun/LICENSE.txt"
 CHACHA_API = "https://api.github.com/repos/MetaCubeX/chacha"
 
+
+# cargo-about calls this list "accepted": it selects a license from SPDX OR expressions;
+# it is a reporting-resolution policy, not a legal-compatibility approval. --fail still rejects
+# expressions that cannot be resolved using this bounded list.
+CARGO_ABOUT_ACCEPTED_LICENSES = (
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+)
+
+
+def _cargo_about_config(target):
+    accepted = json.dumps(list(CARGO_ABOUT_ACCEPTED_LICENSES))
+    targets = json.dumps([target])
+    return (
+        f"targets = {targets}\n"
+        f"accepted = {accepted}\n"
+        "ignore-build-dependencies = true\n"
+        "ignore-dev-dependencies = true\n"
+    )
 
 def _sha256(data):
     return hashlib.sha256(data).hexdigest()
@@ -160,6 +193,37 @@ def _has_module_build_info(build_info, module, version):
     return False
 
 
+def _go_license_report_template():
+    return (
+        '{{range .}}'
+        '{{printf "%q\\t%q\\t%q\\t%q\\t%q\\t" .Name .Version .LicenseURL .LicenseName .LicensePath}}'
+        '{{if and .LicensePath (ne .LicensePath "Unknown")}}'
+        '{{printf "%q" .LicenseText}}'
+        '{{else}}{{printf "%q" ""}}{{end}}'
+        '{{printf "\\n"}}'
+        '{{end}}'
+    )
+
+
+def _parse_go_license_report(report):
+    rows = []
+    for line in report.splitlines():
+        if not line:
+            continue
+        fields = line.split("\\t")
+        if len(fields) != 6:
+            raise AuditIncomplete("go-licenses returned a malformed template row")
+        try:
+            values = [ast.literal_eval(field) for field in fields]
+        except (SyntaxError, ValueError) as error:
+            raise AuditIncomplete("go-licenses returned an invalid quoted field") from error
+        rows.append(dict(zip(
+            ("Name", "Version", "LicenseURL", "LicenseName", "LicensePath", "LicenseText"),
+            values,
+        )))
+    return rows
+
+
 def _download_go_license_tool(go, root, env, output_dir):
     host_goos = "windows" if os.name == "nt" else "linux"
     host_arch = "arm64" if platform.machine().lower() in {"aarch64", "arm64"} else "amd64"
@@ -222,53 +286,31 @@ def _go_rows(core, go, build, root, env):
     goflags = f"-modfile={modfile.as_posix()} -mod=readonly -p=2 -tags={','.join(tags)}"
     selected["GOFLAGS"] = goflags
     modules = _run([go, "list", "-m", "-json", "all"], core, selected)
-    packages = _run([go, "list", "-deps", "-json", "./..."], core, selected)
+    packages = _run([go, "list", "-deps", "-json", "."], core, selected)
     module_rows = _read_json_stream(modules, "go list -m")
     package_rows = _read_json_stream(packages, "go list -deps")
     selected_modules = _go_module_map(module_rows)
-    # Validate manual evidence before telling go-licenses to skip its classifier.
-    overrides = _manual_go_overrides(selected_modules, build, root)
-    ignored_modules = sorted({item["module"] for item in overrides})
-    for module_path in selected_modules:
-        if any(module_path.startswith(prefix) for prefix in ignored_modules) and module_path not in ignored_modules:
-            raise AuditIncomplete(f"manual go-licenses ignore prefix would hide an unreviewed module: {module_path}")
+    runtime_module_paths = set()
     for package in package_rows:
         module = package.get("Module")
-        path = package.get("ImportPath")
-        if not isinstance(module, dict) or not isinstance(path, str):
-            continue
-        if any(path.startswith(prefix) for prefix in ignored_modules) and module.get("Path") not in ignored_modules:
-            raise AuditIncomplete(f"manual go-licenses ignore prefix would hide an unreviewed package: {path}")
-
+        if isinstance(module, dict):
+            path = module.get("Path")
+            if isinstance(path, str) and path:
+                runtime_module_paths.add(path)
+    # Validate manual evidence only for modules in the built core's package graph.
+    overrides = _manual_go_overrides(selected_modules, runtime_module_paths, build, root)
     license_tool, tool_record = _download_go_license_tool(go, root, selected, root)
     template = Path(root) / "output" / "license-report.tmpl"
-    template.write_text(
-        '{{range .}}{{printf "%q\\t%q\\t%q\\t%q\\t%q\\t%q\\n" .Name .Version .LicenseURL .LicenseName .LicensePath .LicenseText}}{{end}}',
-        encoding="utf-8",
-    )
-    ignore_args = [argument for module in ignored_modules for argument in ("--ignore", module)]
+    template.write_text(_go_license_report_template(), encoding="utf-8")
     report = _run(
-        [license_tool, "report", "./...", *ignore_args, f"--template={template}"],
+        [license_tool, "report", ".", f"--template={template}"],
         core,
         selected,
     )
-    rows = []
-    for line in report.splitlines():
-        if not line:
-            continue
-        fields = line.split("\t")
-        if len(fields) != 6:
-            raise AuditIncomplete("go-licenses returned a malformed template row")
-        try:
-            values = [ast.literal_eval(field) for field in fields]
-        except (SyntaxError, ValueError) as error:
-            raise AuditIncomplete("go-licenses returned an invalid quoted field") from error
-        rows.append(dict(zip(
-            ("Name", "Version", "LicenseURL", "LicenseName", "LicensePath", "LicenseText"),
-            values,
-        )))
+    rows = _parse_go_license_report(report)
 
     embedded = _wintun_record(selected_modules)
+    wintun_bindings = _wintun_binding_component(selected_modules, package_rows)
     go_root = Path(_run([go, "env", "GOROOT"], core, selected).strip())
     go_license = _read(go_root / "LICENSE", "Go toolchain LICENSE").decode("utf-8")
     go_archive = build.get("go_archive")
@@ -302,6 +344,7 @@ def _go_rows(core, go, build, root, env):
             for item in overrides
         ],
         "embedded_assets": [embedded],
+        "additional_components": [wintun_bindings],
         "stdlib_license": stdlib,
     }, tool_record
 
@@ -317,18 +360,22 @@ def _github_json(url):
     return result
 
 
-def _manual_go_overrides(modules, build, root):
+def _manual_go_overrides(modules, runtime_module_paths, build, root):
     evidence_path = Path(__file__).resolve().parent / "fixtures" / "expected-rc7-sources.json"
     evidence = json.loads(_read(evidence_path, "pinned license evidence").decode("utf-8"))
-    expected_text = evidence.get("canonical_license_texts", {}).get("GPL-3.0-or-later")
-    if not isinstance(expected_text, dict):
-        raise AuditIncomplete("missing pinned full GPL-3.0-or-later text evidence")
-    gpl_text = _fetch(expected_text["url"]).decode("utf-8")
-    if _sha256(gpl_text.encode("utf-8")) != expected_text.get("sha256"):
-        raise AuditIncomplete("canonical GPL-3.0-or-later text checksum mismatch")
-
     result = []
-    for pin in evidence.get("meta_gpl_overrides", []):
+    runtime_pins = [
+        pin for pin in evidence.get("meta_gpl_overrides", [])
+        if pin.get("module") in runtime_module_paths
+    ]
+    if runtime_pins:
+        expected_text = evidence.get("canonical_license_texts", {}).get("GPL-3.0-or-later")
+        if not isinstance(expected_text, dict):
+            raise AuditIncomplete("missing pinned full GPL-3.0-or-later text evidence")
+        gpl_text = _fetch(expected_text["url"]).decode("utf-8")
+        if _sha256(gpl_text.encode("utf-8")) != expected_text.get("sha256"):
+            raise AuditIncomplete("canonical GPL-3.0-or-later text checksum mismatch")
+    for pin in runtime_pins:
         module = pin["module"]
         version = pin["version"]
         selected = modules.get(module)
@@ -364,7 +411,11 @@ def _manual_go_overrides(modules, build, root):
 
     chacha = evidence.get("chacha_mit_evidence")
     if not isinstance(chacha, dict):
-        raise AuditIncomplete("missing pinned chacha MIT child evidence")
+        if any(path == "github.com/metacubex/chacha" for path in runtime_module_paths):
+            raise AuditIncomplete("missing pinned chacha MIT child evidence")
+        return result
+    if chacha["module"] not in runtime_module_paths:
+        return result
     selected = modules.get(chacha["module"])
     if not isinstance(selected, dict) or selected.get("Version") != chacha["version"] or selected.get("Replace"):
         raise AuditIncomplete("chacha source version does not match the reviewed license-only child")
@@ -470,6 +521,111 @@ def _wintun_record(modules):
     }
 
 
+
+def _wintun_binding_component(modules, package_rows):
+    evidence_path = Path(__file__).resolve().parent / "fixtures" / "expected-rc7-sources.json"
+    evidence = json.loads(_read(evidence_path, "pinned license evidence").decode("utf-8"))
+    pin = evidence.get("wintun_go_bindings")
+    if not isinstance(pin, dict):
+        raise AuditIncomplete("missing Wintun Go binding license evidence")
+    module = pin["module"]
+    version = pin["module_version"]
+    selected = modules.get(module)
+    if not isinstance(selected, dict) or selected.get("Version") != version or selected.get("Replace"):
+        raise AuditIncomplete("Wintun Go binding source does not match the selected Go module")
+
+    resolved = _github_json(f"https://api.github.com/repos/MetaCubeX/sing-tun/commits/{version}")
+    revision = pin["source_revision"]
+    if resolved.get("sha") != revision:
+        raise AuditIncomplete("Wintun Go binding version does not resolve to the pinned source commit")
+    source_dir = _module_dir(selected, module)
+    expected_packages = {
+        f"{module}/internal/wintun",
+        f"{module}/internal/wintun/memmod",
+    }
+    if set(pin.get("packages", [])) != expected_packages:
+        raise AuditIncomplete("Wintun Go binding package scope differs from the reviewed evidence")
+    selected_packages = {}
+    for package in package_rows:
+        if package.get("ImportPath") in expected_packages:
+            selected_packages.setdefault(package["ImportPath"], []).append(package)
+    if set(selected_packages) != expected_packages or any(len(items) != 1 for items in selected_packages.values()):
+        raise AuditIncomplete("selected Windows build graph omits or duplicates a Wintun Go binding package")
+
+    notices = []
+    source_paths = set()
+    header_pattern = re.compile(
+        r"/\* SPDX-License-Identifier: MIT\s+\*\s+"
+        r"\* Copyright \(C\) 2017-2021 WireGuard LLC\. All Rights Reserved\.\s+\*/"
+    )
+    for package_path in sorted(expected_packages):
+        package = selected_packages[package_path][0]
+        package_module = package.get("Module")
+        if (
+            not isinstance(package_module, dict)
+            or package_module.get("Path") != module
+            or package_module.get("Version") != version
+        ):
+            raise AuditIncomplete(f"Wintun Go binding package source mismatch: {package_path}")
+        go_files = package.get("GoFiles", [])
+        cgo_files = package.get("CgoFiles", [])
+        if not isinstance(go_files, list) or not isinstance(cgo_files, list):
+            raise AuditIncomplete(f"invalid selected Go source list for {package_path}")
+        relative_package = package_path.removeprefix(module + "/")
+        for filename in sorted(set(go_files + cgo_files)):
+            if not isinstance(filename, str) or not filename or Path(filename).name != filename:
+                raise AuditIncomplete(f"invalid selected Wintun Go source filename: {filename}")
+            source_path = f"{relative_package}/{filename}"
+            if source_path in source_paths:
+                raise AuditIncomplete(f"duplicate selected Wintun Go source file: {source_path}")
+            source_paths.add(source_path)
+            source_bytes = _read(source_dir / source_path, f"Wintun Go binding source {source_path}")
+            raw_url = f"https://raw.githubusercontent.com/MetaCubeX/sing-tun/{revision}/{source_path}"
+            if _fetch(raw_url) != source_bytes:
+                raise AuditIncomplete(f"Wintun Go binding source differs from its pinned public revision: {source_path}")
+            source_text = source_bytes.decode("utf-8")
+            header = header_pattern.search(source_text)
+            if header is None or pin["copyright"] not in header.group(0):
+                raise AuditIncomplete(f"Wintun Go source lacks the reviewed MIT copyright header: {source_path}")
+            header_text = header.group(0)
+            notices.append({
+                "name": f"SPDX MIT header: {source_path}",
+                "text": header_text,
+                "sha256": _sha256(header_text.encode("utf-8")),
+                "source_url": f"https://github.com/MetaCubeX/sing-tun/blob/{revision}/{source_path}",
+                "source_revision": revision,
+                "source_path": source_path,
+                "source_git_blob": _git_blob(source_bytes),
+            })
+    if not source_paths:
+        raise AuditIncomplete("selected Wintun Go binding packages contain no source files")
+
+    license_bytes = _fetch(pin["license_text_url"])
+    if _git_blob(license_bytes) != pin["license_git_blob"]:
+        raise AuditIncomplete("canonical MIT license text differs from its pinned SPDX source blob")
+    license_text = license_bytes.decode("utf-8")
+    license_record = {
+        "spdx": pin["license_spdx"],
+        "text": license_text,
+        "sha256": _sha256(license_bytes),
+        "source_url": pin["license_source_url"],
+        "source_revision": pin["license_source_revision"],
+        "source_path": pin["license_path"],
+        "source_git_blob": _git_blob(license_bytes),
+    }
+    return {
+        "ecosystem": "go-source",
+        "role": "runtime",
+        "name": pin["name"],
+        "version": version,
+        "source_url": f"https://github.com/MetaCubeX/sing-tun/tree/{revision}/internal/wintun",
+        "source_digest": {"algorithm": "git-commit", "value": revision},
+        "licenses": [license_record],
+        "copyrights": [pin["copyright"]],
+        "supplemental_notices": notices,
+    }
+
+
 def _cargo_tool(cargo, root, env):
     tool_root = Path(root) / "output" / "cargo-about-tool"
     cargo_env = dict(env)
@@ -562,10 +718,7 @@ def _rust_rows(easytier, build, root, env, output_dir):
     )
     metadata_json = json.loads(metadata)
     about_config = Path(output_dir) / "cargo-about.toml"
-    about_config.write_text(
-        f'targets = ["{target}"]\nignore-build-dependencies = true\nignore-dev-dependencies = true\n',
-        encoding="utf-8",
-    )
+    about_config.write_text(_cargo_about_config(target), encoding="utf-8")
     about_binary, cargo_about_record = _cargo_tool(cargo, root, env)
     about_env = dict(env)
     about_env["CARGO_NET_OFFLINE"] = "true"
@@ -676,16 +829,18 @@ def collect(build_root, output_dir=None):
     inventory = normalize_inventory(bundle)
     notices, sources = generate_notices(inventory)
     sources_text = json.dumps(sources, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    (output / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
-    (output / "THIRD-PARTY-SOURCES.json").write_text(sources_text, encoding="utf-8")
-    (output / "license-inventory.json").write_text(
-        json.dumps(inventory, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    notices_sha, sources_sha = write_notice_outputs(
+        notices,
+        sources_text,
+        output / "THIRD-PARTY-NOTICES.txt",
+        output / "THIRD-PARTY-SOURCES.json",
     )
+    inventory_text = json.dumps(inventory, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    (output / "license-inventory.json").write_bytes(inventory_text.encode("utf-8"))
     print(f"Runtime components: {len(inventory['components'])}")
     print(f"Build tools: {len(inventory['build_tools'])}")
-    print(f"THIRD-PARTY-NOTICES.txt SHA256: {_sha256(notices.encode('utf-8'))}")
-    print(f"THIRD-PARTY-SOURCES.json SHA256: {_sha256(sources_text.encode('utf-8'))}")
+    print(f"THIRD-PARTY-NOTICES.txt SHA256: {notices_sha}")
+    print(f"THIRD-PARTY-SOURCES.json SHA256: {sources_sha}")
     print("License inventory scope: fresh source-built candidate only")
     return inventory
 

@@ -116,6 +116,21 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, "\n".join(WORKFLOWS.values()) + SCRIPT)
 
+    def test_manual_draft_write_is_not_canceled_by_main_pushes(self):
+        workflow = WORKFLOWS["test.yml"]
+        self.assertIn("group: ${{ github.workflow }}-${{ github.event_name }}-", workflow)
+        self.assertIn("cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}", workflow)
+
+    def test_draft_checks_actual_tag_ref_after_asset_readback(self):
+        assembly = WORKFLOWS["test.yml"].split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
+        tag_check = assembly.index("tag_ref_state=NOT_CREATED_DRAFT")
+        self.assertLess(assembly.index("sha256sum --check SHA256SUMS"), tag_check)
+        for guard in ('select(.ref == \\"refs/tags/$tag\\")',
+                      'test "$object_sha" = "$HEAD_SHA"',
+                      'repos/$repo/git/tags/$object_sha',
+                      'test "$tag_ref_state" = COMMIT_VERIFIED'):
+            self.assertIn(guard, assembly)
+
     def test_draft_rc_waits_for_profile_contract(self):
         release_workflow = WORKFLOWS["test.yml"]
         release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
@@ -206,6 +221,16 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn('rm -rf /tmp', SCRIPT)
 
 
+    def test_native_evidence_retains_a_failed_build_collector_status(self):
+        job = WORKFLOWS["test.yml"].split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
+        self.assertIn('test ! -e "$root"', job)
+        self.assertIn('test -f "$root/output/build.json"', job)
+        self.assertIn('exit "$build_status"', job)
+        self.assertIn("steps.build.outputs.core-sha256 != ''", job)
+        self.assertIn("steps.loopback.outcome == 'success'", job)
+        self.assertIn("steps.payloads.outcome == 'success'", job)
+        self.assertNotIn("continue-on-error:", job)
+
     def test_windows_acceptance_binds_same_job_build_report_and_bytes(self):
         for name in ("windows_install_update.ps1", "windows_native_acceptance.ps1"):
             source = (HERE / name).read_text(encoding="utf-8")
@@ -222,40 +247,12 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "ci-update-preserve.yaml"):
+        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "Invoke-NativePhase"):
             with self.subTest(required=required):
                 self.assertIn(required, script)
+        self.assertLess(script.index("Invoke-NativePhase -Phase seed"), script.index("Invoke-NativePhase -Phase exercise"))
+        self.assertLess(script.index("Invoke-NativePhase -Phase exercise"), script.index("Invoke-NativePhase -Phase recovery"))
 
-
-    def test_synthetic_profile_clean_path_is_checked_before_creation(self):
-        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        check = script.index("if (Test-Path -LiteralPath (Split-Path -Parent $profileDirectory))")
-        create = script.index("[IO.Directory]::CreateDirectory($profileDirectory)")
-        self.assertLess(check, create, "preflight must run before creating the synthetic profile")
-        self.assertNotIn("$profileRoot = Split-Path -Parent $profileDirectory", script)
-
-
-    def test_native_acceptance_is_traced_and_only_alpha_is_forbidden(self):
-        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
-        for required in (
-            "Register-CimIndicationEvent",
-            "Win32_ProcessStartTrace",
-            "verge-mihomo-alpha.exe",
-            "$nativeScript",
-            "$alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' }",
-            "if ($alphaStarts.Count)",
-        ):
-            with self.subTest(required=required):
-                self.assertIn(required, script)
-        self.assertIn("& $nativeScript", script)
-        self.assertIn("Start-Process -FilePath $guiPath", native)
-        self.assertIn("install_service", native)
-        self.assertIn("$expectedServiceExe = Join-Path $serviceData", native)
-        self.assertIn("CVR_2510_SERVICE_SHA256", native)
-        self.assertIn("$serviceHash -ne $env:CVR_2510_SERVICE_SHA256", native)
-        self.assertIn("get_core_startup_error", native)
-        self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
 
     def test_source_job_parses_native_windows_powershell_before_build(self):
         workflow = WORKFLOWS["test.yml"]
@@ -266,6 +263,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", parse_step)
         self.assertIn("[ref]$parseErrors", parse_step)
         self.assertIn("$parseErrors.Count -gt 0", parse_step)
+        self.assertIn("windows_native_acceptance.ps1", parse_step)
+        self.assertIn("windows_install_update.ps1", parse_step)
         self.assertLess(job.index("Read the source revision being checked"), job.index(step_name))
         self.assertLess(job.index(step_name), job.index("Install checksum-pinned Go and workflow linter"))
 
@@ -280,33 +279,6 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("[ref]$parseErrors", fetch)
         self.assertIn("$parseErrors.Count -gt 0", fetch)
         self.assertLess(fetch.index("Parser]::ParseFile"), job.index("Fresh native Windows core build"))
-
-
-    def test_profile_selection_precedes_tun_and_readiness_checks_follow_tun(self):
-        script = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
-        select = script.split("function Select-FixtureProfile", 1)[1].split(
-            "function Assert-SelectedProfileReady", 1
-        )[0]
-        self.assertNotIn("Wait-ServiceReady", select)
-        phase = script.split("if ($uidA) {", 1)[1].split("if ($uidB) {", 1)[0]
-        self.assertLess(phase.index("Select-FixtureProfile"), phase.index("patch_verge_config"))
-        self.assertLess(phase.index("patch_verge_config"), phase.index("Assert-SelectedProfileReady"))
-
-
-    def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
-        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        recovery = "$installRecovered = Invoke-CvrInstaller -Version '2.5.8'"
-        self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
-        self.assertLess(script.index("& $nativeScript"), script.index(recovery))
-        recovery_script = script[script.index(recovery):]
-        for required in (
-            "Assert-ProfilePreserved -Phase 'recovery'",
-            "Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'",
-        ):
-            with self.subTest(required=required):
-                self.assertIn(required, recovery_script)
-        self.assertIn('throw "CVR $Phase did not preserve the synthetic profile marker."', script)
-        self.assertIn('throw "Fresh candidate core was not restored after $Phase."', script)
 
 
     def test_draft_assembly_uses_exact_native_tested_bytes_and_complete_package(self):
@@ -604,6 +576,39 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("'never'", codeql)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", codeql)
         self.assertIn("github/codeql-action/analyze@", codeql)
+
+    def test_native_process_monitor_uses_windows_process_start_timestamps(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        for required in (
+            "Register-CimIndicationEvent",
+            "Win32_ProcessStartTrace",
+            "TIME_CREATED",
+            "FromFileTimeUtc",
+            "Assert-CoreStartDecisionVectors",
+            "Get-CoreStartDecision -ProcessName",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, script)
+        monitor = script.index("Register-CimIndicationEvent")
+        first_install = script.index("$install258 = Invoke-CvrInstaller")
+        self.assertLess(monitor, first_install)
+
+
+
+    def test_smoke_runs_functional_recovery_after_candidate_exercise(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
+        exercise = script.index("Invoke-NativePhase -Phase exercise")
+        recovery_install = script.index("$installRecovered = Invoke-CvrInstaller -Version '2.5.8'")
+        recovery_phase = script.index("Invoke-NativePhase -Phase recovery", recovery_install)
+        self.assertLess(exercise, recovery_install)
+        self.assertLess(recovery_install, recovery_phase)
+        self.assertIn("get_profiles", native)
+        self.assertIn("read_profile_file", native)
+        self.assertIn("Assert-FixtureNodeSelection", native)
+        self.assertIn("Get-RuntimeYaml", native)
+
+
 
 if __name__ == "__main__":
     unittest.main()

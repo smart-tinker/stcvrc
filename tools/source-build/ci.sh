@@ -277,7 +277,7 @@ report = {
     ],
 }
 text = json.dumps(report, indent=2, sort_keys=True) + "\n"
-(output/"build.json").write_text(text, encoding="utf-8")
+(output/"build.json").write_bytes(text.encode("utf-8"))
 print(text)
 PY
 # Cargo object files are no longer inputs once the generated WASM and core binaries are recorded.

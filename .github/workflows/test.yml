@@ -34,8 +34,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   vulnerability-scan:
@@ -173,16 +173,20 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          script="$GITHUB_WORKSPACE/source/tools/network-lab/windows_native_acceptance.ps1"
-          test -f "$script"
-          NATIVE_SCRIPT="$script" pwsh -NoLogo -NoProfile -NonInteractive -Command - <<'POWERSHELL'
-            $tokens = $null
-            $parseErrors = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile($env:NATIVE_SCRIPT, [ref]$tokens, [ref]$parseErrors)
-            foreach ($parseError in $parseErrors) {
-              Write-Error "$($parseError.Extent.StartLineNumber):$($parseError.Message)"
+          NATIVE_DIRECTORY="$GITHUB_WORKSPACE/source/tools/network-lab" pwsh -NoLogo -NoProfile -NonInteractive -Command - <<'POWERSHELL'
+            $failed = $false
+            foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1')) {
+              $script = Join-Path $env:NATIVE_DIRECTORY $name
+              if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { Write-Error "Missing native script: $name"; exit 1 }
+              $tokens = $null
+              $parseErrors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors)
+              foreach ($parseError in $parseErrors) {
+                Write-Error ('{0}:{1}: {2}' -f $name,$parseError.Extent.StartLineNumber,$parseError.Message)
+              }
+              if ($parseErrors.Count -gt 0) { $failed = $true }
             }
-            if ($parseErrors.Count -gt 0) { exit 1 }
+            if ($failed) { exit 1 }
           POWERSHELL
 
       - name: Install checksum-pinned Go and workflow linter
@@ -503,13 +507,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          $nativeScript = Join-Path $source 'tools\network-lab\windows_native_acceptance.ps1'
-          $tokens = $null
-          $parseErrors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile($nativeScript, [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) {
-            $parseDetails = @($parseErrors | ForEach-Object { "$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber) $($_.Message)" }) -join '; '
-            throw "Native acceptance PowerShell parse errors: $parseDetails"
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1')) {
+            $nativeScript = Join-Path $source "tools\network-lab\$name"
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($nativeScript, [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) {
+              $parseDetails = @($parseErrors | ForEach-Object { "$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber) $($_.Message)" }) -join '; '
+              throw "PowerShell parse errors in ${name}: $parseDetails"
+            }
           }
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
 
@@ -520,7 +526,11 @@ jobs:
           set -euo pipefail
           recipe="$(cygpath -u "$PR_SOURCE")"
           bash -n "$recipe/tools/source-build/ci.sh"
-          bash "$recipe/tools/source-build/ci.sh"
+          root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
+          test ! -e "$root"
+          build_status=0
+          bash "$recipe/tools/source-build/ci.sh" || build_status=$?
+          test -f "$root/output/build.json"
           python - "$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built/output/build.json" <<'PY'
           import hashlib, json, os, subprocess, sys
           from pathlib import Path
@@ -539,7 +549,10 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as outputs:
               outputs.write(f"core-sha256={entry['sha256']}\nwasm-sha256={report['wasm_sha256']}\n")
           PY
+          exit "$build_status"
       - name: Test fresh Windows candidate over loopback
+        id: loopback
+        if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
@@ -551,6 +564,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows loopback fixture tests failed' }
           python windows.py
       - name: Verify and extract pinned CVR installers without running them
+        id: payloads
+        if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
@@ -621,6 +636,7 @@ jobs:
           }
 
       - name: Install, native acceptance, then recover to 2.5.8
+        if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' && steps.loopback.outcome == 'success' && steps.payloads.outcome == 'success' }}
         run: |
           & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
 
@@ -713,9 +729,9 @@ jobs:
                   "productionDeployment": "NOT_AUTHORIZED"},
               "files": {name: {"sha256": digest(out/name), "size": (out/name).stat().st_size} for name in assets},
           }
-          (out / "RC-MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          (out / "RC-MANIFEST.json").write_bytes((json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"))
           assets.append("RC-MANIFEST.json")
-          (out / "SHA256SUMS").write_text("".join(f"{digest(out/name)}  {name}\n" for name in sorted(assets)), encoding="utf-8")
+          (out / "SHA256SUMS").write_bytes("".join(f"{digest(out/name)}  {name}\n" for name in sorted(assets)).encode("utf-8"))
           PY
           notes="$out/RC-NOTES.md"
           cat > "$notes" <<'EOF'
@@ -759,6 +775,27 @@ jobs:
             cmp --silent "$out/$name" "$readback/$name"
           done
           (cd "$readback" && sha256sum --check SHA256SUMS)
+          tag_ref="$(gh api "repos/$repo/git/matching-refs/tags/$tag" --jq ".[] | select(.ref == \"refs/tags/$tag\") | [.object.type,.object.sha] | @tsv")"
+          tag_ref_state=NOT_CREATED_DRAFT
+          if [[ -n "$tag_ref" ]]; then
+            IFS=$'\t' read -r object_type object_sha <<<"$tag_ref"
+            for depth in $(seq 1 8); do
+              [[ "$object_sha" =~ ^[0-9a-f]{40}$ ]]
+              if [[ "$object_type" == commit ]]; then
+                test "$object_sha" = "$HEAD_SHA"
+                tag_ref_state=COMMIT_VERIFIED
+                break
+              fi
+              test "$object_type" = tag
+              target="$(gh api "repos/$repo/git/tags/$object_sha" --jq '[.object.type,.object.sha] | @tsv')"
+              IFS=$'\t' read -r object_type object_sha <<<"$target"
+            done
+            if ! test "$tag_ref_state" = COMMIT_VERIFIED; then
+              printf 'Tag ref did not resolve within %s peels.\n' "$depth" >&2
+              exit 1
+            fi
+          fi
+          printf 'Actual Git tag ref: %s\n' "$tag_ref_state" >> "$GITHUB_STEP_SUMMARY"
           printf 'Draft remains unpublished: %s\nAll seven assets matched exact byte readback.\n' \
             "$(gh api "$api" --jq .html_url)" >> "$GITHUB_STEP_SUMMARY"
       - name: Remove disposable build directories

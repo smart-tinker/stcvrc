@@ -34,11 +34,13 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
         self.assertIn("Fixture Rust standard library MIT license text.", notices)
         self.assertIn("Fixture Rust standard library Apache license text.", notices)
         self.assertIn("Fixture Wintun distribution terms.", notices)
+        self.assertIn("Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.", notices)
+        self.assertIn("Permission is hereby granted", notices)
         self.assertIn("Rust default features: disabled", notices)
         self.assertIn("Build-time tools (not included in the runtime dependency graph)", notices)
         self.assertEqual(
             {item["name"] for item in sources["components"]},
-            {"example.invalid/go-widget", "example-rust-crate", "Rust standard library", "wintun.dll"},
+            {"example.invalid/go-widget", "example-rust-crate", "Rust standard library", "wintun.dll", "WireGuard Wintun Go bindings"},
         )
         self.assertTrue(sources["scope"]["rust_no_default_features"])
         self.assertEqual(sources["scope"]["core_size"], 123)
@@ -53,6 +55,7 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
                 "https://crates.io/crates/example-rust-crate/0.4.2",
                 "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860",
                 "https://www.wintun.net/builds/wintun-0.14.1.zip",
+                "https://github.com/MetaCubeX/sing-tun/tree/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun",
             },
         )
         wintun = next(item for item in sources["components"] if item["name"] == "wintun.dll")
