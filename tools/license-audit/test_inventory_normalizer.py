@@ -45,7 +45,11 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
     def test_rejects_a_runtime_crate_without_a_lockfile_source_digest(self):
         bundle = load_bundle()
-        bundle["rust"]["cargo_lock_text"] = "version = 4\n"
+        bundle["rust"]["cargo_lock_text"] = (
+            'version = 4\\n\\n'
+            '[[package]]\\nname = "example-rust-crate"\\nversion = "0.4.2"\\n'
+            'source = "registry+https://github.com/rust-lang/crates.io-index"\\n'
+        )
 
         with self.assertRaisesRegex(AuditIncomplete, "source digest"):
             normalize_inventory(bundle)
