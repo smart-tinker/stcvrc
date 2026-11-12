@@ -1134,10 +1134,11 @@ jobs:
           export PATH="$root/protoc/bin:$PATH"
           test "$("$PROTOC" --version)" = 'libprotoc 35.1'
           cd "$source"
-          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
           export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$source=/workspace/EasyTier"
           unset RUSTFLAGS
-          cargo fetch --locked --target wasm32-wasip1
+          cargo fetch --locked
           export CARGO_NET_OFFLINE=true
           bash script/build-wasi-core.sh
           git diff --exit-code
