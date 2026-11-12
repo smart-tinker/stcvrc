@@ -265,7 +265,7 @@ function Assert-GlobalUiModesOff {
 }
 
 function Invoke-DnsQuery {
-    param([string]$Name, [int]$Port, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app')][string]$ExpectedResolver)
     $labels = @()
     foreach ($label in $Name.Split('.')) { $encoded = [Text.Encoding]::ASCII.GetBytes($label); $labels += [byte]$encoded.Length; $labels += $encoded }
     $labels += [byte]0
@@ -273,14 +273,15 @@ function Invoke-DnsQuery {
     $udp = [Net.Sockets.UdpClient]::new()
     try {
         $udp.Client.ReceiveTimeout = 4000
-        $endpoint = [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, $Port)
+        $endpoint = [Net.IPEndPoint]::new([Net.IPAddress]::Parse($Address), $Port)
         [void]$udp.Send($query, $query.Length, $endpoint)
         try {
             $reply = $udp.Receive([ref]$endpoint)
         } catch {
             $exceptionType = $_.Exception.GetType().FullName
-            $diagnostics = Get-DnsReceiveDiagnostics -FixtureName $Name -TargetPort $Port -ExpectedResolver $ExpectedResolver
-            throw "Synthetic DNS Receive failed for fixture $Name on local endpoint 127.0.0.1:$Port; expected resolver=$ExpectedResolver ($exceptionType): $($_.Exception.Message); diagnostics=$diagnostics"
+            $diagnostics = Get-DnsReceiveDiagnostics -FixtureName $Name -TargetAddress $Address -TargetPort $Port -ExpectedResolver $ExpectedResolver
+            $target = '{0}:{1}' -f $Address, $Port
+            throw "Synthetic DNS Receive failed for fixture $Name on live core endpoint $target; expected resolver=$ExpectedResolver ($exceptionType): $($_.Exception.Message); diagnostics=$diagnostics"
         }
     } finally { $udp.Dispose() }
     if ($reply.Length -lt 17 -or (($reply[3] -band 0x0f) -ne 0)) { throw "Invoke-DnsQuery received invalid DNS response for $Name." }
@@ -432,7 +433,7 @@ function Get-BoundedLogTail {
     } catch { return @("log-read-error: $($_.Exception.Message)") }
 }
 function Get-DnsReceiveDiagnostics {
-    param([string]$FixtureName, [int]$TargetPort, [string]$ExpectedResolver)
+    param([string]$FixtureName, [string]$TargetAddress, [int]$TargetPort, [string]$ExpectedResolver)
     $ports = @($TargetPort, $script:profileDnsPort, $script:appDnsPort) | Select-Object -Unique
     $listeners = @()
     foreach ($port in $ports) {
@@ -478,7 +479,7 @@ function Get-DnsReceiveDiagnostics {
     $diagnostics = [ordered]@{
         fixture = $FixtureName
         expectedResolver = $ExpectedResolver
-        target = "127.0.0.1:$TargetPort"
+        target = ('{0}:{1}' -f $TargetAddress, $TargetPort)
         runtimeDnsListen = [string]$script:lastRuntimeDnsListen
         fixtureExpectedPort = [int]$script:dnsPort
         udpListeners = $listeners
@@ -766,7 +767,7 @@ function Assert-SelectedProfileReady {
 function Test-FixtureTraffic {
     param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app')][string]$ExpectedResolver)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort
-    $fake=Invoke-DnsQuery -Name $FixtureName -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
+    $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Resolver $ExpectedResolver }
     [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
     Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
@@ -795,7 +796,7 @@ function Test-RejectedFixture {
         [System.Net.Sockets.SocketError]::NetworkReset
     )
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort
-    $fake = Invoke-DnsQuery -Name $FixtureName -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
+    $fake = Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     $client = [Net.Sockets.TcpClient]::new()
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $rejection = $null
@@ -856,7 +857,7 @@ function Test-RejectedFixture {
         }
     } catch { $phaseFailures.Add("post-reject service/route check: $($_.Exception.Message)") }
     try {
-        Test-FixtureTraffic -FixtureName $AllowedControlName -DnsPort $DnsPort -HttpPort $HttpPort
+        Test-FixtureTraffic -FixtureName $AllowedControlName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver $ExpectedResolver
         Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase positive control after reject"
         $routeAfterControl = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
             ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
