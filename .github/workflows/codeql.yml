@@ -23,9 +23,7 @@ jobs:
   analyze:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository)
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -51,3 +49,4 @@ jobs:
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:go
+          upload: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'never' || 'always' }}

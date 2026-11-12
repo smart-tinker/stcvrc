@@ -22,9 +22,7 @@ jobs:
   linux-lab:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository)
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -34,12 +32,13 @@ jobs:
       - name: Read the exact fixture commit without credentials
         env:
           FIXTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          FIXTURE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
         run: |
           set -euo pipefail
           [[ "$FIXTURE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git init --quiet "$GITHUB_WORKSPACE/fixture"
           git -C "$GITHUB_WORKSPACE/fixture" fetch --quiet --depth=1 \
-            https://github.com/smart-tinker/stcvrc.git "$FIXTURE_SHA"
+            https://github.com/smart-tinker/stcvrc.git "$FIXTURE_REF"
           git -C "$GITHUB_WORKSPACE/fixture" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$GITHUB_WORKSPACE/fixture" rev-parse HEAD)" = "$FIXTURE_SHA"
           printf 'Fixture commit: %s\n' "$FIXTURE_SHA"
