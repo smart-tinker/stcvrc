@@ -210,7 +210,26 @@
           "name": "verge-mihomo.exe",
           "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"
         }
-      ]
+      ],
+      "upstream_delta_blobs": {
+        "adapter/outbound/openvpn.go": "d887d946d3b08b8e35837e1ac3090afa2e499f67",
+        "adapter/outbound/openvpn_keepalive_test.go": "3df475f35acbe7f044d0d91b1330b3094599d9c9",
+        "adapter/outboundgroup/urltest.go": "93da0203f0cff9689d12e8987e5f9cd97b6f4343",
+        "adapter/outboundgroup/urltest_test.go": "8be8e9c572b0580733668fa761b4239d5c1dbabb",
+        "go.mod": "9434e5839ec5c17c67942f2d17408318df1b0d49",
+        "go.sum": "75bd3159ed4635cca8f8a677a772d1f23192d348",
+        "transport/openvpn/client.go": "1ba854dceaa098cec21cb8b1a0389655166490ba",
+        "transport/openvpn/control.go": "38f84cef45e2b36750eefd42b747ed4cd9e1ea2b",
+        "transport/openvpn/keepalive.go": "1bc7208cf137645d8de288c2c3937c01421256bc",
+        "transport/openvpn/keepalive_lzo_test.go": "a7162841f14f74c5fff02daf3a4bba63ccca3828",
+        "transport/openvpn/keepalive_test.go": "2ac396902cced83c9489ec700980eb49db2f65f2",
+        "transport/openvpn/lzo.go": "65c6f1887dd5f11763a1841ebdd51c022893f659",
+        "transport/openvpn/lzo_test.go": "e93ea611d4005456c3ddde306491d75b4b8f7050",
+        "transport/openvpn/push.go": "ecc465a7b1dfdd1f376574b0822eefb182678f38",
+        "transport/openvpn/push_keepalive_test.go": "d394c40178ffd1219a390f237599dece84bae261",
+        "transport/openvpn/push_retry_test.go": "687b450436d1890b5d8df126e102d4d481dc7843",
+        "transport/openvpn/rekey_test.go": "87117ad10a903e79a5210ee45a41e67faa15674"
+      }
     }
   ]
 }
