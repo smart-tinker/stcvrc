@@ -63,38 +63,39 @@ requires a new RC. Public RC assets require actual byte readback; stable require
 applicable owner acceptance. RC, stable publication and installed state are
 separate results. Existing tags/assets must remain immutable.
 
-## Windows update and recovery contract
+## Bounded native Windows acceptance
 
-Private captures, profiles, credentials, host plans, deployment commands and
-receipts stay outside this public repository. Prepare a fresh transaction and
-current 2.5.8 preimages rather than replaying an earlier upgrade.
+All machine-specific profiles, credentials, deployment state and private evidence
+stay out of this public repository. The workflow uses only the verified official
+2.5.8 recovery and 2.5.10 update installers on a clean disposable
+windows-2022 runner. It freshly builds the pinned STCVRC core from its exact
+source commit, checks the measured SHA256, and stages those bytes before use.
 
-Before switching:
+The native job first installs 2.5.8 and updates it to 2.5.10. It then starts the
+verified installed GUI and requires an actual native window. Through that
+window's WebView2 Tauri command channel it installs the CVR service, creates two
+generic synthetic local profiles, selects each profile, and reloads A → B → A.
+A local UDP DNS responder and HTTP endpoint supply the only test destinations.
+The test queries CVR's fake-IP DNS listener and sends HTTP traffic to the
+returned synthetic addresses through an explicit 198.18.0.0/16 TUN route. It
+checks the allow/reject rules, that the live service-backed core path and SHA256
+match the fresh source build, and that the service returns to ready state after
+each profile change.
 
-1. Extract the verified installer without executing it; record actual GUI,
-   helper, service and stock-core payload hashes. Do not infer service byte
-   equality from its source version.
-2. Capture current GUI, service, both custom-core copies, owner/run intent,
-   profile/generated configuration, selectors, task security, ACL and native TCP
-   state. Preserve observer history and a usable current-version baseline.
-3. Prepare local verified 2.5.8 recovery, an independent SYSTEM Watch and fresh
-   guarded tasks. Verify Watch before Stop. Quiesce GUI/autostart and keep false
-   run intent **before NSIS or service-helper execution**: the installer can
-   publish/start a stock core and reset TCP settings.
-4. Check Python fixtures, Windows PowerShell 5.1 parsing and the existing actual
-   function mocks for task security, installer children, TCP and generated-file
-   ACL recovery. Use explicit absolute script paths in native mocks. Validate
-   the candidate against its intended configuration before releasing run intent.
+The runner's default routes and DNS servers on physical adapters are snapshotted
+before the native test and compared afterward. Broad /1 routes fail the check;
+the synthetic route is limited to 198.18.0.0/16 and removed during cleanup. The
+test does not enable the system proxy or configure system DNS. It then performs
+the pinned 2.5.8 recovery install and verifies the registered version, preserved
+synthetic profile marker, and staged fresh core.
 
-During the agreed canary window, verify the actual custom core in both validation
-and service execution locations before true run intent. Check fresh process
-identity, configuration generation, selectors, reload, DNS/TUN/system routes,
-TCP/ACL preservation, real consumer behavior and independent fresh SSH before
-confirmation. Test recovery to the captured working 2.5.8 bundle, not an older
-historical version. Test both untouched upgrade and opening/saving the new TUN
-DNS-mode dialog; compare persisted, generated, applied configuration and system
-DNS/routes. Follow with startup/reboot verification and the required qualified
-24-hour observation and owner acceptance. Gaps or unknown identity do not count
-as passing observation.
-
-These checks remain pending until operator-host evidence exists. GitHub Actions runs a bounded Windows install/update smoke on its disposable `windows-2022` runner: it installs the pinned 2.5.8 package, updates to 2.5.10 with `/UPDATE`, checks registry versions and preserves a synthetic profile marker, then stages the freshly built 1.19.33 core with `--install-core`. The NSIS installers reset TCP settings and the service helper adds firewall allow rules, so this is the final step on a clean runner that is discarded after the job. A Windows process-start trace rejects GUI, service or stock-core launches during the smoke. This smoke does not establish user-machine installation, recovery, service startup, TUN/DNS, qualified observation, or owner acceptance. The workflow uses standard public runners and no Actions cache or uploaded artifacts.
+A result is valid only for the exact PR head and successful Windows job. A failed
+or unavailable assertion remains open with its exact CI evidence. This verifies
+the installed GUI/backend start, service mode, synthetic profile reload,
+loopback DNS/TUN traffic, core identity and recovery on one hosted Windows
+image. It does not establish every GUI interaction, external VPN reachability,
+OpenVPN, arbitrary Windows drivers, user profiles or production deployment.
+The workflow uses standard public runners, without secrets, paid runners,
+Actions cache or artifacts. It has no canary, observation-window, or named-person
+acceptance gate. Stable publication still requires a separate explicit owner
+decision and reviewed source/license provenance.
