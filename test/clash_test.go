@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	ImageShadowsocks     = "mritd/shadowsocks:latest"
+	ImageShadowsocks     = "mritd/shadowsocks@sha256:7b6d3b887eb2bf5de27bc164580653baff9f6b9e8a460baaf23e100ca0353405"
 	ImageShadowsocksRust = "ghcr.io/shadowsocks/ssserver-rust:latest"
 	ImageVmess           = "v2fly/v2fly-core:v4.45.2"
 	ImageVmessLatest     = "sagernet/v2fly-core@sha256:327cb91a0428738b4fc0ca9d8bc43b88f194423eec7dd924c3714454320a5c7b"

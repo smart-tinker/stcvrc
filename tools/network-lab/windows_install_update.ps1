@@ -66,10 +66,14 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.repository -ne 'clash-verge-rev/clash-verge-rev' -or (@($manifest.releases | ForEach-Object { $_.version }) -join ',') -ne '2.5.8,2.5.10') {
     throw 'Unexpected pinned CVR release pair.'
 }
-$coreSha = ([string]$manifest.core.sha256).ToLowerInvariant()
-if ($coreSha -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') {
-    throw 'Unexpected fresh STCVRC core pin.'
-}
+if (-not $env:STCVRC_BUILD_JSON -or -not (Test-Path -LiteralPath $env:STCVRC_BUILD_JSON -PathType Leaf)) { throw 'Fresh build identity report is missing.' }
+$build = Get-Content -LiteralPath $env:STCVRC_BUILD_JSON -Raw | ConvertFrom-Json
+$recipeSha = (& git -C $env:PR_SOURCE rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $build.schema_version -ne 1 -or $build.build_host -ne 'windows/amd64' -or $build.recipe_commit -ne $recipeSha) { throw 'Fresh build report does not belong to this Windows recipe.' }
+$coreEntries = @($build.artifacts | Where-Object { $_.name -eq 'verge-mihomo.exe' -and $_.target -eq 'windows/amd64' })
+if ($coreEntries.Count -ne 1 -or $coreEntries[0].sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$coreEntries[0].size -lt 1) { throw 'Fresh Windows artifact identity is invalid.' }
+$coreSha = [string]$coreEntries[0].sha256
+if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].size) { throw 'Fresh Windows artifact size changed after build.' }
 if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf) -or
     (Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
     throw 'Fresh STCVRC core bytes do not match the pinned SHA256.'
@@ -176,25 +180,58 @@ if ($install258 -ne $install2510) { throw 'CVR update changed the registered ins
 Assert-ProfilePreserved -Phase '2.5.10 update'
 Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update'
 
-$installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS')
-if ($installRecovered -ne $install258) { throw 'CVR recovery changed the registered install directory.' }
-Assert-ProfilePreserved -Phase 'recovery'
-Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'
-Assert-NoService
-Assert-NoCvrProcesses
+$nativeFailure = $null
+$nativeScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_acceptance.ps1'
+try {
+    & $nativeScript
+} catch {
+    $nativeFailure = $_.Exception.Message
+    Write-Host "Native acceptance reported failure; continuing the independent 2.5.8 recovery check: $nativeFailure" -ForegroundColor Red
+}
+
+# The acceptance script normally removes its exact service, process tree and synthetic route.
+# Retry cleanup on this disposable runner before invoking the pinned recovery installer.
+if (Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue) {
+    Stop-Service -Name 'clash_verge_service' -Force -ErrorAction SilentlyContinue
+    & sc.exe delete 'clash_verge_service' | Out-Null
+}
+foreach ($name in @('clash-verge', 'clash-verge-service', 'verge-mihomo', 'verge-mihomo-alpha')) {
+    Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 2
+
+$recoveryFailure = $null
+try {
+    $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS')
+    if ($installRecovered -ne $install258) { throw 'CVR recovery changed the registered install directory.' }
+    Assert-ProfilePreserved -Phase 'recovery'
+    Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'
+    Assert-NoService
+    Assert-NoCvrProcesses
+} catch {
+    $recoveryFailure = $_.Exception.Message
+    Write-Host "Pinned CVR 2.5.8 recovery failed: $recoveryFailure" -ForegroundColor Red
+}
+
 Start-Sleep -Milliseconds 250
 $processEvents = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue)
 $processNames = @($processEvents | ForEach-Object { [string]$_.SourceEventArgs.NewEvent.ProcessName })
 Unregister-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue
 $processEvents | Remove-Event -ErrorAction SilentlyContinue
-$forbiddenStarts = @($processNames | Where-Object { $_ -in @('clash-verge.exe', 'clash-verge-service.exe', 'verge-mihomo.exe', 'verge-mihomo-alpha.exe') } | Sort-Object -Unique)
-if ($forbiddenStarts.Count) { throw "Forbidden CVR process started during install smoke: $($forbiddenStarts -join ', ')" }
+$alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' } | Sort-Object -Unique)
+if ($alphaStarts.Count) {
+    $alphaFailure = "Alpha core process started: $($alphaStarts -join ', ')"
+    if ($nativeFailure) { $nativeFailure = "$nativeFailure | $alphaFailure" } else { $nativeFailure = $alphaFailure }
+}
 
-Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value @(
-    '## Bounded CVR Windows install/update smoke',
-    '- Pinned 2.5.8 install, 2.5.10 /UPDATE, and recovery to 2.5.8 passed on the clean disposable runner.',
-    '- Registry versions and the synthetic profile marker were verified.',
-    '- Fresh STCVRC core bytes were SHA-checked in the app and service core locations.',
-    '- No CVR GUI/core process was launched and no Windows service was created or started.',
-    '- NSIS resets TCP settings; the installer helper writes firewall rules. This was the final job step on a disposable runner.'
+$summary = @(
+    '## Bounded CVR install/update/native acceptance/recovery',
+    '- Installed pinned 2.5.8, updated to verified 2.5.10, ran native acceptance on the disposable windows-2022 runner, and attempted pinned recovery to 2.5.8.',
+    '- Native acceptance starts the verified GUI and service, applies generic synthetic profiles, checks DNS/TUN traffic and A-to-B-to-A reload, and binds the live core to the fresh build SHA.',
+    '- Native checks compare default routes and physical DNS before and after; the synthetic route is limited to 198.18.0.0/16.',
+    '- This job does not use production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
+if ($nativeFailure) { $summary += "- Native acceptance: FAIL — $nativeFailure" } else { $summary += '- Native acceptance: PASS.' }
+if ($recoveryFailure) { $summary += "- 2.5.8 recovery: FAIL — $recoveryFailure" } else { $summary += '- 2.5.8 recovery: PASS.' }
+Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+if ($nativeFailure -or $recoveryFailure) { throw "Native acceptance/recovery failed. Native: $nativeFailure; recovery: $recoveryFailure" }

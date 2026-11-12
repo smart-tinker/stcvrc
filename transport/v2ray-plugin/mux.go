@@ -71,7 +71,7 @@ func (m *Mux) Read(b []byte) (int, error) {
 			return 0, err
 		}
 
-		_, err = m.Conn.Read(m.status[:])
+		_, err = io.ReadFull(m.Conn, m.status[:])
 		if err != nil {
 			return 0, err
 		}

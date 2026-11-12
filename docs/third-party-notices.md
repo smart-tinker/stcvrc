@@ -1,10 +1,10 @@
 # Third-party notices — draft and incomplete
 
-> **INCOMPLETE:** This is a partial record for issue #7, not the complete notice set for any STCVRC distribution and not a legal-compliance conclusion. Keep issue #7 open until the remaining dependencies and source obligations are reviewed.
+> **INCOMPLETE:** This is manual source-license evidence for issue #7, not a complete notice set for any STCVRC distribution and not a legal-compliance conclusion. The existing RC7 draft predates the generated notices package and its embedded WASM source mapping remains unproven. A fresh source-built candidate has a separately pinned WASM source; the complete Go/Rust inventory, successful collector run, package readback, and human review are still required.
 
 ## github.com/anchore/go-lzo v0.1.1
 
-Source: [upstream LICENSE](https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE). The current draft RC6 candidate pins this module at v0.1.1 and verifies its Go module checksum in GitHub Actions.
+Source: [upstream LICENSE](https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE). The RC7 draft records this module at v0.1.1. Its notice text is reusable for a later candidate only if that exact module and checksum are selected by the fresh build; the presence of this text does not make the RC7 release package complete.
 
 The following is the complete MIT license text from that pinned upstream version:
 
@@ -82,4 +82,23 @@ The fresh Windows/amd64 `with_gvisor` inventory for source `086a62c3ce9a77f65078
 
 ## Remaining review
 
-This draft does not cover the full dependency inventory, EasyTier LGPL/WASM source mapping, the .33 patch-origin discrepancy, or human review of distribution and source-offer obligations.
+This manual record does not cover the full runtime inventory, Rust dependencies embedded in EasyTier WASM, or human review of distribution and source-offer obligations. The old RC7 WASM source mapping remains unproven: rebuilding from available public EasyTier commits did not reproduce the embedded digest recorded for RC7. A future candidate must use a fresh WASM build from a pinned, available source and inventory the actual Go and Rust runtime graphs before its notices can be marked complete.
+
+The historical RC2 `.33` patch-origin field remains unverified. CI independently checks the exact .33 source tree, source delta, and matching binary; it does not turn the old patch-origin claim into a fact or reuse it as provenance for a new candidate.
+
+## Generated distribution package contract
+
+For a future source-built candidate, CI must generate `THIRD-PARTY-NOTICES.txt` with the complete license texts and `THIRD-PARTY-SOURCES.json` with exact source links and digests. The runtime inventory includes the selected Windows/amd64 `with_gvisor` Go graph, the freshly built EasyTier WASM and its selected Rust target/features/dependency graph, the EasyTier Go adapter, and the Go standard-library license. Build tools and toolchains are listed in a separate appendix so they are not presented as runtime dependencies.
+
+The generator rejects a missing dependency from the independently computed runtime graph, missing/changed license text, unresolved license IDs, or absent source directions. Release assembly must use a new candidate identity, package and hash these outputs with the freshly built core, then read back and verify the draft assets. This contract is not yet evidence that the old RC7 is complete, and no new release is created by this PR.
+
+
+## Fresh candidate notice package
+
+The source-build collector is intended to generate `THIRD-PARTY-NOTICES.txt` and `THIRD-PARTY-SOURCES.json` from the exact Windows/amd64 `with_gvisor` Go dependency graph and the Rust dependency graph used to build EasyTier's embedded WASM. It binds the output to the fresh core SHA, source commits, WASM SHA, Rust target/features, Go target/build tags, and toolchain inputs. It does not use previously published core or WASM bytes as build inputs.
+
+The eight selected MetaCubeX modules have short root `LICENSE` headers that identify GPL version 3 or later; those headers are preserved as per-module supplemental notices. The package also includes the complete pinned GPL-3.0-or-later license text, so a short header is not misrepresented as the full license terms. [Canonical GPL-3.0-or-later text](https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-or-later.txt).
+
+The Windows Go graph embeds `wintun.dll` from [MetaCubeX/sing-tun](https://github.com/MetaCubeX/sing-tun/tree/a128d0c3c8001e041725fa67ff3b521502298f17). The collector compares the selected module's embedded DLL byte-for-byte with the AMD64 DLL in the official [Wintun 0.14.1 distribution](https://www.wintun.net/builds/wintun-0.14.1.zip), verifies the archive SHA256, and includes that archive's own license/redistribution terms as a separate notice. The binding's GPL license does not substitute for the signed DLL's distribution terms.
+
+The Rust package includes full MIT and Apache-2.0 standard-library texts and the pinned Rust toolchain's `COPYRIGHT` and `COPYRIGHT-library.html` files as supplemental notices. `go-licenses` and `cargo-about` are listed separately as build-time tools. The generated files are not currently part of the old RC7 draft. This PR adds the collector implementation; its CI run and a new candidate's draft-asset readback are still required before distribution.

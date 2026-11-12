@@ -46,7 +46,9 @@ fetch_source() {
   test "$(git -C "$path" rev-parse HEAD)" = "$commit"
   test -z "$(git -C "$path" status --porcelain)"
 }
-fetch_source "$core" https://github.com/smart-tinker/stcvrc.git 086a62c3ce9a77f650786ae2eae92b68909d49e1
+fetch_source "$core" https://github.com/smart-tinker/stcvrc.git a884ad53a3999dd35acab979e0bb040c47f6dbc9
+git -C "$core" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
+test "$(git -C "$core" rev-parse 'FETCH_HEAD^{commit}')" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
 fetch_source "$easytier" https://github.com/EasyTier/EasyTier.git 3463190838eb642ba8324c6a4011acdea52495a8
 awk '$1 == "github.com/easytier/easytier/easytier-go" { if ($2 != "v0.0.0-20260910071355-3d0c9c3ca5e2") exit 1; found++ } END { if (found != 1) exit 1 }' "$core/go.mod"
 grep -Fqx 'channel = "1.95"' "$easytier/rust-toolchain.toml"
@@ -191,8 +193,11 @@ if grep -q '^github.com/rasky/go-lzo ' "$root/output/modules.txt"; then
   printf 'Forbidden GPL-only LZO dependency in new candidate.\n' >&2
   exit 1
 fi
-go test -tags=with_gvisor -count=1 -timeout=240s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
-version=1.19.33-STCVRC-candidate-source-wasm-3463190-20261112
+go test -tags=with_gvisor -count=1 -timeout=240s github.com/easytier/easytier/easytier-go/...
+go test -tags=with_gvisor -count=1 -timeout=240s ./transport/openvpn ./transport/v2ray-plugin ./adapter/outbound ./adapter/outboundgroup
+GOFLAGS='-mod=readonly -p=2' go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+govulncheck -tags=with_gvisor ./... | tee "$root/output/govulncheck.txt"
+version=1.19.33-STCVRC-rc.8
 build_time=2026-11-12T00:00:00Z
 ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
 export STCVRC_BUILD_LDFLAGS="$ldflags"
@@ -226,6 +231,10 @@ python - "$recipe" "$root/output" "$wasm" "$core/.ci-build.mod" "$easytier" <<'P
 import hashlib, json, os, subprocess, sys
 from pathlib import Path
 recipe, output, wasm, modfile, easytier = map(Path, sys.argv[1:])
+core = modfile.parent
+upstream = "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
+core_delta = subprocess.check_output(["git", "-C", str(core), "diff", "--name-only", upstream, "HEAD"], text=True).splitlines()
+core_blobs = {path: subprocess.check_output(["git", "-C", str(core), "rev-parse", f"HEAD:{path}"], text=True).strip() for path in sorted(core_delta)}
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 changed = subprocess.check_output(["git", "-C", str(easytier), "ls-files", "--modified", "--others", "--exclude-standard"], text=True).splitlines()
 fixture_patch = "easytier-go/cmd/update-wasm/main_test.go"
@@ -234,9 +243,11 @@ assert not build_test_patches or os.environ["STCVRC_BUILD_HOST"] == "windows/amd
 assert all(path.startswith(("easytier-go/internal/artifact/", "easytier-go/proto/")) or path == fixture_patch for path in changed), changed
 report = {
     "schema_version": 1,
-    "status": "fresh-source-candidate-experiment; no release",
+    "status": "fresh-source-build",
     "recipe_commit": subprocess.check_output(["git", "-C", str(recipe), "rev-parse", "HEAD"], text=True).strip(),
-    "core_source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
+    "core_source_commit": "a884ad53a3999dd35acab979e0bb040c47f6dbc9",
+    "core_upstream_commit": upstream,
+    "core_upstream_delta_blobs": core_blobs,
     "easytier_source_commit": "3463190838eb642ba8324c6a4011acdea52495a8",
     "easytier_original_module_version": "v0.0.0-20260910071355-3d0c9c3ca5e2",
     "easytier_source_change_reason": "upstream PR2588 ABI4/wire3 alignment and PR2754 TCP FIN teardown",
@@ -258,19 +269,20 @@ report = {
     "protoc_version": "35.1",
     "protoc_gen_go_version": "1.36.11",
     "binaryen_version": "131",
-    "version": "1.19.33-STCVRC-candidate-source-wasm-3463190-20261112",
+    "version": "1.19.33-STCVRC-rc.8",
     "build_time": "2026-11-12T00:00:00Z",
     "artifacts": [
         {"name": name, "target": "windows/amd64" if name.endswith(".exe") else "linux/amd64", "sha256": digest(output/name), "size": (output/name).stat().st_size}
         for name in ("core-linux", "verge-mihomo.exe")
     ],
-    "license_review": "INCOMPLETE_ISSUE_7",
-    "native_windows_acceptance": "UNRUN_FOR_THIS_NEW_BINARY",
 }
 text = json.dumps(report, indent=2, sort_keys=True) + "\n"
 (output/"build.json").write_text(text, encoding="utf-8")
 print(text)
 PY
+# Cargo object files are no longer inputs once the generated WASM and core binaries are recorded.
+rm -rf -- "$easytier/target"
+python "$recipe/tools/license-audit/collect.py" --build-root "$root"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     printf '## Fresh source-built dependency and core\n\n'

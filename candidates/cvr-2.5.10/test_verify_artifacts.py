@@ -293,12 +293,11 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
         self.assertIn('$coreVersionOutput = & $stockCore -v 2>&1', block)
         self.assertIn('if ($coreExit -ne 0)', block)
-        self.assertIn('$buildTimeText = ([DateTime]$manifest.core.buildTime).ToUniversalTime()', block)
+        self.assertIn('$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime()', block)
         self.assertIn('ToString("yyyy-MM-ddTHH:mm:ss', block)
-        self.assertIn('$expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"', block)
+        self.assertIn('$expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText"', block)
         self.assertIn('StartsWith($expectedCoreVersion', block)
-        self.assertIn('Native core process smoke passed', block)
-        self.assertLess(block.index('if ($stagedHash -ne $manifest.core.sha256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
+        self.assertLess(block.index('if ($stagedHash -ne $env:CUSTOM_CORE_SHA256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
 
 
     def test_draft_rc_assembly_waits_for_windows_payload(self):
@@ -316,17 +315,17 @@ class DraftRCAssemblyGateTests(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch'", condition)
         self.assertIn("github.ref == 'refs/heads/main'", condition)
 
-    def test_draft_rc_assembly_uses_new_rc7_tag_without_rewriting_rc6(self):
+    def test_draft_rc_assembly_uses_new_rc8_tag_without_rewriting_history(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
         assembly = workflow.split('  assemble-draft-rc:\n', 1)[1]
-        self.assertIn('tag=stcvrc-1.19.33-rc.7', assembly)
-        self.assertIn('--title "STCVRC 1.19.33 RC7 — CVR 2.5.10 candidate"', assembly)
+        self.assertIn('tag=stcvrc-1.19.33-rc.8', assembly)
+        self.assertIn("STCVRC 1.19.33 RC8 — source-built candidate", assembly)
         self.assertIn('if [[ -z "$release_id" ]]; then', assembly)
         lookup = assembly.index('gh api "repos/$repo/git/matching-refs/tags/$tag"')
         create = assembly.index('gh release create')
         self.assertLess(lookup, create)
         self.assertIn('grep -Fxq "refs/tags/$tag"', assembly)
-        self.assertIn('Protected tag already exists without a release', assembly)
+        self.assertIn('Protected tag exists without this draft', assembly)
         self.assertNotIn('--clobber', assembly)
 
 if __name__ == '__main__':

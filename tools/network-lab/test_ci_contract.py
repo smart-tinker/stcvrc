@@ -72,11 +72,11 @@ class CIContractTests(unittest.TestCase):
             "dependency-review.yml",
         })
         release_workflow = WORKFLOWS["test.yml"]
-        release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
+        release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
         self.assertIn("github.event_name == 'workflow_dispatch'", release_job)
         self.assertIn("github.repository == 'smart-tinker/stcvrc'", release_job)
         self.assertIn("github.ref == 'refs/heads/main'", release_job)
-        self.assertIn("runs-on: ubuntu-24.04", release_job)
+        self.assertIn("runs-on: windows-2022", release_job)
         self.assertIn("permissions:\n      contents: write", release_job)
         self.assertIn("!github.event.repository.private", release_job)
         self.assertEqual(release_job.count("GH_TOKEN: ${{ github.token }}"), 1)
@@ -92,17 +92,7 @@ class CIContractTests(unittest.TestCase):
             self.assertIn("!github.event.repository.private", workflow, name)
             self.assertNotIn("!github.event.pull_request.draft", workflow, name)
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
-            runners = set(re.findall(r"runs-on: (.+)", workflow))
-            if "${{ matrix.runner }}" in runners:
-                self.assertEqual(workflow.count("runs-on: ${{ matrix.runner }}"), 1)
-                self.assertIn(
-                    "    strategy:\n      fail-fast: false\n      matrix:\n"
-                    "        runner: [ubuntu-24.04, windows-2022]\n"
-                    "    runs-on: ${{ matrix.runner }}",
-                    workflow,
-                )
-                runners.remove("${{ matrix.runner }}")
-            self.assertTrue(runners <= {"ubuntu-24.04", "windows-2022"})
+            self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
         for name in ("test.yml", "stcvrc-network-lab.yml", "codeql.yml"):
             self.assertIn("push:\n    branches: [main]", WORKFLOWS[name], name)
 
@@ -197,19 +187,14 @@ class CIContractTests(unittest.TestCase):
 
     def test_candidate_go_toolchain_matches_fresh_rebuilds(self):
         manifest = json.loads((ROOT / "candidates/cvr-2.5.10/inputs.json").read_text(encoding="utf-8"))
+        builder = (ROOT / "tools/source-build/ci.sh").read_text(encoding="utf-8")
         version = manifest["core"]["goVersion"]
-        go_pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
-        package_job = WORKFLOWS["test.yml"].split("\n  cvr-2-5-10-package:\n", 1)[1].split("\n  cvr-windows-payload:\n", 1)[0]
-        windows_job = WORKFLOWS["test.yml"].split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
-        linux_archive = re.search(r"https://go\.dev/dl/go([0-9.]+)\.linux-amd64\.tar\.gz", package_job)
-        windows_archive = re.search(r"https://go\.dev/dl/go([0-9.]+)\.windows-amd64\.zip", windows_job)
-        self.assertIsNotNone(linux_archive)
-        self.assertIsNotNone(windows_archive)
-        self.assertEqual(version, linux_archive.group(1))
-        self.assertEqual(version, windows_archive.group(1))
-        self.assertEqual(manifest["core"]["goArchiveSha256"], go_pins["GO_SHA256"])
-        self.assertIn(re.escape("go" + version), windows_job)
-
+        self.assertIn(f"go{version}.linux-amd64.tar.gz", builder)
+        self.assertIn(f"go{version}.windows-amd64.zip", builder)
+        job = WORKFLOWS["test.yml"].split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
+        self.assertIn('tools/source-build/ci.sh', job)
+        self.assertIn('STCVRC_BUILD_JSON', job)
+        self.assertIn('CUSTOM_CORE_SHA256', job)
 
     def test_build_temporaries_and_cleanup_are_scoped(self):
         self.assertIn('${RUNNER_TEMP:-$HERE}/stcvrc-ci.XXXXXXXX', SCRIPT)
@@ -219,20 +204,21 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn('rm -rf /tmp', SCRIPT)
 
 
-    def test_windows_installer_update_hash_matches_candidate_manifest(self):
-        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        manifest = json.loads((ROOT / "candidates/cvr-2.5.10/inputs.json").read_text(encoding="utf-8"))
-        pinned = re.search(r"\$coreSha -ne '([0-9a-f]{64})'", script)
-        self.assertIsNotNone(pinned)
-        self.assertEqual(pinned.group(1), manifest["core"]["sha256"])
-
+    def test_windows_acceptance_binds_same_job_build_report_and_bytes(self):
+        for name in ("windows_install_update.ps1", "windows_native_acceptance.ps1"):
+            source = (HERE / name).read_text(encoding="utf-8")
+            with self.subTest(script=name):
+                for guard in ("STCVRC_BUILD_JSON", "$build.recipe_commit -ne $recipeSha",
+                              "$build.build_host -ne 'windows/amd64'", "$coreEntries.Count -ne 1",
+                              "$coreEntries[0].size", "Get-FileHash", "$coreSha"):
+                    self.assertIn(guard, source)
+                self.assertNotIn("d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87", source)
 
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]
         job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
-        self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", job)
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
         for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "ci-update-preserve.yaml"):
             with self.subTest(required=required):
@@ -247,26 +233,69 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn("$profileRoot = Split-Path -Parent $profileDirectory", script)
 
 
-    def test_install_smoke_traces_forbidden_process_starts(self):
+    def test_native_acceptance_is_traced_and_only_alpha_is_forbidden(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
         for required in (
             "Register-CimIndicationEvent",
             "Win32_ProcessStartTrace",
-            "clash-verge.exe",
-            "clash-verge-service.exe",
-            "verge-mihomo.exe",
             "verge-mihomo-alpha.exe",
-            "Forbidden CVR process started during install smoke:",
+            "$nativeScript",
+            "$alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' }",
+            "if ($alphaStarts.Count)",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, script)
+        self.assertIn("& $nativeScript", script)
+        self.assertIn("Start-Process -FilePath $guiPath", native)
+        self.assertIn("install_service", native)
+        self.assertIn("$expectedServiceExe = Join-Path $serviceData", native)
+        self.assertIn("CVR_2510_SERVICE_SHA256", native)
+        self.assertIn("$serviceHash -ne $env:CVR_2510_SERVICE_SHA256", native)
+        self.assertIn("get_core_startup_error", native)
+        self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
+
+    def test_source_job_parses_native_windows_powershell_before_build(self):
+        workflow = WORKFLOWS["test.yml"]
+        job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
+        step_name = "Parse native Windows acceptance PowerShell"
+        parse_step = job.split("      - name: " + step_name, 1)[1].split("      - name:", 1)[0]
+        self.assertIn("pwsh -NoLogo -NoProfile -NonInteractive", parse_step)
+        self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", parse_step)
+        self.assertIn("[ref]$parseErrors", parse_step)
+        self.assertIn("$parseErrors.Count -gt 0", parse_step)
+        self.assertLess(job.index("Read the source revision being checked"), job.index(step_name))
+        self.assertLess(job.index(step_name), job.index("Install checksum-pinned Go and workflow linter"))
+
+
+    def test_native_powershell_is_parsed_before_core_setup(self):
+        workflow = WORKFLOWS["test.yml"]
+        job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
+        fetch = job.split("      - name: Fetch the exact PR source", 1)[1].split(
+            "      - name: Fresh native Windows core build", 1
+        )[0]
+        self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", fetch)
+        self.assertIn("[ref]$parseErrors", fetch)
+        self.assertIn("$parseErrors.Count -gt 0", fetch)
+        self.assertLess(fetch.index("Parser]::ParseFile"), job.index("Fresh native Windows core build"))
+
+
+    def test_profile_selection_precedes_tun_and_readiness_checks_follow_tun(self):
+        script = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
+        select = script.split("function Select-FixtureProfile", 1)[1].split(
+            "function Assert-SelectedProfileReady", 1
+        )[0]
+        self.assertNotIn("Wait-ServiceReady", select)
+        phase = script.split("if ($uidA) {", 1)[1].split("if ($uidB) {", 1)[0]
+        self.assertLess(phase.index("Select-FixtureProfile"), phase.index("patch_verge_config"))
+        self.assertLess(phase.index("patch_verge_config"), phase.index("Assert-SelectedProfileReady"))
 
 
     def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        workflow = WORKFLOWS["test.yml"]
         recovery = "$installRecovered = Invoke-CvrInstaller -Version '2.5.8'"
         self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
+        self.assertLess(script.index("& $nativeScript"), script.index(recovery))
         recovery_script = script[script.index(recovery):]
         for required in (
             "Assert-ProfilePreserved -Phase 'recovery'",
@@ -276,25 +305,25 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, recovery_script)
         self.assertIn('throw "CVR $Phase did not preserve the synthetic profile marker."', script)
         self.assertIn('throw "Fresh candidate core was not restored after $Phase."', script)
-        self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", workflow)
 
 
-    def test_rc7_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
-        assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
-        self.assertIn("tag=stcvrc-1.19.33-rc.7", assembly)
-        self.assertIn("STCVRC 1.19.33 RC7", assembly)
-        self.assertIn('test "$release_target" = "$HEAD_SHA"', assembly)
-        for status in (
-            '"disposableWindowsInstallUpdateRecovery": "PASS"',
-            '"authenticodeSignerAcceptance": "NOT_REVIEWED"',
-            '"nativeGuiServiceTunDns": "NOT_RUN"',
-            '"licenseAudit": "INCOMPLETE_ISSUE_7"',
-            '"userAcceptance": "NOT_RUN"',
-            '"productionDeployment": "NOT_AUTHORIZED"',
-        ):
-            with self.subTest(status=status):
-                self.assertEqual(assembly.count(status), 2)
-
+    def test_draft_assembly_uses_exact_native_tested_bytes_and_complete_package(self):
+        assembly = WORKFLOWS["test.yml"].split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
+        self.assertIn("tag=stcvrc-1.19.33-rc.8", assembly)
+        self.assertIn("runs-on: windows-2022", assembly)
+        for gate in ("source", "vulnerability-scan", "profile-contract", "cvr-2-5-10-package", "cvr-windows-payload", "test-module", "license-audit"):
+            self.assertIn("      - " + gate, assembly)
+        for guard in ("needs.cvr-windows-payload.outputs.core-sha256",
+                      "needs.cvr-windows-payload.outputs.wasm-sha256",
+                      'core["sha256"] == native_sha == digest(out / "verge-mihomo.exe")',
+                      'build["wasm_sha256"] == native_wasm',
+                      'cmp --silent "$out/$name" "$readback/$name"',
+                      "sha256sum --check SHA256SUMS",
+                      "THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-SOURCES.json",
+                      '"productionDeployment": "NOT_AUTHORIZED"'):
+            with self.subTest(guard=guard):
+                self.assertIn(guard, assembly)
+        self.assertNotIn("--clobber", assembly)
 
     def test_installed_gui_matches_exact_extracted_release_payload(self):
         workflow = WORKFLOWS["test.yml"]
@@ -310,11 +339,10 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, workflow + script)
 
 
-    def test_rc5_manifest_schema_version_is_read_back(self):
-        assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
-        self.assertIn('"schemaVersion": 2,', assembly)
-        self.assertIn('manifest.get("schemaVersion") != 2', assembly)
-
+    def test_rc_manifest_is_read_back_as_exact_bytes(self):
+        assembly = WORKFLOWS["test.yml"].split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
+        self.assertIn('"schemaVersion": 3', assembly)
+        self.assertIn('cmp --silent "$out/$name" "$readback/$name"', assembly)
 
     def test_failover_labs_use_fresh_mit_lzo_source_on_linux_and_windows(self):
         source_sha = "086a62c3ce9a77f650786ae2eae92b68909d49e1"
@@ -333,7 +361,10 @@ class CIContractTests(unittest.TestCase):
             chr(10) + "  assemble-draft-rc:" + chr(10), 1
         )[0]
         self.assertIn("Fresh native Windows core build", job)
-        self.assertIn("$sourceSha = '086a62c3ce9a77f650786ae2eae92b68909d49e1'", job)
+        builder = (ROOT / "tools/source-build/ci.sh").read_text(encoding="utf-8")
+        self.assertIn("a884ad53a3999dd35acab979e0bb040c47f6dbc9", builder)
+        self.assertIn("3463190838eb642ba8324c6a4011acdea52495a8", builder)
+        self.assertIn("STCVRC_BUILD_JSON", job)
         self.assertIn("Test fresh Windows candidate over loopback", job)
         self.assertLess(job.index("Fresh native Windows core build"),
                         job.index("Test fresh Windows candidate over loopback"))

@@ -65,53 +65,20 @@ class DistributionAuditContractTests(unittest.TestCase):
             },
         )
 
-    def test_ci_audits_manifest_without_release_binary_artifacts_or_cache(self):
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("license-audit:", workflow, "license audit job is missing")
+    def test_required_license_job_collects_the_actual_fresh_build_graph(self):
+        workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+        job = workflow.split("\n  license-audit:\n", 1)[1]
+        builder = (ROOT / "tools/source-build/ci.sh").read_text(encoding="utf-8")
         self.assertIn("permissions:\n  contents: read", workflow)
-        job_lines = []
-        in_job = False
-        for line in workflow.splitlines():
-            if line == "  license-audit:":
-                in_job = True
-                continue
-            if in_job and line.startswith("  ") and not line.startswith("    "):
-                break
-            if in_job:
-                job_lines.append(line)
-        job = "\n".join(job_lines)
-        self.assertNotRegex(job, r"(?m)^    permissions:", "license job must inherit workflow-level read-only permissions")
-        for required in (
-            "runs-on: ubuntu-24.04",
-            '"$dir/go/bin/go"',
-            "AUDIT_COMMIT:",
-            "git -C \"$audit_root\" fetch",
-            "python3 - \"$RUNNER_TEMP/audit-definition\"",
-            "root = Path(audit_root)",
-            "license_findings=0",
-            "report_status=0",
-            "save_status=0",
-            'mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"',
-            'test ! -e "$licenses"',
-            "go-licenses-report.stderr",
-            "go-licenses-save.stderr",
-            "chmod -R u+w",
-            "manual license review is required",
-            "github.com/google/go-licenses/v2@v2.0.1",
-            "report .",
-            "save . --save_path=",
-            "with_gvisor",
-            "7b93ba0e1439e7f27629743bed550d99e7f9c9a4",
-            "d888dfad5e785217778bb7515c931840d5307dd4",
-        ):
-            self.assertIn(required, job)
-        self.assertIn("go-licenses", job)
-        self.assertNotIn('mkdir -p "$gopath" "$modcache" "$gocache" "$gobin" "$licenses"', job)
-        self.assertLess(job.index('test ! -e "$licenses"'), job.index('"$gobin/go-licenses" save'))
-        for forbidden in ("actions/upload-artifact", "actions/cache", "secrets.", "releases/download"):
-            self.assertNotIn(forbidden, job.lower())
+        self.assertIn("runs-on: ubuntu-24.04", job)
+        self.assertNotRegex(job, r"(?m)^    permissions:")
+        self.assertIn('bash "$recipe/tools/source-build/ci.sh"', job)
+        self.assertIn('python "$recipe/tools/license-audit/collect.py" --build-root "$root"', builder)
+        self.assertIn('go test -tags=with_gvisor -count=1 -timeout=240s github.com/easytier/easytier/easytier-go/...', builder)
+        self.assertIn('govulncheck -tags=with_gvisor ./...', builder)
+        for forbidden in ("actions/upload-artifact", "actions/cache", "secrets.", "GH_TOKEN", "releases/download"):
+            self.assertNotIn(forbidden, job)
         self.assertIn("tools/license-audit/**", workflow)
-        self.assertIn("tools/license-audit", workflow)
 
     def test_release_documentation_links_the_audit_record(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -125,21 +92,6 @@ class DistributionAuditContractTests(unittest.TestCase):
                 workflow,
                 f"{path} must remain in push filters; all pull requests run",
             )
-
-    def test_incomplete_and_unknown_report_status_survives_summary_pipeline(self):
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("license-audit:", workflow)
-        report_start = workflow.index("            local report_status=0")
-        report_pipeline_end = workflow.index('            } | tee -a "$GITHUB_STEP_SUMMARY"', report_start)
-        save_start = workflow.index("            local save_status=0", report_pipeline_end)
-        report_section = workflow[report_start:save_start]
-        finding = report_section.index("license_findings=1")
-        self.assertGreater(
-            finding,
-            report_pipeline_end - report_start,
-            "license finding state must be set after the piped summary group",
-        )
-        self.assertIn('tolower($3) == "unknown"', report_section, "unclassified license rows must require manual review")
 
 
     def test_draft_rc7_mit_lzo_candidate_pins_exact_source_and_build(self):
@@ -168,19 +120,6 @@ class DistributionAuditContractTests(unittest.TestCase):
             {"name": "verge-mihomo.exe", "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"},
         ])
         self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.7")
-
-    def test_license_ci_builds_the_exact_draft_rc7_mit_lzo_source(self):
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        for required in (
-            "candidate-1.19.33-mit-lzo",
-            "086a62c3ce9a77f650786ae2eae92b68909d49e1",
-            "github.com/anchore/go-lzo v0.1.1",
-            "github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=",
-            "github.com/rasky/go-lzo",
-            '$1 == "github.com/anchore/go-lzo" && $3 == "MIT"',
-            "Reference release asset SHA256",
-        ):
-            self.assertIn(required, workflow)
 
 
     def test_public_notice_includes_mit_lzo_and_flags_unresolved_chacha(self):
@@ -236,22 +175,6 @@ SOFTWARE.""",
         self.assertIn("dependency-caching: false", codeql)
         self.assertNotIn("actions/cache", codeql)
 
-    def test_ci_verifies_exact_pinned_chacha_license_provenance(self):
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        license_job = workflow[workflow.index("  license-audit:"):]
-        for required in (
-            "- name: Verify pinned MetaCubeX chacha MIT license provenance",
-            "awk '$1 == \"github.com/metacubex/chacha\" { if ($2 != \"v0.1.5\") exit 1; found++ } END { if (found != 1) exit 1 }' \"$candidate_source/go.mod\"",
-
-            "07294f500ca8384015f6cc21311de7b6f093607d",
-            "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
-            "git -C \"$chacha\" diff --name-status",
-            ":(exclude)LICENSE",
-            "MIT License",
-            "Copyright (c) 2016 Andreas Auernhammer",
-            "Copyright (c) 2025 MetaCubex",
-        ):
-            self.assertIn(required, license_job)
 
     def test_rc7_mit_lzo_manifest_maps_exact_upstream_source_delta(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
@@ -280,17 +203,6 @@ SOFTWARE.""",
             self.assertRegex(blob_sha, r"^[0-9a-f]{40}$", path)
 
 
-    def test_license_audit_receives_rc7_upstream_and_checkout_arguments(self):
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        invocation = next(
-            line for line in workflow.splitlines()
-            if 'python3 - "$RUNNER_TEMP/audit-definition"' in line
-        )
-        self.assertIn('"$mit_lzo_upstream" "$mit_lzo_candidate"', invocation)
-        self.assertIn(
-            "patch_subject, mit_lzo_upstream, mit_lzo_candidate = sys.argv[1:]",
-            workflow,
-        )
 
     def test_mit_lzo_provenance_tracks_current_rc7_draft_assets(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
@@ -323,16 +235,6 @@ SOFTWARE.""",
         self.assertEqual(source["binary"]["release_id"], candidate["release_id"])
         self.assertEqual(source["binary"]["manifest_sha256"], candidate["release_assets"][0]["sha256"])
 
-    def test_license_audit_checks_source_manifest_against_exact_candidate_checkout(self):
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        for required in (
-            'candidate_source_path = root / "candidates/v1.19.33-20261022/source.json"',
-            'candidate_source = json.loads(candidate_source_path.read_text(encoding="utf-8"))',
-            'candidate_source["source"]["upstream_delta_blobs"] == mit_lzo_expected',
-            'candidate_source["binary"]["sha256"] == mit_lzo_source["asset_sha256"]',
-            'candidate_source["toolchain"]["archive_sha256"] == mit_lzo_source["go_sha256"]',
-        ):
-            self.assertIn(required, workflow)
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ name: STCVRC source checks
       - docs/third-party-notices.md
       - tools/license-audit/**
       - tools/source-build/**
+      - tools/linux-maintenance/**
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
@@ -167,6 +168,22 @@ jobs:
           git -C "$GITHUB_WORKSPACE/source" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$GITHUB_WORKSPACE/source" rev-parse HEAD)" = "$SOURCE_SHA"
           printf 'Source commit: %s\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Parse native Windows acceptance PowerShell
+        working-directory: source
+        run: |
+          set -euo pipefail
+          script="$GITHUB_WORKSPACE/source/tools/network-lab/windows_native_acceptance.ps1"
+          test -f "$script"
+          NATIVE_SCRIPT="$script" pwsh -NoLogo -NoProfile -NonInteractive -Command - <<'POWERSHELL'
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($env:NATIVE_SCRIPT, [ref]$tokens, [ref]$parseErrors)
+            foreach ($parseError in $parseErrors) {
+              Write-Error "$($parseError.Extent.StartLineNumber):$($parseError.Message)"
+            }
+            if ($parseErrors.Count -gt 0) { exit 1 }
+          POWERSHELL
 
       - name: Install checksum-pinned Go and workflow linter
         run: |
@@ -458,8 +475,11 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private
     needs: cvr-2-5-10-package
+    outputs:
+      core-sha256: ${{ steps.build.outputs.core-sha256 }}
+      wasm-sha256: ${{ steps.build.outputs.wasm-sha256 }}
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 60
     defaults:
       run:
         shell: pwsh
@@ -473,6 +493,8 @@ jobs:
           $source = Join-Path $env:RUNNER_TEMP 'cvr-pr-source'
           git init --quiet $source
           if ($LASTEXITCODE -ne 0) { throw 'git init failed' }
+          git -C $source config core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'git configuration failed' }
           git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
           if ($LASTEXITCODE -ne 0) { throw 'git remote add failed' }
           git -C $source fetch --quiet --depth=1 --no-tags origin $env:SOURCE_SHA
@@ -481,88 +503,49 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
+          $nativeScript = Join-Path $source 'tools\network-lab\windows_native_acceptance.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($nativeScript, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseDetails = @($parseErrors | ForEach-Object { "$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber) $($_.Message)" }) -join '; '
+            throw "Native acceptance PowerShell parse errors: $parseDetails"
+          }
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
 
       - name: Fresh native Windows core build
+        id: build
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $goZip = Join-Path $env:RUNNER_TEMP 'go1.26.11.windows-amd64.zip'
-          & curl.exe --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error https://go.dev/dl/go1.26.11.windows-amd64.zip -o $goZip
-          if ($LASTEXITCODE -ne 0) { throw 'Go toolchain download failed' }
-          $goHash = (Get-FileHash -LiteralPath $goZip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($goHash -ne '71ae086f0137e665f855a811cc119152b6a783e0bbc1b906e709f46d80141eb0') { throw 'Go toolchain SHA256 mismatch' }
-          $goRoot = Join-Path $env:RUNNER_TEMP 'go-toolchain'
-          Expand-Archive -LiteralPath $goZip -DestinationPath $goRoot
-          $go = Join-Path $goRoot 'go\bin\go.exe'
-          if (-not (Test-Path -LiteralPath $go)) { throw 'Go toolchain missing after extraction' }
-          $goVersion = (& $go version).Trim()
-          if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch 'go1\.26\.11') { throw 'Unexpected Go toolchain version' }
-          $env:PATH = "$(Split-Path -Parent $go);$env:PATH"
-          $env:GOENV = 'off'
-          $env:GOTOOLCHAIN = 'local'
-          $env:GOWORK = 'off'
-          $env:GOTELEMETRY = 'off'
-          $env:CGO_ENABLED = '0'
-          $env:GOAMD64 = 'v1'
-          $env:GOMAXPROCS = '2'
-          $env:GOFLAGS = '-mod=readonly -p=2'
-          $env:GOPATH = Join-Path $env:RUNNER_TEMP 'cvr-gopath'
-          $env:GOMODCACHE = Join-Path $env:RUNNER_TEMP 'cvr-modcache'
-          $env:GOCACHE = Join-Path $env:RUNNER_TEMP 'cvr-gocache'
-          New-Item -ItemType Directory -Force -Path $env:GOPATH,$env:GOMODCACHE,$env:GOCACHE | Out-Null
-          $source = Join-Path $env:RUNNER_TEMP 'cvr-mit-lzo-source'
-          git init --quiet $source
-          if ($LASTEXITCODE -ne 0) { throw 'candidate git init failed' }
-          git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
-          if ($LASTEXITCODE -ne 0) { throw 'candidate git remote failed' }
-          $sourceSha = '086a62c3ce9a77f650786ae2eae92b68909d49e1'
-          git -C $source fetch --quiet --depth=1 --no-tags origin $sourceSha
-          if ($LASTEXITCODE -ne 0) { throw 'candidate source fetch failed' }
-          git -C $source checkout --quiet --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'candidate checkout failed' }
-          $actualSource = (& git -C $source rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $actualSource -ne $sourceSha) { throw 'candidate source SHA mismatch' }
-          $upstreamSha = '3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8'
-          git -C $source fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
-          if ($LASTEXITCODE -ne 0) { throw 'upstream source fetch failed' }
-          $actualUpstream = (& git -C $source rev-parse 'FETCH_HEAD^{commit}').Trim()
-          if ($LASTEXITCODE -ne 0 -or $actualUpstream -ne $upstreamSha) { throw 'upstream tag SHA mismatch' }
-          Push-Location $source
-          try {
-            $modules = & $go list -m all
-            if ($LASTEXITCODE -ne 0) { throw 'go list failed' }
-            if ($modules -notcontains 'github.com/anchore/go-lzo v0.1.1') { throw 'MIT LZO decoder is not pinned' }
-            if ($modules | Where-Object { $_ -match '^github.com/rasky/go-lzo ' }) { throw 'GPL-only LZO dependency remains' }
-            & $go mod verify
-            if ($LASTEXITCODE -ne 0) { throw 'go mod verify failed' }
-            $version = '1.19.33-STCVRC-candidate-mit-lzo-20261111'
-            $buildTime = '2026-11-11T00:00:00Z'
-            $ldflags = "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$buildTime"
-            $core = Join-Path $env:RUNNER_TEMP 'verge-mihomo-fresh-windows.exe'
-            & $go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags $ldflags -o $core .
-            if ($LASTEXITCODE -ne 0) { throw 'fresh native Windows core build failed' }
-            $status = (& git status --porcelain)
-            if ($LASTEXITCODE -ne 0 -or $status) { throw 'candidate source tree changed during build' }
-          } finally {
-            Pop-Location
-          }
-          $coreHash = (Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
-          $coreSize = (Get-Item -LiteralPath $core).Length
-          Write-Host "Fresh Windows/amd64 candidate SHA256: $coreHash; $coreSize bytes"
-          if ($coreHash -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') { throw 'fresh native Windows core SHA256 mismatch' }
-          if ($coreSize -ne 61238272) { throw 'fresh native Windows core size mismatch' }
-          Add-Content -Path $env:GITHUB_ENV -Value "CUSTOM_CORE=$core"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Fresh Windows/amd64 build: source $sourceSha, Go 1.26.11, SHA256 $coreHash, $coreSize bytes."
-
+          set -euo pipefail
+          recipe="$(cygpath -u "$PR_SOURCE")"
+          bash -n "$recipe/tools/source-build/ci.sh"
+          bash "$recipe/tools/source-build/ci.sh"
+          python - "$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built/output/build.json" <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          report_path = Path(sys.argv[1]).resolve()
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          expected_recipe = subprocess.check_output(["git", "-C", os.environ["PR_SOURCE"], "rev-parse", "HEAD"], text=True).strip()
+          assert report["recipe_commit"] == expected_recipe and report["build_host"] == "windows/amd64"
+          entries = [item for item in report["artifacts"] if item["name"] == "verge-mihomo.exe" and item["target"] == "windows/amd64"]
+          assert len(entries) == 1
+          entry = entries[0]
+          core = report_path.parent / entry["name"]
+          assert core.stat().st_size == entry["size"]
+          assert hashlib.sha256(core.read_bytes()).hexdigest() == entry["sha256"]
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"CUSTOM_CORE={core}\nCUSTOM_CORE_SHA256={entry['sha256']}\nSTCVRC_BUILD_JSON={report_path}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as outputs:
+              outputs.write(f"core-sha256={entry['sha256']}\nwasm-sha256={report['wasm_sha256']}\n")
+          PY
       - name: Test fresh Windows candidate over loopback
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $env:PATH += ';C:\Program Files\Git\usr\bin'
           $env:STCVRC_CORE_PATH = $env:CUSTOM_CORE
-          $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
-          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-          $env:STCVRC_CORE_SHA256 = [string]$manifest.core.sha256
+          $env:STCVRC_CORE_SHA256 = $env:CUSTOM_CORE_SHA256
           Set-Location (Join-Path $env:PR_SOURCE 'tools\network-lab')
           python -m unittest discover -v -p 'test_*.py'
           if ($LASTEXITCODE -ne 0) { throw 'Windows loopback fixture tests failed' }
@@ -572,12 +555,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $build = Get-Content -LiteralPath $env:STCVRC_BUILD_JSON -Raw | ConvertFrom-Json
           $versions = @($manifest.releases | ForEach-Object { $_.version }) -join ','
           if ($versions -ne '2.5.8,2.5.10') { throw 'Unexpected CVR recovery/update pair' }
           $root = Join-Path $env:RUNNER_TEMP 'cvr-installer-payloads'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nThe pinned installers are extracted and then exercised in a clean install/update smoke on this disposable windows-2022 runner. The test does not launch the GUI or start the service."
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## CVR installer payload extraction`n`nPinned installers are extracted, then the disposable windows-2022 runner performs the install/update/native acceptance/recovery sequence. The acceptance launches the verified GUI and service and uses generic local fixtures only."
           foreach ($release in $manifest.releases) {
             $asset = $release.assets.installer
             if ([IO.Path]::GetFileName([string]$asset.name) -ne $asset.name -or $asset.file -ne $asset.name) { throw 'Unsafe installer filename' }
@@ -609,7 +593,7 @@ jobs:
             if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_GUI_SHA256=$guiHash" }
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n### CVR $($release.version)`n- Installer SHA256: $installerHash`n- Authenticode: $authenticode`n- Extracted files: $($files.Count)"
             if ($release.version -eq '2.5.10') {
-              foreach ($name in @('clash-verge.exe','clash-verge-service-install.exe','verge-mihomo.exe','verge-mihomo-alpha.exe')) {
+              foreach ($name in @('clash-verge.exe','clash-verge-service-install.exe','clash-verge-service.exe','verge-mihomo.exe','verge-mihomo-alpha.exe')) {
                 $matches = @($files | Where-Object { $_.Name -ieq $name })
                 if ($matches.Count -ne 1) { throw "CVR 2.5.10 payload expected one $name, found $($matches.Count)" }
                 $file = $matches[0]
@@ -617,25 +601,26 @@ jobs:
                 $fileAuth = (Get-AuthenticodeSignature -LiteralPath $file.FullName).Status
                 $relative = $file.FullName.Substring($extract.Length).TrimStart('\','/')
                 Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- ``$relative`` — SHA256 ``$fileHash``; Authenticode ``$fileAuth``."
+                if ($name -eq 'clash-verge-service.exe') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_SHA256=$fileHash" }
                 if ($name -eq 'verge-mihomo.exe') { $stockCore = $file.FullName }
               }
               Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $stockCore -Force
               $stagedHash = (Get-FileHash -LiteralPath $stockCore -Algorithm SHA256).Hash.ToLowerInvariant()
-              if ($stagedHash -ne $manifest.core.sha256) { throw 'Fresh custom core did not replace the extracted stock core bytes' }
+              if ($stagedHash -ne $env:CUSTOM_CORE_SHA256) { throw 'Fresh custom core did not replace the extracted stock core bytes' }
               $coreVersionOutput = & $stockCore -v 2>&1
               $coreExit = $LASTEXITCODE
               $coreVersionOutput = $coreVersionOutput -join "`n"
               if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
-              $buildTimeText = ([DateTime]$manifest.core.buildTime).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-              $expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"
+              $buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+              $expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText"
               if (-not $coreVersionOutput.StartsWith($expectedCoreVersion, [System.StringComparison]::Ordinal)) {
                 throw "Fresh custom core -v reported an unexpected version. Expected prefix: [$expectedCoreVersion]; actual: [$coreVersionOutput]"
               }
-              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nNative core process smoke passed for the SHA-verified 1.19.33 Windows/amd64 candidate using -v. The final 2.5.8 install and 2.5.10 /UPDATE smoke is monitored for GUI, service and stock-core process starts."
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nThe SHA-verified freshly built 1.19.33 Windows/amd64 core passed its CLI -v identity check. This does not establish a live core, GUI, service, TUN, or DNS result; those are checked by the following native acceptance script."
             }
           }
 
-      - name: Install 2.5.8, update to 2.5.10, then recover to 2.5.8
+      - name: Install, native acceptance, then recover to 2.5.8
         run: |
           & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
 
@@ -647,89 +632,37 @@ jobs:
       github.ref == 'refs/heads/main'
     needs:
       - source
+      - vulnerability-scan
       - profile-contract
       - cvr-2-5-10-package
       - cvr-windows-payload
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+      - test-module
+      - license-audit
+    runs-on: windows-2022
+    timeout-minutes: 60
     permissions:
       contents: write
     defaults:
       run:
         shell: bash
     env:
-      GOTOOLCHAIN: local
-      GOWORK: 'off'
-      GOTELEMETRY: 'off'
-      CGO_ENABLED: '0'
-      GOAMD64: v1
+      SOURCE_SHA: ${{ github.sha }}
+      NATIVE_CORE_SHA256: ${{ needs.cvr-windows-payload.outputs.core-sha256 }}
+      NATIVE_WASM_SHA256: ${{ needs.cvr-windows-payload.outputs.wasm-sha256 }}
     steps:
-      - name: Fetch exact RC manifest source
-        env:
-          SOURCE_SHA: ${{ github.sha }}
+      - name: Rebuild the exact native Windows source and license package
         run: |
           set -euo pipefail
+          recipe="$(cygpath -u "$RUNNER_TEMP")/rc-pr-source"
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          pr_source="$RUNNER_TEMP/rc-pr-source"
-          git init --quiet "$pr_source"
-          git -C "$pr_source" remote add origin https://github.com/smart-tinker/stcvrc.git
-          git -C "$pr_source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
-          git -C "$pr_source" checkout --quiet --detach FETCH_HEAD
-          test "$(git -C "$pr_source" rev-parse HEAD)" = "$SOURCE_SHA"
-          test -f "$pr_source/candidates/cvr-2.5.10/inputs.json"
-          echo "PR_SOURCE=$pr_source" >> "$GITHUB_ENV"
-
-      - name: Build the pinned MIT-LZO core from exact source
-        run: |
-          set -euo pipefail
-          source_sha=086a62c3ce9a77f650786ae2eae92b68909d49e1
-          upstream_sha=3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
-          core_source="$RUNNER_TEMP/rc-core-source"
-          go_dir="$RUNNER_TEMP/rc-go1.26.11"
-          mkdir -p "$core_source" "$go_dir"
-          git -C "$core_source" init --quiet
-          git -C "$core_source" remote add origin https://github.com/smart-tinker/stcvrc.git
-          git -C "$core_source" fetch --quiet --depth=1 --no-tags origin "$source_sha"
-          git -C "$core_source" checkout --quiet --detach FETCH_HEAD
-          test "$(git -C "$core_source" rev-parse HEAD)" = "$source_sha"
-          git -C "$core_source" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
-          test "$(git -C "$core_source" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_sha"
-
-          curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
-            https://go.dev/dl/go1.26.11.linux-amd64.tar.gz -o "$go_dir/go.tar.gz"
-          printf '%s  %s\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec "$go_dir/go.tar.gz" | sha256sum --check --status
-          tar -xzf "$go_dir/go.tar.gz" -C "$go_dir"
-          export PATH="$go_dir/go/bin:$PATH"
-          export GOENV=off GOTOOLCHAIN=local GOWORK=off GOTELEMETRY=off
-          export CGO_ENABLED=0 GOAMD64=v1 GOMAXPROCS=2
-          export GOPATH="$RUNNER_TEMP/rc-gopath" GOMODCACHE="$RUNNER_TEMP/rc-modcache" GOCACHE="$RUNNER_TEMP/rc-gocache"
-          export GOFLAGS='-mod=readonly -p=2'
-          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
-          test "$(go version | awk '{print $3}')" = go1.26.11
-          cd "$core_source"
-          go list -m all > "$RUNNER_TEMP/rc-modules.txt"
-          grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$RUNNER_TEMP/rc-modules.txt"
-          if grep -q '^github.com/rasky/go-lzo ' "$RUNNER_TEMP/rc-modules.txt"; then
-            printf 'GPL-only go-lzo module remains in RC source.\n' >&2
-            exit 1
-          fi
-          go test -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
-          go mod verify
-
-          version=1.19.33-STCVRC-candidate-mit-lzo-20261111
-          build_time=2026-11-11T00:00:00Z
-          ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
-          binary="$RUNNER_TEMP/verge-mihomo.exe"
-          GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 \
-            go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
-          go version -m "$binary"
-          binary_sha="$(sha256sum "$binary" | awk '{print $1}')"
-          binary_size="$(stat -c %s "$binary")"
-          test "$binary_sha" = d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87
-          test "$binary_size" = 61238272
-          test -z "$(git -C "$core_source" status --porcelain)"
-          printf 'RC_BINARY=%s\nRC_BINARY_SHA=%s\nRC_BINARY_SIZE=%s\n' \
-            "$binary" "$binary_sha" "$binary_size" >> "$GITHUB_ENV"
+          git init --quiet "$recipe"
+          git -C "$recipe" config core.autocrlf false
+          git -C "$recipe" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$recipe" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$recipe" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
+          bash "$recipe/tools/source-build/ci.sh"
+          printf 'PR_SOURCE=%s\n' "$(cygpath -m "$recipe")" >> "$GITHUB_ENV"
 
       - name: Create and read back the draft RC release
         env:
@@ -738,65 +671,72 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          tag=stcvrc-1.19.33-rc.7
+          root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
+          recipe="$(cygpath -u "$PR_SOURCE")"
+          out="$root/output"
+          tag=stcvrc-1.19.33-rc.8
           repo=smart-tinker/stcvrc
-          manifest="$RUNNER_TEMP/RC-MANIFEST.json"
-          notes="$RUNNER_TEMP/RC-NOTES.md"
-          python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$manifest" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$tag" "$HEAD_SHA" "$RUN_ID" <<'PY'
-          import hashlib
-          import json
-          import re
+          python - "$root" "$recipe" "$tag" <<'PY'
+          import hashlib, json, os, re, shutil, sys
           from pathlib import Path
-          import sys
-
-          inputs_path, manifest_path = map(Path, sys.argv[1:3])
-          sha, size, tag, head_sha, run_id = sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], int(sys.argv[7])
-          input_bytes = inputs_path.read_bytes()
-          inputs = json.loads(input_bytes)
+          root, recipe = map(Path, sys.argv[1:3])
+          tag = sys.argv[3]
+          out = root / "output"
+          digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+          build = json.loads((out / "build.json").read_text(encoding="utf-8"))
+          native_sha, native_wasm = os.environ["NATIVE_CORE_SHA256"], os.environ["NATIVE_WASM_SHA256"]
+          assert re.fullmatch(r"[0-9a-f]{64}", native_sha) and re.fullmatch(r"[0-9a-f]{64}", native_wasm)
+          assert build["recipe_commit"] == os.environ["HEAD_SHA"] and build["build_host"] == "windows/amd64"
+          core = next(item for item in build["artifacts"] if item["name"] == "verge-mihomo.exe" and item["target"] == "windows/amd64")
+          assert core["sha256"] == native_sha == digest(out / "verge-mihomo.exe")
+          assert core["size"] == (out / "verge-mihomo.exe").stat().st_size
+          assert build["wasm_sha256"] == native_wasm
+          inputs_path = recipe / "candidates/cvr-2.5.10/inputs.json"
+          inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
           releases = {item["version"]: item for item in inputs["releases"]}
-          if set(releases) != {"2.5.8", "2.5.10"}:
-              raise SystemExit("Unexpected CVR release pair")
-          if not re.fullmatch(r"[0-9a-f]{64}", sha) or not re.fullmatch(r"[0-9a-f]{40}", head_sha) or run_id < 1:
-              raise SystemExit("Invalid RC identity or digest")
+          assert set(releases) == {"2.5.8", "2.5.10"}
+          for name in ("THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-SOURCES.json"):
+              assert (out / name).is_file() and (out / name).stat().st_size > 0
+          shutil.copyfile(out / "build.json", out / "SOURCE-BUILD.json")
+          shutil.copyfile(root / "core/LICENSE", out / "LICENSE")
+          assets = ["verge-mihomo.exe", "SOURCE-BUILD.json", "THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-SOURCES.json", "LICENSE"]
           manifest = {
-              "schemaVersion": 2,
-              "releaseTag": tag,
-              "releaseState": "DRAFT_NOT_PUBLISHED",
-              "inputManifestSha256": hashlib.sha256(input_bytes).hexdigest(),
-              "recovery": releases["2.5.8"],
-              "update": releases["2.5.10"],
-              "core": dict(inputs["core"], sha256=sha, size=size),
-              "acceptance": {
-                  "disposableWindowsInstallUpdateRecovery": "PASS",
-                  "authenticodeSignerAcceptance": "NOT_REVIEWED",
-                  "nativeGuiServiceTunDns": "NOT_RUN",
-                  "licenseAudit": "INCOMPLETE_ISSUE_7",
-                  "userAcceptance": "NOT_RUN",
-                  "productionDeployment": "NOT_AUTHORIZED",
-              },
-              "workflowHeadSha": head_sha,
-              "createdByWorkflowRun": run_id,
+              "schemaVersion": 3, "releaseTag": tag, "releaseState": "DRAFT_NOT_PUBLISHED",
+              "workflowHeadSha": os.environ["HEAD_SHA"], "createdByWorkflowRun": int(os.environ["RUN_ID"]),
+              "inputManifestSha256": digest(inputs_path),
+              "recovery": releases["2.5.8"], "update": releases["2.5.10"],
+              "core": core, "sourceBuild": build,
+              "acceptance": {"nativeGuiServiceTunDns": "PASS_SAME_WORKFLOW_EXACT_BYTES",
+                  "installUpdateRecovery": "PASS_SAME_WORKFLOW_EXACT_BYTES",
+                  "licenseInventory": "COLLECTED_FROM_ACTUAL_BUILD_GRAPH",
+                  "authenticodeSignerAcceptance": "UNSIGNED_CUSTOM_CORE",
+                  "productionDeployment": "NOT_AUTHORIZED"},
+              "files": {name: {"sha256": digest(out/name), "size": (out/name).stat().st_size} for name in assets},
           }
-          manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          (out / "RC-MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          assets.append("RC-MANIFEST.json")
+          (out / "SHA256SUMS").write_text("".join(f"{digest(out/name)}  {name}\n" for name in sorted(assets)), encoding="utf-8")
           PY
+          notes="$out/RC-NOTES.md"
           cat > "$notes" <<'EOF'
-          This is a draft, unpublished STCVRC 1.19.33 RC7 candidate.
-          It pins official CVR 2.5.8 recovery and CVR 2.5.10 update inputs.
-          The Windows core is rebuilt from the pinned MIT-LZO source and identified by RC-MANIFEST.json.
-          A disposable Windows runner completed the pinned 2.5.8 install, 2.5.10 /UPDATE, and recovery to 2.5.8.
-          The synthetic profile marker, installed GUI payload hashes, and fresh custom core hashes were checked.
-          This does not validate trusted Authenticode signing, GUI/service/TUN/DNS startup, long observation, or user acceptance.
-          The license audit remains incomplete in issue #7. Stable publication and production deployment have not occurred.
+          Unpublished STCVRC 1.19.33 RC8, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
+          The Windows core and embedded EasyTier WASM were rebuilt from exact public source.
+          Core and WASM digests match the same workflow's successful native Windows GUI/service/TUN/DNS/update/recovery job.
+          THIRD-PARTY-NOTICES.txt and THIRD-PARTY-SOURCES.json describe the actual Windows build graph, toolchains and embedded runtime assets.
+          Wintun prebuilt binary terms are included separately. The custom core is unsigned.
+          This draft does not publish stable or deploy to any working machine.
           EOF
+          assets=(verge-mihomo.exe RC-MANIFEST.json SOURCE-BUILD.json THIRD-PARTY-NOTICES.txt THIRD-PARTY-SOURCES.json SHA256SUMS LICENSE)
           release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           if [[ -z "$release_id" ]]; then
             tag_refs="$(gh api "repos/$repo/git/matching-refs/tags/$tag" --jq '.[].ref')"
             if grep -Fxq "refs/tags/$tag" <<<"$tag_refs"; then
-              printf 'Protected tag already exists without a release; refusing to reuse it.\n' >&2
-              exit 1
+              printf 'Protected tag exists without this draft; refusing reuse.\n' >&2; exit 1
             fi
-            gh release create "$tag" "$RC_BINARY" "$manifest" --repo "$repo" --draft --prerelease \
-              --target "$HEAD_SHA" --title "STCVRC 1.19.33 RC7 — CVR 2.5.10 candidate" --notes-file "$notes"
+            upload=()
+            for name in "${assets[@]}"; do upload+=("$out/$name"); done
+            gh release create "$tag" "${upload[@]}" --repo "$repo" --draft --prerelease --target "$HEAD_SHA" \
+              --title 'STCVRC 1.19.33 RC8 — source-built candidate' --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
           [[ "$release_id" =~ ^[0-9]+$ ]]
@@ -804,79 +744,29 @@ jobs:
           test "$(gh api "$api" --jq .draft)" = true
           test "$(gh api "$api" --jq .prerelease)" = true
           test "$(gh api "$api" --jq .tag_name)" = "$tag"
-          test "$(gh api "$api" --jq .name)" = "STCVRC 1.19.33 RC7 — CVR 2.5.10 candidate"
-          release_target="$(gh api "$api" --jq .target_commitish)"
-          test "$release_target" = "$HEAD_SHA"
+          test "$(gh api "$api" --jq .target_commitish)" = "$HEAD_SHA"
           assets_api="$api/assets"
           asset_names="$(gh api "$assets_api" --paginate --jq '.[].name' | LC_ALL=C sort)"
-          test "$asset_names" = "$(printf 'RC-MANIFEST.json\nverge-mihomo.exe')"
-
-          readback="$RUNNER_TEMP/rc-readback"
+          test "$asset_names" = "$(printf '%s\n' "${assets[@]}" | LC_ALL=C sort)"
+          readback="$root/rc-readback"
           mkdir "$readback"
-          for asset_name in RC-MANIFEST.json verge-mihomo.exe; do
-            asset_id="$(gh api "$assets_api" --paginate --jq ".[] | select(.name == \"$asset_name\") | .id")"
+          for name in "${assets[@]}"; do
+            asset_id="$(gh api "$assets_api" --paginate --jq ".[] | select(.name == \"$name\") | .id")"
             [[ "$asset_id" =~ ^[0-9]+$ ]]
-            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
-              --max-time 300 --max-filesize 67108864 --silent --show-error \
-              -H "Accept: application/octet-stream" -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$repo/releases/assets/$asset_id" -o "$readback/$asset_name"
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 300 --max-filesize 134217728 \
+              --silent --show-error -H 'Accept: application/octet-stream' -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$repo/releases/assets/$asset_id" -o "$readback/$name"
+            cmp --silent "$out/$name" "$readback/$name"
           done
-          cmp --silent "$RC_BINARY" "$readback/verge-mihomo.exe"
-          test "$(sha256sum "$readback/verge-mihomo.exe" | awk '{print $1}')" = "$RC_BINARY_SHA"
-          test "$(stat -c %s "$readback/verge-mihomo.exe")" = "$RC_BINARY_SIZE"
-          creator_run_id="$(python3 - "$PR_SOURCE/candidates/cvr-2.5.10/inputs.json" "$readback/RC-MANIFEST.json" "$RC_BINARY_SHA" "$RC_BINARY_SIZE" "$tag" "$release_target" <<'PY'
-          import hashlib
-          import json
-          import re
-          from pathlib import Path
-          import sys
-
-          inputs_path, manifest_path = map(Path, sys.argv[1:3])
-          expected_sha, expected_size, tag, release_target = sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6]
-          input_bytes = inputs_path.read_bytes()
-          inputs = json.loads(input_bytes)
-          releases = {item["version"]: item for item in inputs["releases"]}
-          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-          expected_core = dict(inputs["core"], sha256=expected_sha, size=expected_size)
-          expected_acceptance = {
-              "disposableWindowsInstallUpdateRecovery": "PASS",
-              "authenticodeSignerAcceptance": "NOT_REVIEWED",
-              "nativeGuiServiceTunDns": "NOT_RUN",
-              "licenseAudit": "INCOMPLETE_ISSUE_7",
-              "userAcceptance": "NOT_RUN",
-              "productionDeployment": "NOT_AUTHORIZED",
-          }
-          if set(releases) != {"2.5.8", "2.5.10"}:
-              raise SystemExit("Unexpected CVR release pair")
-          if manifest.get("schemaVersion") != 2 or manifest.get("releaseTag") != tag:
-              raise SystemExit("RC manifest schema/tag mismatch")
-          if manifest.get("releaseState") != "DRAFT_NOT_PUBLISHED":
-              raise SystemExit("RC manifest does not describe a draft")
-          if manifest.get("inputManifestSha256") != hashlib.sha256(input_bytes).hexdigest():
-              raise SystemExit("RC input manifest digest mismatch")
-          if manifest.get("recovery") != releases["2.5.8"] or manifest.get("update") != releases["2.5.10"]:
-              raise SystemExit("RC CVR pins mismatch")
-          if manifest.get("core") != expected_core or manifest.get("acceptance") != expected_acceptance:
-              raise SystemExit("RC core or acceptance evidence mismatch")
-          workflow_sha = manifest.get("workflowHeadSha")
-          creator_run = manifest.get("createdByWorkflowRun")
-          if not isinstance(workflow_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", workflow_sha):
-              raise SystemExit("Invalid RC workflow commit")
-          if workflow_sha != release_target:
-              raise SystemExit("Release target does not match the workflow commit recorded in the manifest")
-          if type(creator_run) is not int or creator_run < 1:
-              raise SystemExit("Invalid RC creator workflow run")
-          print(creator_run)
-          PY
-          )"
-          release_url="$(gh api "$api" --jq .html_url)"
-          {
-            printf '%s\n' "Draft release: $release_url"
-            printf 'Release remains draft/unpublished; assets are core and manifest only.\n'
-            printf 'Fresh core SHA256: %s\nSize: %s bytes\n' "$RC_BINARY_SHA" "$RC_BINARY_SIZE"
-            printf 'Core bytes matched after download; manifest pins CVR 2.5.8 recovery and 2.5.10 update.\n'
-            printf 'Manifest creator run: %s; current verifier run: %s\n' "$creator_run_id" "$RUN_ID"
-          } >> "$GITHUB_STEP_SUMMARY"
+          (cd "$readback" && sha256sum --check SHA256SUMS)
+          printf 'Draft remains unpublished: %s\nAll seven assets matched exact byte readback.\n' \
+            "$(gh api "$api" --jq .html_url)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove disposable build directories
+        if: always()
+        run: |
+          root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
+          if [[ -d "$root" ]]; then chmod -R u+w -- "$root"; fi
+          rm -rf -- "$root" "$(cygpath -u "$RUNNER_TEMP")/rc-pr-source"
   test-module:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
@@ -931,6 +821,38 @@ jobs:
           printf '%s  go.tar.gz\n' 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec | sha256sum --check --status
           tar -xzf go.tar.gz
           printf '%s\n' "$RUNNER_TEMP/test-go/go/bin" >> "$GITHUB_PATH"
+
+      - name: Test fragmented v2ray-plugin mux status header
+        working-directory: source
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/mux-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/mux-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/mux-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go test -count=1 -run='^TestMuxReadHandlesShortStatusHeader$' ./transport/v2ray-plugin
+
+      - name: Run the Shadowsocks v2ray-plugin case ten times
+        timeout-minutes: 12
+        working-directory: source/test
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/issue-25-plugin-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-plugin-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-plugin-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          failures=0
+          for attempt in $(seq 1 10); do
+            printf '\n=== TestMihomo_ShadowsocksV2RayPlugin attempt %s/10 ===\n' "$attempt"
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=60s -run='^TestMihomo_ShadowsocksV2RayPlugin$' .; then
+              printf 'plugin attempt %s: PASS\n' "$attempt" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              failures=$((failures + 1))
+              printf 'plugin attempt %s: FAIL\n' "$attempt" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          printf 'Shadowsocks v2ray-plugin failures: %s/10\n' "$failures" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$failures" -eq 0
 
       - name: Run the full protocol module suite from clean Go caches
         working-directory: source/test
@@ -1060,28 +982,23 @@ jobs:
           fi
           if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi
 
-  source-built-easytier-candidate:
+  license-audit:
+    needs: source
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, windows-2022]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     defaults:
       run:
         shell: bash
     steps:
-      - name: Fetch exact build recipe
+      - name: Build exact source, test actual module graph and collect license package
         run: |
           set -euo pipefail
-          task_temp="$RUNNER_TEMP"
-          if [[ "$RUNNER_OS" == Windows ]]; then task_temp="$(cygpath -u "$RUNNER_TEMP")"; fi
-          recipe="$task_temp/stcvrc-build-recipe"
+          recipe="$RUNNER_TEMP/stcvrc-build-recipe"
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git init --quiet "$recipe"
           git -C "$recipe" config core.autocrlf false
@@ -1090,389 +1007,14 @@ jobs:
           git -C "$recipe" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
           bash -n "$recipe/tools/source-build/ci.sh"
-          if [[ "$RUNNER_OS" == Linux ]]; then shellcheck "$recipe/tools/source-build/ci.sh"; fi
-          if GITHUB_ACTIONS=false bash "$recipe/tools/source-build/ci.sh"; then
-            printf 'CI-only scope guard did not reject a non-Actions invocation.\n' >&2
-            exit 1
-          fi
-          if GITHUB_REPOSITORY=example/untrusted bash "$recipe/tools/source-build/ci.sh"; then
-            printf 'CI-only scope guard did not reject a foreign repository.\n' >&2
-            exit 1
-          fi
-          test ! -e "$task_temp/stcvrc-source-built"
+          shellcheck "$recipe/tools/source-build/ci.sh"
+          if GITHUB_ACTIONS=false bash "$recipe/tools/source-build/ci.sh"; then exit 1; fi
+          if GITHUB_REPOSITORY=example/untrusted bash "$recipe/tools/source-build/ci.sh"; then exit 1; fi
+          test ! -e "$RUNNER_TEMP/stcvrc-source-built"
           bash "$recipe/tools/source-build/ci.sh"
       - name: Remove disposable source, compiler and build directories
         if: always()
         run: |
-          task_temp="$RUNNER_TEMP"
-          if [[ "$RUNNER_OS" == Windows ]]; then task_temp="$(cygpath -u "$RUNNER_TEMP")"; fi
-          root="$task_temp/stcvrc-source-built"
+          root="$RUNNER_TEMP/stcvrc-source-built"
           if [[ -d "$root" ]]; then chmod -R u+w -- "$root"; fi
-          rm -rf -- "$root" "$task_temp/stcvrc-build-recipe"
-
-  license-audit:
-    needs: source
-    if: >-
-      github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      AUDIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Fetch audit manifest at tested revision
-        run: |
-          set -euo pipefail
-          audit_root="$RUNNER_TEMP/audit-definition"
-          git init --quiet "$audit_root"
-          git -C "$audit_root" remote add origin https://github.com/smart-tinker/stcvrc.git
-          git -C "$audit_root" fetch --quiet --depth=1 --no-tags origin "$AUDIT_COMMIT"
-          git -C "$audit_root" checkout --quiet --detach FETCH_HEAD
-          test "$(git -C "$audit_root" rev-parse HEAD)" = "$AUDIT_COMMIT"
-          printf 'Audit manifest commit: %s\n' "$AUDIT_COMMIT" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fetch exact source and upstream revisions
-        run: |
-          set -euo pipefail
-          fetch_tag() {
-            local dir="$1" repo_url="$2" tag="$3" expected="$4"
-            mkdir -p "$dir"
-            git -C "$dir" init --quiet
-            git -C "$dir" remote add origin "$repo_url"
-            git -C "$dir" fetch --quiet --depth=1 --no-tags origin "refs/tags/$tag"
-            local actual
-            actual="$(git -C "$dir" rev-parse 'FETCH_HEAD^{commit}')"
-            test "$actual" = "$expected"
-            git -C "$dir" checkout --quiet --detach "$actual"
-            test "$(git -C "$dir" rev-parse HEAD)" = "$expected"
-          }
-
-          stable="$RUNNER_TEMP/source-1.19.29"
-          candidate="$RUNNER_TEMP/source-1.19.33"
-          fetch_tag "$stable" https://github.com/smart-tinker/stcvrc.git v1.19.29-stcvrc.1 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
-          fetch_tag "$candidate" https://github.com/smart-tinker/stcvrc.git stcvrc-1.19.33-rc.2 d888dfad5e785217778bb7515c931840d5307dd4
-
-          mit_lzo_candidate="$RUNNER_TEMP/source-1.19.33-mit-lzo"
-          mkdir -p "$mit_lzo_candidate"
-          git -C "$mit_lzo_candidate" init --quiet
-          git -C "$mit_lzo_candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
-          git -C "$mit_lzo_candidate" fetch --quiet --depth=1 --no-tags origin 086a62c3ce9a77f650786ae2eae92b68909d49e1
-          git -C "$mit_lzo_candidate" checkout --quiet --detach FETCH_HEAD
-          test "$(git -C "$mit_lzo_candidate" rev-parse HEAD)" = 086a62c3ce9a77f650786ae2eae92b68909d49e1
-          git -C "$mit_lzo_candidate" fetch --quiet --depth=1 --no-tags https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
-          mit_lzo_upstream="$(git -C "$mit_lzo_candidate" rev-parse 'FETCH_HEAD^{commit}')"
-          test "$mit_lzo_upstream" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
-          grep -Fqx 'github.com/anchore/go-lzo v0.1.1 h1:IwL/fvkdtlIrYIXck6WxZ3nb8WjjHziYYmGxlooyOnM=' "$mit_lzo_candidate/go.sum"
-          if grep -Fq 'github.com/rasky/go-lzo' "$mit_lzo_candidate/go.mod"; then
-            printf 'GPL-only go-lzo module remains in candidate go.mod.\n' >&2
-            exit 1
-          fi
-
-          git -C "$stable" fetch --quiet --depth=1 origin 9e23508270fed96e346fd4f68447e90401669131
-          git -C "$stable" fetch --quiet --depth=1 https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.29
-          stable_upstream="$(git -C "$stable" rev-parse 'FETCH_HEAD^{commit}')"
-          test "$stable_upstream" = e26714a181ac0e2fa803453c0a8e9a9ce94e31cb
-          test -z "$(git -C "$stable" diff --name-only 9e23508270fed96e346fd4f68447e90401669131 HEAD -- . ':(exclude)README.md' ':(exclude)build-windows.ps1')"
-
-          git -C "$candidate" fetch --quiet --depth=1 https://github.com/MetaCubeX/mihomo.git refs/tags/v1.19.33
-          candidate_upstream="$(git -C "$candidate" rev-parse 'FETCH_HEAD^{commit}')"
-          test "$candidate_upstream" = 3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8
-          git -C "$candidate" fetch --quiet --depth=1 origin 9ccecd85017ec196975239a3afeef886cf991588
-          patch_claim_subject="$(git -C "$candidate" show -s --format=%s 9ccecd85017ec196975239a3afeef886cf991588)"
-
-          python3 - "$RUNNER_TEMP/audit-definition" "$stable" "$candidate" "$stable_upstream" "$candidate_upstream" "$patch_claim_subject" "$mit_lzo_upstream" "$mit_lzo_candidate" <<'PY'
-          import hashlib, json, subprocess, sys
-          from pathlib import Path
-
-          audit_root, stable, candidate, stable_upstream, candidate_upstream, patch_subject, mit_lzo_upstream, mit_lzo_candidate = sys.argv[1:]
-          root = Path(audit_root)
-          manifest = json.loads((root / "docs/license-provenance.json").read_text(encoding="utf-8"))
-          variants = {item["id"]: item for item in manifest["variants"]}
-
-          def changed(repo, base, head):
-              return set(subprocess.check_output(
-                  ["git", "-C", repo, "diff", "--name-only", base, head], text=True
-              ).splitlines())
-
-          stable_expected = set(variants["accepted-1.19.29"]["downstream_delta_files"])
-          stable_actual = changed(stable, stable_upstream, "9e23508270fed96e346fd4f68447e90401669131")
-          stable_actual.discard("README.md")
-          assert stable_actual == stable_expected, f"stable source delta mismatch: {stable_actual ^ stable_expected}"
-
-          source_path = Path(candidate) / "candidates/v1.19.33-20261022/source.json"
-          source = json.loads(source_path.read_text(encoding="utf-8"))
-          assert source["upstream"]["commit"] == candidate_upstream
-          candidate_actual = changed(candidate, candidate_upstream, "d888dfad5e785217778bb7515c931840d5307dd4")
-          candidate_actual -= {
-              "README.md", "build-windows.ps1",
-              "candidates/v1.19.33-20261022/README.md",
-              "candidates/v1.19.33-20261022/source.json",
-          }
-          candidate_expected = set(source["patchFiles"])
-          assert candidate_actual == candidate_expected, f"candidate source delta mismatch: {candidate_actual ^ candidate_expected}"
-          assert len(candidate_expected) == 14
-          for relative, expected in source["patchFiles"].items():
-              actual = hashlib.sha256((Path(candidate) / relative).read_bytes()).hexdigest()
-              assert actual == expected, f"candidate source digest mismatch: {relative}"
-
-          mit_lzo_source = variants["candidate-1.19.33-mit-lzo"]
-          assert mit_lzo_upstream == mit_lzo_source["upstream_commit"]
-          assert subprocess.check_output(
-              ["git", "-C", mit_lzo_candidate, "rev-parse", "HEAD"], text=True
-          ).strip() == mit_lzo_source["source_commit"]
-          mit_lzo_actual = changed(
-              mit_lzo_candidate, mit_lzo_upstream, mit_lzo_source["source_commit"]
-          )
-          mit_lzo_actual -= {
-              ".github/workflows/mit-lzo-candidate.yml",
-              "README.md",
-              "build-windows.ps1",
-              "candidates/v1.19.33-20261022/README.md",
-              "candidates/v1.19.33-20261022/source.json",
-          }
-          mit_lzo_expected = mit_lzo_source["upstream_delta_blobs"]
-          assert mit_lzo_actual == set(mit_lzo_expected), (
-              f"RC7 MIT-LZO source delta mismatch: {mit_lzo_actual ^ set(mit_lzo_expected)}"
-          )
-          for relative, expected in mit_lzo_expected.items():
-              actual = subprocess.check_output(
-                  ["git", "-C", mit_lzo_candidate, "rev-parse",
-                   f'{mit_lzo_source["source_commit"]}:{relative}'],
-                  text=True,
-              ).strip()
-              assert actual == expected, f"RC7 MIT-LZO source blob mismatch: {relative}"
-
-          candidate_source_path = root / "candidates/v1.19.33-20261022/source.json"
-          candidate_source = json.loads(candidate_source_path.read_text(encoding="utf-8"))
-          assert candidate_source["source"]["commit"] == mit_lzo_source["source_commit"]
-          assert candidate_source["source"]["upstream_tag"] == mit_lzo_source["upstream_tag"]
-          assert candidate_source["source"]["upstream_commit"] == mit_lzo_source["upstream_commit"]
-          assert candidate_source["source"]["upstream_delta_blobs"] == mit_lzo_expected
-          assert candidate_source["binary"]["sha256"] == mit_lzo_source["asset_sha256"]
-          assert candidate_source["binary"]["release_tag"] == mit_lzo_source["release_tag"]
-          assert candidate_source["binary"]["release_id"] == mit_lzo_source["release_id"]
-          assert candidate_source["binary"]["manifest_sha256"] == mit_lzo_source["release_assets"][0]["sha256"]
-          assert candidate_source["toolchain"]["go_version"] == mit_lzo_source["go_version"]
-          assert candidate_source["toolchain"]["archive_sha256"] == mit_lzo_source["go_sha256"]
-
-          claimed_base = source["patchSource"]["base"]
-          if claimed_base != candidate_upstream:
-              print("PROVENANCE WARNING: source.json patchSource.base does not match the v1.19.33 upstream commit.")
-              print(f"source.json names patchSource.commit={source['patchSource']['commit']} base={claimed_base}")
-              print(f"That public commit subject is: {patch_subject}")
-              print("The 14 .33 source file hashes and exact upstream diff are checked independently; the patch-origin linkage remains unverified.")
-          PY
-
-          {
-            printf '## Exact upstream-to-STCVRC source deltas\n\n'
-            printf '### Accepted 1.19.29 code delta\n\n'
-            git -C "$stable" diff --no-ext-diff --no-renames --name-status "$stable_upstream" 9e23508270fed96e346fd4f68447e90401669131
-            printf '\n### Candidate 1.19.33 code delta\n\n'
-            git -C "$candidate" diff --no-ext-diff --no-renames --name-status "$candidate_upstream" d888dfad5e785217778bb7515c931840d5307dd4
-            printf '\nCandidate patch-origin claim subject: %s\n' "$patch_claim_subject"
-            printf 'Candidate patch-origin base recorded in source.json: %s\n' "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patchSource"]["base"])' "$candidate/candidates/v1.19.33-20261022/source.json")"
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Verify pinned MetaCubeX chacha MIT license provenance
-        run: |
-          set -euo pipefail
-          candidate_source="$RUNNER_TEMP/source-1.19.33-mit-lzo"
-          awk '$1 == "github.com/metacubex/chacha" { if ($2 != "v0.1.5") exit 1; found++ } END { if (found != 1) exit 1 }' "$candidate_source/go.mod"
-
-          chacha="$RUNNER_TEMP/chacha-license-source"
-          pinned_commit="07294f500ca8384015f6cc21311de7b6f093607d"
-          license_commit="7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"
-          git init --quiet "$chacha"
-          git -C "$chacha" remote add origin https://github.com/MetaCubeX/chacha.git
-          git -C "$chacha" fetch --quiet --depth=1 --no-tags origin refs/tags/v0.1.5
-          test "$(git -C "$chacha" rev-parse 'FETCH_HEAD^{commit}')" = "$pinned_commit"
-          git -C "$chacha" fetch --quiet --depth=2 --no-tags origin "$license_commit"
-          test "$(git -C "$chacha" rev-parse 'FETCH_HEAD^{commit}')" = "$license_commit"
-          test "$(git -C "$chacha" show -s --format=%P "$license_commit")" = "$pinned_commit"
-          test "$(git -C "$chacha" diff --name-status "$pinned_commit" "$license_commit")" = "$(printf 'A\tLICENSE')"
-          git -C "$chacha" diff --quiet "$pinned_commit" "$license_commit" -- . ':(exclude)LICENSE'
-
-          license_file="$(git -C "$chacha" show "$license_commit:LICENSE")"
-          grep -Fqx 'MIT License' <<< "$license_file"
-          grep -Fqx 'Copyright (c) 2016 Andreas Auernhammer' <<< "$license_file"
-          grep -Fqx 'Copyright (c) 2025 MetaCubex' <<< "$license_file"
-          license_sha="$(git -C "$chacha" show "$license_commit:LICENSE" | sha256sum | awk '{print $1}')"
-          printf 'Pinned chacha tag commit: %s\nImmediate license commit: %s\nOnly added file: LICENSE\nMIT license SHA256: %s\n' \
-            "$pinned_commit" "$license_commit" "$license_sha" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fresh builds and license inventories for all source lines
-        run: |
-          set -euo pipefail
-          temp="$RUNNER_TEMP/issue7-license-audit"
-          mkdir -p "$temp"
-          cleanup() {
-            chmod -R u+w "$temp" 2>/dev/null || true
-            rm -rf "$temp" "$RUNNER_TEMP/source-1.19.29" "$RUNNER_TEMP/source-1.19.33" "$RUNNER_TEMP/source-1.19.33-mit-lzo" "$RUNNER_TEMP/toolchain-go1.26.5" "$RUNNER_TEMP/toolchain-go1.26.10" "$RUNNER_TEMP/toolchain-go1.26.11" "$RUNNER_TEMP/audit-definition" || true
-          }
-          trap cleanup EXIT
-
-          install_go() {
-            local version="$1" digest="$2" dir="$RUNNER_TEMP/toolchain-go$1"
-            mkdir -p "$dir"
-            curl --fail --location --proto '=https' --retry 2 --max-time 180 --silent --show-error \
-              "https://go.dev/dl/go$version.linux-amd64.tar.gz" -o "$dir/go.tar.gz"
-            printf '%s  %s\n' "$digest" "$dir/go.tar.gz" | sha256sum --check --status
-            tar -xzf "$dir/go.tar.gz" -C "$dir"
-            rm "$dir/go.tar.gz"
-            printf '%s\n' "$dir/go/bin/go"
-          }
-
-          go125="$(install_go 1.26.5 5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053)"
-          go12610="$(install_go 1.26.10 ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5)"
-          go12611="$(install_go 1.26.11 9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec)"
-          mismatches=0
-          license_findings=0
-
-          audit_variant() {
-            local id="$1" go="$2" expected_sha="$3" version="$4" build_time="$5" source_dir="$6"
-            local gopath="$temp/$id/gopath" modcache="$temp/$id/modcache" gocache="$temp/$id/gocache"
-            local gobin="$temp/$id/bin" licenses="$temp/$id/licenses" binary="$temp/$id/verge-mihomo.exe"
-            local module_graph="$temp/$id/module-graph.txt"
-            mkdir -p "$gopath" "$modcache" "$gocache" "$gobin"
-            export GOTOOLCHAIN=local GOENV=off GOWORK=off GOTELEMETRY=off
-            export CGO_ENABLED=0 GOAMD64=v1 GOPATH="$gopath" GOMODCACHE="$modcache" GOCACHE="$gocache" GOBIN="$gobin"
-            go_bin="$(dirname "$go")"
-            export PATH="$go_bin:$gobin:$PATH"
-            export GOFLAGS=-mod=readonly
-            unset GOOS GOARCH GOMAXPROCS
-
-            {
-              printf '\n## %s fresh source build and license inventory\n\n' "$id"
-              printf 'Source commit: %s\n\n' "$(git -C "$source_dir" rev-parse HEAD)"
-              printf 'Go toolchain: %s\n\n' "$("$go" version)"
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-
-            cd "$source_dir"
-            "$go" list -m all > "$module_graph"
-            if [[ "$id" == candidate-1.19.33-mit-lzo ]]; then
-              grep -Fxq 'github.com/anchore/go-lzo v0.1.1' "$module_graph"
-              if grep -q '^github.com/rasky/go-lzo ' "$module_graph"; then
-                printf 'Forbidden GPL-only go-lzo module remains in the candidate graph.\n' >&2
-                exit 1
-              fi
-            fi
-            if [[ "$id" == accepted-1.19.29 ]]; then
-              "$go" test -p=2 -tags=with_gvisor -count=1 -timeout=120s ./transport/openvpn ./adapter/outbound
-            else
-              export GOMAXPROCS=2
-              "$go" test -p=2 -tags=with_gvisor -count=1 -timeout=180s ./transport/openvpn ./adapter/outbound ./adapter/outboundgroup
-            fi
-
-            ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
-            if [[ "$id" == accepted-1.19.29 ]]; then
-              GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
-                "$go" build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
-            else
-              GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOMAXPROCS=2 GOFLAGS='-mod=readonly -p=2' \
-                "$go" build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$binary" .
-            fi
-
-            local actual_sha
-            actual_sha="$(sha256sum "$binary" | awk '{print $1}')"
-            {
-              printf '\nFreshly built binary SHA256: %s\n' "$actual_sha"
-              if [[ -n "$expected_sha" ]]; then
-                printf 'Reference release asset SHA256: %s\n\n' "$expected_sha"
-              else
-                printf 'Reference release asset SHA256: %s\n\n' "$actual_sha"
-              fi
-              printf '### go version -m\n\n'
-              GOOS=windows GOARCH=amd64 GOAMD64=v1 "$go" version -m "$binary"
-              printf '\n### Module requirements from go.mod\n\n'
-              cat go.mod
-              printf '\n### Resolved module graph, including replacements\n\n'
-              cat "$module_graph"
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOFLAGS=-mod=readonly \
-              "$go" install github.com/google/go-licenses/v2@v2.0.1
-            local report_status=0
-            GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
-              "$gobin/go-licenses" report . > "$temp/$id/go-licenses-report.csv" 2> "$temp/$id/go-licenses-report.stderr" || report_status=$?
-            if [[ "$id" == candidate-1.19.33-mit-lzo ]] && ! awk -F, '$1 == "github.com/anchore/go-lzo" && $3 == "MIT" { found = 1 } END { exit !found }' "$temp/$id/go-licenses-report.csv"; then
-              printf 'The candidate dependency inventory did not classify github.com/anchore/go-lzo as MIT.\n' >&2
-              exit 1
-            fi
-            local report_incomplete=0
-            if (( report_status != 0 )) \
-              || grep -qi "no license found" "$temp/$id/go-licenses-report.stderr" \
-              || awk -F, 'tolower($3) == "unknown" { found = 1 } END { exit !found }' "$temp/$id/go-licenses-report.csv"; then
-              report_incomplete=1
-            fi
-            {
-              printf '\n### Package license report for windows/amd64 with_gvisor\n\n'
-              cat "$temp/$id/go-licenses-report.csv"
-              cat "$temp/$id/go-licenses-report.stderr" >&2
-              if (( report_incomplete != 0 )); then
-                printf "\nLicense report incomplete for %s (exit %s); manual license review is required.\n" "$id" "$report_status"
-              fi
-              printf '\n### Repository-embedded license text file digests\n\n'
-              find . -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'COPYRIGHT*' \) \
-                -not -path './.git/*' -print0 | sort -z | xargs -0 -r sha256sum
-              printf '\n### Go toolchain license text digest\n\n'
-              sha256sum "$(dirname "$go")/../LICENSE"
-              printf '\n### Source go:embed directives\n\n'
-              python3 - "$source_dir" <<'PYEMBED'
-          from pathlib import Path
-          import sys
-          root = Path(sys.argv[1])
-          for path in sorted(root.rglob("*.go")):
-              if ".git" in path.parts:
-                  continue
-              for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-                  if "go:embed" in line:
-                      print(f"{path.relative_to(root)}:{number}:{line.strip()}")
-          PYEMBED
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-            if (( report_incomplete != 0 )); then
-              license_findings=1
-            fi
-
-            local save_status=0
-            test ! -e "$licenses"
-            GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS='-mod=readonly -tags=with_gvisor' \
-              "$gobin/go-licenses" save . --save_path="$licenses" > "$temp/$id/go-licenses-save.stdout" 2> "$temp/$id/go-licenses-save.stderr" || save_status=$?
-            cat "$temp/$id/go-licenses-save.stdout"
-            cat "$temp/$id/go-licenses-save.stderr" >&2
-            if (( save_status != 0 )) || grep -qi "no license found" "$temp/$id/go-licenses-save.stderr"; then
-              license_findings=1
-              printf "License file collection incomplete for %s (exit %s); manual license review is required.\n" "$id" "$save_status" >> "$GITHUB_STEP_SUMMARY"
-            fi
-            {
-              printf '\n### Collected dependency license/notice file digests\n\n'
-              find "$licenses" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' -o -iname 'COPYRIGHT*' \) \
-                -print0 | sort -z | xargs -0 -r sha256sum
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-
-            "$go" mod verify
-            test -z "$(git -C "$source_dir" status --porcelain)"
-            if [[ -n "$expected_sha" && "$actual_sha" != "$expected_sha" ]]; then
-              printf 'Reproduced SHA mismatch for %s.\n' "$id" | tee -a "$GITHUB_STEP_SUMMARY"
-              mismatches=1
-            fi
-          }
-
-          audit_variant accepted-1.19.29 "$go125" \
-            71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b \
-            1.19.29-STCVRC-openvpn-rekey-9e235082 2026-07-20T00:00:00Z "$RUNNER_TEMP/source-1.19.29"
-          audit_variant candidate-1.19.33-rc.2 "$go12610" \
-            6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7 \
-            1.19.33-STCVRC-candidate-20261022 2026-10-22T00:00:00Z "$RUNNER_TEMP/source-1.19.33"
-          audit_variant candidate-1.19.33-mit-lzo "$go12611" \
-            d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87 \
-            1.19.33-STCVRC-candidate-mit-lzo-20261111 2026-11-11T00:00:00Z "$RUNNER_TEMP/source-1.19.33-mit-lzo"
-          test "$mismatches" -eq 0
-          printf "\nPublished RC2 and current draft RC7 asset digests matched fresh-source builds.\n" >> "$GITHUB_STEP_SUMMARY"
-          if (( license_findings != 0 )); then
-            printf "Automated license classification is incomplete; manual license review is required. This is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
-          else
-            printf "Automated license classification produced no missing-license findings; this is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          rm -rf -- "$root" "$RUNNER_TEMP/stcvrc-build-recipe"
