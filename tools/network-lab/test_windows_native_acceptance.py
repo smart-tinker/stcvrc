@@ -60,6 +60,25 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("-AllowedControlName 'native-fixture-b.invalid'", source)
         self.assertIn("-AllowedControlName 'native-fixture-a.invalid'", source)
 
+    def test_tun_start_hands_off_to_service_before_fixture_traffic(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        start = source.index("if ($uidA) {")
+        end = source.index("if ($uidB) {", start)
+        fixture_a = source[start:end]
+        required = (
+            "patch_verge_config",
+            "Invoke-CvrCommand -Command 'restart_core'",
+            "Assert-SelectedProfileReady",
+            "Test-FixtureTraffic",
+        )
+        positions = []
+        for assertion in required:
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, fixture_a)
+                positions.append(fixture_a.index(assertion))
+        self.assertEqual(positions, sorted(positions))
+
+
 
 if __name__ == "__main__":
     unittest.main()
