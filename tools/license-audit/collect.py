@@ -152,6 +152,14 @@ def verify_artifact(build, output_dir, name, target):
     return record
 
 
+def _has_module_build_info(build_info, module, version):
+    for line in build_info.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[:3] == ["mod", module, version]:
+            return True
+    return False
+
+
 def _download_go_license_tool(go, root, env, output_dir):
     host_goos = "windows" if os.name == "nt" else "linux"
     host_arch = "arm64" if platform.machine().lower() in {"aarch64", "arm64"} else "amd64"
@@ -166,7 +174,7 @@ def _download_go_license_tool(go, root, env, output_dir):
     if not binary.is_file():
         raise AuditIncomplete("pinned go-licenses executable was not installed")
     build_info = _run([go, "version", "-m", binary], root, tool_env)
-    if f"{GO_LICENSES_MODULE} {GO_LICENSES_VERSION}" not in build_info:
+    if not _has_module_build_info(build_info, GO_LICENSES_MODULE, GO_LICENSES_VERSION):
         raise AuditIncomplete("go-licenses binary does not match its pinned version")
     cache = Path(env.get("GOMODCACHE", ""))
     module_dir = cache / "github.com/google/go-licenses/v2@v2.0.1"
@@ -215,6 +223,22 @@ def _go_rows(core, go, build, root, env):
     selected["GOFLAGS"] = goflags
     modules = _run([go, "list", "-m", "-json", "all"], core, selected)
     packages = _run([go, "list", "-deps", "-json", "./..."], core, selected)
+    module_rows = _read_json_stream(modules, "go list -m")
+    package_rows = _read_json_stream(packages, "go list -deps")
+    selected_modules = _go_module_map(module_rows)
+    # Validate manual evidence before telling go-licenses to skip its classifier.
+    overrides = _manual_go_overrides(selected_modules, build, root)
+    ignored_modules = sorted({item["module"] for item in overrides})
+    for module_path in selected_modules:
+        if any(module_path.startswith(prefix) for prefix in ignored_modules) and module_path not in ignored_modules:
+            raise AuditIncomplete(f"manual go-licenses ignore prefix would hide an unreviewed module: {module_path}")
+    for package in package_rows:
+        module = package.get("Module")
+        path = package.get("ImportPath")
+        if not isinstance(module, dict) or not isinstance(path, str):
+            continue
+        if any(path.startswith(prefix) for prefix in ignored_modules) and module.get("Path") not in ignored_modules:
+            raise AuditIncomplete(f"manual go-licenses ignore prefix would hide an unreviewed package: {path}")
 
     license_tool, tool_record = _download_go_license_tool(go, root, selected, root)
     template = Path(root) / "output" / "license-report.tmpl"
@@ -222,8 +246,9 @@ def _go_rows(core, go, build, root, env):
         '{{range .}}{{printf "%q\\t%q\\t%q\\t%q\\t%q\\t%q\\n" .Name .Version .LicenseURL .LicenseName .LicensePath .LicenseText}}{{end}}',
         encoding="utf-8",
     )
+    ignore_args = [argument for module in ignored_modules for argument in ("--ignore", module)]
     report = _run(
-        [license_tool, "report", "./...", f"--template={template}"],
+        [license_tool, "report", "./...", *ignore_args, f"--template={template}"],
         core,
         selected,
     )
@@ -243,10 +268,6 @@ def _go_rows(core, go, build, root, env):
             values,
         )))
 
-    module_rows = _read_json_stream(modules, "go list -m")
-    package_rows = _read_json_stream(packages, "go list -deps")
-    selected_modules = _go_module_map(module_rows)
-    overrides = _manual_go_overrides(selected_modules, build, root)
     embedded = _wintun_record(selected_modules)
     go_root = Path(_run([go, "env", "GOROOT"], core, selected).strip())
     go_license = _read(go_root / "LICENSE", "Go toolchain LICENSE").decode("utf-8")

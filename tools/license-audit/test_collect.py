@@ -3,8 +3,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from collect import verify_artifact
+from collect import _has_module_build_info, verify_artifact
 from generate_notices import AuditIncomplete
+
+
+class GoLicenseToolBuildInfoTests(unittest.TestCase):
+    def test_matches_the_pinned_module_in_go_version_m_tabular_output(self):
+        build_info = (
+            "go-licenses: go1.26.11\n"
+            "\tpath\tgithub.com/google/go-licenses/v2\n"
+            "\tmod\tgithub.com/google/go-licenses/v2\tv2.0.1\th1:example=\n"
+        )
+
+        self.assertTrue(_has_module_build_info(build_info, "github.com/google/go-licenses/v2", "v2.0.1"))
+
+    def test_does_not_accept_a_dependency_row_or_different_module_version(self):
+        build_info = (
+            "\tdep\tgithub.com/google/go-licenses/v2\tv2.0.1\th1:example=\n"
+            "\tmod\tgithub.com/google/go-licenses/v2\tv2.0.2\th1:example=\n"
+        )
+
+        self.assertFalse(_has_module_build_info(build_info, "github.com/google/go-licenses/v2", "v2.0.1"))
 
 
 class ArtifactEvidenceTests(unittest.TestCase):
