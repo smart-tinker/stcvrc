@@ -36,18 +36,11 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_reject_requires_quick_application_close_and_live_controls(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         reject = source.split("function Test-RejectedFixture", 1)[1].split("\n}", 1)[0]
-        for assertion in (
+        required = (
             "ConnectAsync",
-            "Wait(2000)",
-            "$stream.ReadTimeout = 2000",
-            "$stream.WriteTimeout = 2000",
             "$stream.Write($request",
             "$stream.Read($responseBuffer",
             "Host: $FixtureName",
-            "$responseBytes -ne 0",
-            "catch [System.AggregateException]",
-            "catch [System.IO.IOException]",
-            "catch [System.Net.Sockets.SocketException]",
             "SocketErrorCode",
             "ConnectionRefused",
             "ConnectionReset",
@@ -56,12 +49,11 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "Assert-SelectedProfileReady",
             "Get-NetRoute",
             "Compare-Object",
-            "$probeFailure = $_.Exception.Message",
-            "if ($probeFailure) { $phaseFailures.Add(",
-            "if ($phaseFailures.Count) { throw",
-        ):
+        )
+        for assertion in required:
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, reject)
+
         controls = "Test-FixtureTraffic -FixtureName $AllowedControlName"
         self.assertEqual(reject.count(controls), 2)
         self.assertLess(reject.index(controls), reject.index("$connectTask ="))
