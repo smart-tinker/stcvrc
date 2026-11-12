@@ -22,6 +22,7 @@ name: STCVRC source checks
       - tools/network-lab/**
       - test/**
       - candidates/cvr-2.5.10/**
+      - candidates/v1.19.33-20261022/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review, edited]
@@ -1182,7 +1183,7 @@ jobs:
           }
           mit_lzo_expected = mit_lzo_source["upstream_delta_blobs"]
           assert mit_lzo_actual == set(mit_lzo_expected), (
-              f"RC6 MIT-LZO source delta mismatch: {mit_lzo_actual ^ set(mit_lzo_expected)}"
+              f"RC7 MIT-LZO source delta mismatch: {mit_lzo_actual ^ set(mit_lzo_expected)}"
           )
           for relative, expected in mit_lzo_expected.items():
               actual = subprocess.check_output(
@@ -1190,7 +1191,20 @@ jobs:
                    f'{mit_lzo_source["source_commit"]}:{relative}'],
                   text=True,
               ).strip()
-              assert actual == expected, f"RC6 MIT-LZO source blob mismatch: {relative}"
+              assert actual == expected, f"RC7 MIT-LZO source blob mismatch: {relative}"
+
+          candidate_source_path = root / "candidates/v1.19.33-20261022/source.json"
+          candidate_source = json.loads(candidate_source_path.read_text(encoding="utf-8"))
+          assert candidate_source["source"]["commit"] == mit_lzo_source["source_commit"]
+          assert candidate_source["source"]["upstream_tag"] == mit_lzo_source["upstream_tag"]
+          assert candidate_source["source"]["upstream_commit"] == mit_lzo_source["upstream_commit"]
+          assert candidate_source["source"]["upstream_delta_blobs"] == mit_lzo_expected
+          assert candidate_source["binary"]["sha256"] == mit_lzo_source["asset_sha256"]
+          assert candidate_source["binary"]["release_tag"] == mit_lzo_source["release_tag"]
+          assert candidate_source["binary"]["release_id"] == mit_lzo_source["release_id"]
+          assert candidate_source["binary"]["manifest_sha256"] == mit_lzo_source["release_assets"][0]["sha256"]
+          assert candidate_source["toolchain"]["go_version"] == mit_lzo_source["go_version"]
+          assert candidate_source["toolchain"]["archive_sha256"] == mit_lzo_source["go_sha256"]
 
           claimed_base = source["patchSource"]["base"]
           if claimed_base != candidate_upstream:
@@ -1404,7 +1418,7 @@ jobs:
             d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87 \
             1.19.33-STCVRC-candidate-mit-lzo-20261111 2026-11-11T00:00:00Z "$RUNNER_TEMP/source-1.19.33-mit-lzo"
           test "$mismatches" -eq 0
-          printf "\nPublished RC2 and preserved draft RC6 asset digests matched fresh-source builds.\n" >> "$GITHUB_STEP_SUMMARY"
+          printf "\nPublished RC2 and current draft RC7 asset digests matched fresh-source builds.\n" >> "$GITHUB_STEP_SUMMARY"
           if (( license_findings != 0 )); then
             printf "Automated license classification is incomplete; manual license review is required. This is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
           else
