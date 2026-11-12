@@ -120,7 +120,8 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(DEPENDABOT.count("update-types:"), 3)
 
     def test_dependabot_changes_run_the_contract_check(self):
-        self.assertEqual(WORKFLOWS["test.yml"].count(".github/dependabot.yml"), 2)
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/dependabot.yml"), 1,
+                         "Dependabot must remain in push paths; every pull request runs")
 
     def test_templates_capture_downstream_evidence_and_privacy(self):
         bug = (ROOT / ".github/ISSUE_TEMPLATE/bug_report.yml").read_text()
@@ -146,8 +147,10 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, pr)
 
-        self.assertEqual(WORKFLOWS["test.yml"].count(".github/ISSUE_TEMPLATE/**"), 2)
-        self.assertEqual(WORKFLOWS["test.yml"].count(".github/PULL_REQUEST_TEMPLATE.md"), 2)
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/ISSUE_TEMPLATE/**"), 1,
+                         "issue templates must remain in push paths; every pull request runs")
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/PULL_REQUEST_TEMPLATE.md"), 1,
+                         "PR template must remain in push paths; every pull request runs")
 
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
