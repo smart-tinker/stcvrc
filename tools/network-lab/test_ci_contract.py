@@ -254,7 +254,7 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn("Forbidden CVR process started during install smoke:", script)
         self.assertIn("Start-Process -FilePath $guiPath", native)
         self.assertIn("install_service", native)
-        self.assertNotIn("Assert-NoCvrProcesses", script[script.index("& $nativeScript"):])
+        self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
 
     def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
