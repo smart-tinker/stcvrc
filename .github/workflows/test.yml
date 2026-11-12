@@ -370,6 +370,8 @@ jobs:
           python3 -B -m unittest discover -s "$PR_SOURCE/candidates/cvr-2.5.10" -p 'test_*.py' -v
 
       - name: Download only pinned public CVR inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           manifest="$PR_SOURCE/candidates/cvr-2.5.10/inputs.json"
@@ -413,9 +415,18 @@ jobs:
           PY
           while IFS=$'\t' read -r name url; do
             printf 'Downloading pinned public input %s: %s\n' "$name" "$url"
-            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
-              --max-time 300 --max-filesize 67108864 --silent --show-error \
-              "$url" -o "$input_dir/$name"
+            if [[ "$url" == https://api.github.com/* ]]; then
+              if [[ ! "$url" =~ ^https://api\.github\.com/repos/clash-verge-rev/clash-verge-rev/releases/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                printf 'Refusing unapproved GitHub API metadata URL: %s\n' "$url" >&2
+                exit 1
+              fi
+              api_endpoint="${url#https://api.github.com/}"
+              gh api "$api_endpoint" --hostname github.com > "$input_dir/$name"
+            else
+              curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+                --max-time 300 --max-filesize 67108864 --silent --show-error \
+                "$url" -o "$input_dir/$name"
+            fi
           done < "$downloads"
 
       - name: Build fresh MIT-LZO source and verify the official installer pair
@@ -520,6 +531,8 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
 
       - name: Fresh native Windows core build
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: build
         shell: bash
         run: |
@@ -667,6 +680,8 @@ jobs:
       NATIVE_WASM_SHA256: ${{ needs.cvr-windows-payload.outputs.wasm-sha256 }}
     steps:
       - name: Rebuild the exact native Windows source and license package
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           recipe="$(cygpath -u "$RUNNER_TEMP")/rc-pr-source"
@@ -1032,6 +1047,8 @@ jobs:
         shell: bash
     steps:
       - name: Build exact source, test actual module graph and collect license package
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           recipe="$RUNNER_TEMP/stcvrc-build-recipe"

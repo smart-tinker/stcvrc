@@ -830,8 +830,37 @@ def _rust_components(bundle):
         if package_id in about_by_id:
             raise AuditIncomplete(f"duplicate cargo-about crate record: {package_id}")
         about_by_id[package_id] = entry
-    if set(about_by_id) != required_ids:
-        raise AuditIncomplete("cargo-about crates do not match the independent Cargo runtime graph")
+    about_ids = set(about_by_id)
+    if about_ids != required_ids:
+        missing_ids = sorted(required_ids - about_ids)
+        extra_ids = sorted(about_ids - required_ids)
+
+        def package_samples(ids, lookup):
+            return [
+                {
+                    "id": package_id,
+                    "name": (lookup(package_id) or {}).get("name"),
+                    "version": (lookup(package_id) or {}).get("version"),
+                }
+                for package_id in ids[:20]
+            ]
+
+        details = {
+            "root_id": metadata["resolve"]["root"],
+            "required_count": len(required_ids),
+            "about_count": len(about_ids),
+            "missing_count": len(missing_ids),
+            "missing_sample": package_samples(missing_ids, packages.get),
+            "extra_count": len(extra_ids),
+            "extra_sample": package_samples(
+                extra_ids,
+                lambda package_id: about_by_id[package_id].get("package"),
+            ),
+        }
+        raise AuditIncomplete(
+            "cargo-about crates do not match the independent Cargo runtime graph: "
+            + json.dumps(details, sort_keys=True)
+        )
 
     licenses_by_crate = {}
     for license_entry in about_licenses:
