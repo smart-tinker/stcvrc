@@ -51,7 +51,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             self.assertEqual(item["build"]["tags"], ["with_gvisor"])
             self.assertEqual(item["build"]["cgo_enabled"], 0)
 
-    def test_draft_rc6_mit_lzo_candidate_records_two_identical_fresh_builds(self):
+    def test_mit_lzo_candidate_records_two_identical_fresh_builds(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = next(item for item in manifest["variants"] if item["id"] == "candidate-1.19.33-mit-lzo")
         self.assertEqual(
@@ -119,7 +119,7 @@ class DistributionAuditContractTests(unittest.TestCase):
 
     def test_license_audit_docs_trigger_source_checks(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json", "docs/third-party-notices.md"):
+        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json", "docs/third-party-notices.md", "candidates/v1.19.33-20261022/**"):
             self.assertIn(
                 f"      - {path}",
                 workflow,
@@ -142,7 +142,7 @@ class DistributionAuditContractTests(unittest.TestCase):
         self.assertIn('tolower($3) == "unknown"', report_section, "unclassified license rows must require manual review")
 
 
-    def test_draft_rc6_mit_lzo_candidate_pins_exact_source_and_build(self):
+    def test_draft_rc7_mit_lzo_candidate_pins_exact_source_and_build(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
         self.assertEqual(candidate["distribution_status"], "draft-prerelease")
@@ -162,14 +162,14 @@ class DistributionAuditContractTests(unittest.TestCase):
             "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE",
         })
         self.assertEqual(candidate["asset_sha256"], "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87")
-        self.assertEqual(candidate["release_id"], 441941273)
+        self.assertEqual(candidate["release_id"], 442680453)
         self.assertEqual(candidate["release_assets"], [
-            {"name": "RC-MANIFEST.json", "sha256": "69d678d8a40f0eb26491d6b1a731bdd077563be170e759133e9ad4e0be8235a9"},
+            {"name": "RC-MANIFEST.json", "sha256": "ef81b3f7577ecb681dca400c633d27ca5901fba21d02fdc0548c8ae0c3e22d1f"},
             {"name": "verge-mihomo.exe", "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"},
         ])
-        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.6")
+        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.7")
 
-    def test_license_ci_builds_the_exact_draft_rc6_mit_lzo_source(self):
+    def test_license_ci_builds_the_exact_draft_rc7_mit_lzo_source(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         for required in (
             "candidate-1.19.33-mit-lzo",
@@ -253,7 +253,7 @@ SOFTWARE.""",
         ):
             self.assertIn(required, license_job)
 
-    def test_rc6_mit_lzo_manifest_maps_exact_upstream_source_delta(self):
+    def test_rc7_mit_lzo_manifest_maps_exact_upstream_source_delta(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
         expected = {
@@ -280,7 +280,7 @@ SOFTWARE.""",
             self.assertRegex(blob_sha, r"^[0-9a-f]{40}$", path)
 
 
-    def test_license_audit_receives_rc6_upstream_and_checkout_arguments(self):
+    def test_license_audit_receives_rc7_upstream_and_checkout_arguments(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         invocation = next(
             line for line in workflow.splitlines()
@@ -319,6 +319,9 @@ SOFTWARE.""",
         self.assertEqual(source["binary"]["sha256"], candidate["asset_sha256"])
         self.assertEqual(source["toolchain"]["go_version"], candidate["go_version"])
         self.assertEqual(source["toolchain"]["archive_sha256"], candidate["go_sha256"])
+        self.assertEqual(source["binary"]["release_tag"], candidate["release_tag"])
+        self.assertEqual(source["binary"]["release_id"], candidate["release_id"])
+        self.assertEqual(source["binary"]["manifest_sha256"], candidate["release_assets"][0]["sha256"])
 
 if __name__ == "__main__":
     unittest.main()
