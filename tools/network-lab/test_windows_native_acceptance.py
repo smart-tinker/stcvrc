@@ -145,6 +145,21 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("resolverLog=", traffic)
         self.assertIn("Get-NativeStateSnapshot", traffic)
 
+    def test_http_failure_reports_dns_mapping_and_fixture_server_logs(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        snapshot = source.split("function Get-NativeStateSnapshot", 1)[1].split(
+            "function Wait-RuntimeRule", 1
+        )[0]
+        self.assertIn("$snapshot.dnsConfiguration = Get-SafeDnsConfigurationSnapshot", snapshot)
+        self.assertIn("$snapshot.fixtureHttpServerStdoutTail = Get-BoundedLogTail -Path $script:serverStdoutPath -Count 12", snapshot)
+        self.assertIn("$snapshot.fixtureHttpServerStderrTail = Get-BoundedLogTail -Path $script:serverStderrPath -Count 12", snapshot)
+
+        traffic = source.split("function Test-FixtureTraffic", 1)[1].split(
+            "function Test-RejectedFixture", 1
+        )[0]
+        self.assertIn("dnsEndpoint=$($dnsEndpoint.address):$($dnsEndpoint.port)", traffic)
+        self.assertIn("fakeAddress=$fake", traffic)
+
     def test_core_restart_failure_reports_startup_and_process_state(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Invoke-CvrRestartCore", source)
