@@ -71,21 +71,49 @@ class ReceiptTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(receipt["state"], "observed")
 
-    def test_ambiguous_intent_refuses_redispatch(self):
+    def test_lost_ack_leaves_intent_and_refuses_redispatch(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "restart.json"
             calls = []
+
+            def lose_ack():
+                calls.append("dispatch")
+                raise TimeoutError("DBus acknowledgement lost")
+
+            with self.assertRaisesRegex(TimeoutError, "acknowledgement lost"):
+                restart_once(path, "op-4", "stcvrc-ci-d.service",
+                             "RestartUnit", lose_ack, lambda _receipt: None)
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(receipt["state"], "intent")
             with self.assertRaises(AmbiguousOperation):
                 restart_once(path, "op-4", "stcvrc-ci-d.service",
                              "RestartUnit",
-                             lambda: calls.append("dispatch"),
+                             lambda: calls.append("replay"),
                              lambda _receipt: None)
-            with self.assertRaises(AmbiguousOperation):
-                restart_once(path, "op-4", "stcvrc-ci-d.service",
-                             "RestartUnit",
-                             lambda: calls.append("dispatch"),
-                             lambda _receipt: None)
-            self.assertEqual(calls, [])
+            self.assertEqual(calls, ["dispatch"])
+
+    def test_invalid_job_receipt_leaves_intent_and_refuses_replay(self):
+        for invalid in (None, "", "not-a-dbus-job"):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "restart.json"
+                calls = []
+
+                def bad_receipt():
+                    calls.append("dispatch")
+                    return invalid
+
+                with self.assertRaises(AmbiguousOperation):
+                    restart_once(path, "op-5", "stcvrc-ci-e.service",
+                                 "RestartUnit", bad_receipt,
+                                 lambda _receipt: self.fail("must not observe invalid receipt"))
+                receipt = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(receipt["state"], "intent")
+                with self.assertRaises(AmbiguousOperation):
+                    restart_once(path, "op-5", "stcvrc-ci-e.service",
+                                 "RestartUnit",
+                                 lambda: calls.append("replay"),
+                                 lambda _receipt: None)
+                self.assertEqual(calls, ["dispatch"])
 
     def test_receipt_identity_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -160,8 +188,8 @@ class RestartCounterTests(unittest.TestCase):
         self.assertEqual(classify_restart_transition(
             previous, current, receipt, manual_restart_resets_counter=True
         ), "requested-restart-followed-by-automatic-retry")
-        self.assertEqual(classify_restart_transition(previous, current),
-                         "systemd-automatic-restart")
+        with self.assertRaises(UnknownRestartTransition):
+            classify_restart_transition(previous, current)
 
     def test_same_counter_across_new_invocation_requires_receipt(self):
         previous = {"unit": "stcvrc-ci-c.service", "invocation_id": "old", "n_restarts": 0}
