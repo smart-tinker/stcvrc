@@ -17,6 +17,7 @@ name: STCVRC source checks
       - docs/license-provenance.json
       - docs/third-party-notices.md
       - tools/license-audit/**
+      - tools/source-build/**
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
@@ -1057,6 +1058,34 @@ jobs:
             printf 'At least one exact .33 upstream comparison failed; see per-case results above.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
           if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi
+
+  source-built-easytier-candidate:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact build recipe
+        run: |
+          set -euo pipefail
+          recipe="$RUNNER_TEMP/stcvrc-build-recipe"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init --quiet "$recipe"
+          git -C "$recipe" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$recipe" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$recipe" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
+          bash "$recipe/tools/source-build/ci.sh"
+      - name: Remove disposable source, compiler and build directories
+        if: always()
+        run: |
+          rm -rf -- "$RUNNER_TEMP/stcvrc-source-built" "$RUNNER_TEMP/stcvrc-build-recipe"
 
   license-audit:
     needs: source
