@@ -294,6 +294,26 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(set(packages), {root, registry + "#duplicate@1.0.0", git_source + "#duplicate@1.0.0"})
         self.assertEqual(runtime_ids, {root, git_source + "#duplicate@1.0.0"})
 
+    def test_cargo_tree_treats_proc_macro_marker_as_target_kind(self):
+        registry = "registry+https://github.com/rust-lang/crates.io-index"
+        root = "path+file:///tmp/example#root@1.0.0"
+        derive = registry + "#zeroize_derive@1.5.0"
+        metadata = {
+            "packages": [
+                {"id": root, "name": "root", "version": "1.0.0", "source": None, "manifest_path": "/tmp/root/Cargo.toml"},
+                {"id": derive, "name": "zeroize_derive", "version": "1.5.0", "source": registry},
+            ],
+            "resolve": {"root": root},
+        }
+
+        packages, runtime_ids = _cargo_tree_runtime_ids(
+            metadata,
+            "root v1.0.0 (/tmp/root)\\nzeroize_derive v1.5.0 (proc-macro)",
+        )
+
+        self.assertEqual(set(packages), {root, derive})
+        self.assertEqual(runtime_ids, {root, derive})
+
     def test_cargo_tree_rejects_an_ambiguous_unqualified_package(self):
         registry = "registry+https://github.com/rust-lang/crates.io-index"
         git_source = "git+https://github.com/example/duplicate?rev=deadbeef#deadbeef"
