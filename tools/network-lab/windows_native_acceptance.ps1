@@ -428,6 +428,9 @@ function Select-FixtureNode {
     $selectionResult = Invoke-CvrCommand -Command 'switch_proxy_node' -Payload @{ groupName='GLOBAL'; proxyName=$Node; unfix=$false }
     $selectionJson = if ($null -eq $selectionResult) { 'null' } else { ConvertTo-Json -InputObject $selectionResult -Compress -Depth 8 }
     Write-Host "switch_proxy_node GLOBAL=$Node result=$selectionJson."
+    $recordResult = Invoke-CvrCommand -Command 'record_selected_node' -Payload @{ groupName='GLOBAL'; node=$Node }
+    $recordJson = if ($null -eq $recordResult) { 'null' } else { ConvertTo-Json -InputObject $recordResult -Compress -Depth 8 }
+    Write-Host "record_selected_node GLOBAL=$Node result=$recordJson."
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ((Get-GlobalNodeSelection) -eq $Node) { break }
