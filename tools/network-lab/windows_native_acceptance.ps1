@@ -80,7 +80,7 @@ function Invoke-CvrCommand {
     $expression = "(async()=>await window.__TAURI_INTERNALS__.invoke('$Command',$jsonArgs))()"
     $packet = @{ id=$script:cdpId; method='Runtime.evaluate'; params=@{ expression=$expression; awaitPromise=$true; returnByValue=$true; userGesture=$true } } | ConvertTo-Json -Compress -Depth 20
     $bytes = [Text.Encoding]::UTF8.GetBytes($packet)
-    $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+    $null = $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
     while ($true) {
         $reply = Receive-CdpMessage
         if ($reply.id -ne $script:cdpId) { continue }
@@ -265,7 +265,19 @@ function Get-NativeStateSnapshot {
     } catch { $snapshot.runtimeYamlError = $_.Exception.Message }
     try {
         $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-        if ($svc) { $snapshot.service = [ordered]@{ name = [string]$svc.Name; status = [string]$svc.Status } }
+        $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+        if ($svc -or $serviceRecord) {
+            $serviceNameValue = if ($serviceRecord) { [string]$serviceRecord.Name } else { [string]$svc.Name }
+            $serviceStatus = if ($svc) { [string]$svc.Status } else { $null }
+            $serviceState = if ($serviceRecord) { [string]$serviceRecord.State } else { $null }
+            $servicePid = if ($serviceRecord) { [int]$serviceRecord.ProcessId } else { 0 }
+            $snapshot.service = [ordered]@{
+                name = $serviceNameValue
+                status = $serviceStatus
+                state = $serviceState
+                processId = $servicePid
+            }
+        }
     } catch { $snapshot.serviceError = $_.Exception.Message }
     try {
         foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe' OR Name='verge-mihomo-alpha.exe'" -ErrorAction Stop)) {
@@ -440,18 +452,32 @@ function Select-FixtureNode {
 }
 function Select-FixtureProfile {
     param([string]$Uid, [string]$AllowName, [string]$RejectName)
-    $outcome = Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } }
-    $outcomeJson = if ($null -eq $outcome) { 'null' } else { ConvertTo-Json -InputObject $outcome -Compress -Depth 8 }
-    $status = ([string]$outcome.status).ToLowerInvariant()
-    Write-Host "patch_profiles_config uid=$Uid returned $outcomeJson."
-    if ($status -ne 'valid') {
-        throw "patch_profiles_config did not validate the selected profile; status=$status result=$outcomeJson snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $attempt = 0
+    $outcome = $null
+    $status = $null
+    while ($true) {
+        $attempt++
+        $outcome = Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } }
+        if ($null -eq $outcome -or $outcome -is [array] -or -not ($outcome.PSObject.Properties.Name -contains 'status')) {
+            throw "patch_profiles_config uid=$Uid returned an unexpected result shape on attempt $attempt; snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+        }
+        $status = ([string]$outcome.status).ToLowerInvariant()
+        Write-Host "patch_profiles_config uid=$Uid attempt=$attempt status=$status."
+        if ($status -eq 'valid') { break }
+        if ($status -ne 'busy') {
+            throw "patch_profiles_config uid=$Uid returned non-retryable status=$status on attempt $attempt; snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+        }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            throw "patch_profiles_config uid=$Uid remained busy for 30 seconds after $attempt attempts; snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+        }
+        Start-Sleep -Milliseconds 500
     }
     try {
         $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
         if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
     } catch {
-        throw "Profile selection validated (uid=$Uid, result=$outcomeJson), but loaded runtime rules were not confirmed: $($_.Exception.Message) snapshot=$(Get-NativeStateSnapshot -Phase 'runtime rule wait')."
+        throw "Profile selection validated (uid=$Uid, attempts=$attempt), but loaded runtime rules were not confirmed: $($_.Exception.Message) snapshot=$(Get-NativeStateSnapshot -Phase 'runtime rule wait')."
     }
 }
 function Assert-SelectedProfileReady {
@@ -645,7 +671,7 @@ try {
     }
     if (-not $target) { throw 'GUI WebView2 DevTools page was unavailable; real Tauri commands cannot be asserted.' }
     $script:cdp=[Net.WebSockets.ClientWebSocket]::new()
-    $script:cdp.ConnectAsync([Uri]$target.webSocketDebuggerUrl,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
+    $null = $script:cdp.ConnectAsync([Uri]$target.webSocketDebuggerUrl,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
     $deadline=[DateTime]::UtcNow.AddSeconds(15); $ipcReady=$false
     while ([DateTime]::UtcNow -lt $deadline) { try { $null=Invoke-CvrCommand -Command 'get_runtime_state'; $ipcReady=$true; break } catch { Start-Sleep -Milliseconds 500 } }
     if (-not $ipcReady) { throw 'Visible GUI did not expose functioning Tauri commands over WebView2.' }
