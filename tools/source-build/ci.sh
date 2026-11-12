@@ -75,6 +75,21 @@ export GOFLAGS='-mod=readonly -p=2'
 mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE" "$GOBIN"
 export PATH="$root/bin:$PATH"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+printf 'Installed Go protoc plugin: %s\n' "$(protoc-gen-go --version)"
+if [[ "$host" == windows ]]; then
+  # Upstream shell checks use Unix display names; native tools retain their .exe suffix.
+  cat > "$root/bin/protoc-gen-go" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$#" == 1 && "$1" == --version ]]; then
+  "${BASH_SOURCE[0]}.exe" "$@" | tr -d '\r' | sed 's/^protoc-gen-go\.exe /protoc-gen-go /'
+else
+  exec "${BASH_SOURCE[0]}.exe" "$@"
+fi
+SH
+  chmod +x "$root/bin/protoc-gen-go"
+  hash -r
+fi
 test "$(protoc-gen-go --version)" = 'protoc-gen-go v1.36.11'
 curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 180 --silent --show-error \
   "https://github.com/protocolbuffers/protobuf/releases/download/v35.1/$protoc_archive" -o "$root/protoc.zip"
@@ -83,6 +98,18 @@ if [[ "$host" == windows ]]; then
   python -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$root/protoc.zip" "$root/protoc"
 else
   unzip -q "$root/protoc.zip" -d "$root/protoc"
+fi
+if [[ "$host" == windows ]]; then
+  cat > "$root/protoc/bin/protoc" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$#" == 1 && "$1" == --version ]]; then
+  "${BASH_SOURCE[0]}.exe" "$@" | tr -d '\r'
+else
+  exec "${BASH_SOURCE[0]}.exe" "$@"
+fi
+SH
+  chmod +x "$root/protoc/bin/protoc"
 fi
 export PATH="$root/protoc/bin:$PATH"
 PROTOC="$(native_path "$root/protoc/bin/protoc")"
