@@ -98,9 +98,9 @@ class MptcpEcho:
             handler.start()
 
     def _handle(self, conn: socket.socket) -> None:
+        received = bytearray()
         try:
             conn.settimeout(5)
-            received = bytearray()
             while len(received) < len(self.payload):
                 chunk = conn.recv(len(self.payload) - len(received))
                 if not chunk:
@@ -118,9 +118,14 @@ class MptcpEcho:
                     {"state": state, "protocol": protocol, "mptcp_flags": flags}
                 )
             conn.sendall(self.payload)
+        except socket.timeout as error:
+            if received:
+                with self.lock:
+                    self.errors.append(f"echo timed out after partial payload: {error}")
         except (OSError, ProbeError) as error:
-            with self.lock:
-                self.errors.append(str(error))
+            if received:
+                with self.lock:
+                    self.errors.append(str(error))
         finally:
             conn.close()
 
