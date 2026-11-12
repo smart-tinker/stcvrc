@@ -210,7 +210,7 @@ def _parse_go_license_report(report):
     for line in report.splitlines():
         if not line:
             continue
-        fields = line.split("\\t")
+        fields = line.split("\t")
         if len(fields) != 6:
             raise AuditIncomplete("go-licenses returned a malformed template row")
         try:

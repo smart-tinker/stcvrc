@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from generate_notices import AuditIncomplete, _embedded_source, _source_archive, _supplemental_notice
+from generate_notices import AuditIncomplete, _component as _validate_component, _embedded_source, _source_archive, _supplemental_notice
 
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -241,7 +241,7 @@ def _wintun_binding_component(go, graph):
     records = go.get("additional_components")
     if not isinstance(records, list) or len(records) != 1:
         raise AuditIncomplete("missing separate Wintun Go binding license component")
-    _, component, licenses, supplemental = _component(records[0], "runtime")
+    _, component, licenses, supplemental = _validate_component(records[0], "runtime")
     if (
         component["ecosystem"] != "go-source"
         or component["name"] != "WireGuard Wintun Go bindings"
