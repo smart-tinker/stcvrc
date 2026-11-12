@@ -131,6 +131,31 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 self.assertIn(assertion, identity)
 
 
+    def test_http_failure_reports_response_and_resolver_context(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        http = source.split("function Invoke-TunHttp", 1)[1].split(
+            "function Wait-ServiceReady", 1
+        )[0]
+        self.assertIn("$status = ($response -split", http)
+        self.assertIn("body='$body'", http)
+
+        traffic = source.split("function Test-FixtureTraffic", 1)[1].split(
+            "function Test-RejectedFixture", 1
+        )[0]
+        self.assertIn("resolverLog=", traffic)
+        self.assertIn("Get-NativeStateSnapshot", traffic)
+
+    def test_core_restart_failure_reports_startup_and_process_state(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Invoke-CvrRestartCore", source)
+        restart = source.split("function Invoke-CvrRestartCore", 1)[1].split(
+            "\\n}", 1
+        )[0]
+        self.assertIn("get_core_startup_error", restart)
+        self.assertIn("Get-NativeStateSnapshot", restart)
+        self.assertEqual(source.count("Invoke-CvrCommand -Command 'restart_core'"), 1)
+        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
