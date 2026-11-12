@@ -131,19 +131,41 @@ def read_process_identity_as_root(pid):
         raise ValueError("pid must be greater than 1")
     module_dir = str(Path(__file__).resolve().parent)
     code = (
-        "import json,sys; from maintenance import read_linux_process_identity; "
-        "print(json.dumps(read_linux_process_identity(int(sys.argv[1])), sort_keys=True))"
+        "import json,sys\n"
+        "from maintenance import read_linux_process_identity\n"
+        "pid=int(sys.argv[1])\n"
+        "try:\n"
+        " identity=read_linux_process_identity(pid)\n"
+        "except (ProcessLookupError,FileNotFoundError):\n"
+        " print(json.dumps({'status':'gone'}))\n"
+        "except PermissionError:\n"
+        " print(json.dumps({'status':'permission-denied'}))\n"
+        "else:\n"
+        " print(json.dumps({'status':'ok','identity':identity},sort_keys=True))\n"
     )
     result = run([
         "sudo", "-n", "env", "PYTHONPATH=" + module_dir,
         sys.executable, "-B", "-c", code, str(pid),
-    ], timeout=10)
+    ], check=False, timeout=10)
+    if result.returncode != 0:
+        raise Blocked(json.dumps({
+            "operation": "read-owned-process-identity",
+            "exit_code": result.returncode,
+            "stderr": safe_text(result.stderr.strip())[:240],
+        }, sort_keys=True))
     try:
-        identity = json.loads(result.stdout)
+        payload = json.loads(result.stdout)
     except (TypeError, json.JSONDecodeError) as error:
         raise ProcessIdentityError("privileged proc identity reader returned invalid JSON") from error
+    if not isinstance(payload, dict):
+        raise ProcessIdentityError("privileged proc identity response is invalid")
+    if payload.get("status") == "gone":
+        raise ProcessLookupError(pid)
+    if payload.get("status") == "permission-denied":
+        raise Blocked("sudo could not read the owned MainPID identity")
+    identity = payload.get("identity")
     required = {"pid", "start_ticks", "exe_sha256", "uid", "gid", "exe_path"}
-    if not isinstance(identity, dict) or not required.issubset(identity):
+    if payload.get("status") != "ok" or not isinstance(identity, dict) or not required.issubset(identity):
         raise ProcessIdentityError("privileged proc identity is incomplete")
     return identity
 
