@@ -155,7 +155,12 @@ function Assert-LiveCoreIdentity {
     if ($processes.Count -ne 1) { throw "Expected one live core at the service staging path; found $($processes.Count)." }
     if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
     $yaml = Get-RuntimeYaml
-    $controller = [regex]::Match($yaml, '(?m)^external-controller:\s*"?127\.0\.0\.1:(\d+)"?\s*
+    $controller = [regex]::Match($yaml, '(?m)^external-controller:\s*"?127\.0\.0\.1:(\d+)"?')
+    if (-not $controller.Success) { throw 'Loaded config has no loopback-only external-controller endpoint.' }
+    $liveVersion = Invoke-RestMethod -Uri "http://127.0.0.1:$($controller.Groups[1].Value)/version" -TimeoutSec 5
+    if (-not ([string]$liveVersion.version).Contains($version)) { throw "Live controller version does not match the source-built candidate: $($liveVersion.version)" }
+    if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
+}
 }
 function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
 function Wait-RuntimeRule {
