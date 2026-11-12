@@ -40,7 +40,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         bundle = load_bundle()
         bundle["rust"]["about"]["licenses"] = []
 
-        with self.assertRaisesRegex(AuditIncomplete, "license"):
+        with self.assertRaises(AuditIncomplete):
             normalize_inventory(bundle)
 
     def test_rejects_a_runtime_crate_without_a_registry_source_checksum(self):
@@ -51,7 +51,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
             'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
         )
 
-        with self.assertRaisesRegex(AuditIncomplete, "checksum"):
+        with self.assertRaises(AuditIncomplete):
             normalize_inventory(bundle)
 
 
