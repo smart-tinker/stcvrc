@@ -728,7 +728,6 @@ def _rust_rows(easytier, build, root, env, output_dir):
             "--manifest-path", manifest,
             "--features", ",".join(features),
             "--no-default-features",
-            "--include-local",
             "--config", about_config,
         ],
         easytier,
