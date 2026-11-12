@@ -62,15 +62,15 @@ def load_bundle():
             notice["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     for notice in bundle.get("rust", {}).get("standard_library", {}).get("supplemental_notices", []):
         notice["sha256"] = hashlib.sha256(notice["text"].encode("utf-8")).hexdigest()
-    return bundle
+    return add_core_source_license_rows(bundle)
 
 
 def add_core_source_license_rows(bundle):
     core = bundle["go"]["core_module_path"]
     commit = bundle["build"]["core_source_commit"]
-    root_text = "Fixture GPL terms.\\nCopyright (c) Mihomo Fixture\\n"
-    kcptun_text = "Fixture MIT terms.\\nCopyright (c) kcptun Fixture\\n"
-    attribution = "Grabbed from https://github.com/xtaci/tcpraw with modifications\\n"
+    root_text = "Fixture GPL terms.\nCopyright (c) Mihomo Fixture\n"
+    kcptun_text = "Fixture MIT terms.\nCopyright (c) kcptun Fixture\n"
+    attribution = "Grabbed from https://github.com/xtaci/tcpraw with modifications\n"
     root_blob = git_blob(root_text)
     kcptun_blob = git_blob(kcptun_text)
     attribution_blob = git_blob(attribution)
@@ -274,7 +274,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
         self.assertEqual(
             names,
-            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "Rust standard library", "google.golang.org/protobuf", "github.com/easytier/easytier/easytier-go", "github.com/metacubex/chacha", "github.com/metacubex/sing-tun", "wintun.dll", "WireGuard Wintun Go bindings"},
+            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "Rust standard library", "google.golang.org/protobuf", "github.com/easytier/easytier/easytier-go", "github.com/metacubex/chacha", "github.com/metacubex/sing-tun", "wintun.dll", "WireGuard Wintun Go bindings", "github.com/metacubex/mihomo"},
         )
         self.assertEqual(
             set(inventory["required_components"]),
@@ -290,6 +290,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
                 "go:github.com/metacubex/sing-tun@v0.4.28",
                 "embedded-binary:wintun.dll@0.14.1",
                 "go-source:WireGuard Wintun Go bindings@v0.4.28",
+                "go-source:github.com/metacubex/mihomo@source-111111111111",
             },
         )
         rendered = json.dumps(inventory, sort_keys=True)
@@ -297,7 +298,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertNotIn("/cargo/registry", rendered)
 
     def test_includes_exact_core_module_license_files_and_attribution(self):
-        bundle = add_core_source_license_rows(load_bundle())
+        bundle = load_bundle()
         inventory = normalize_inventory(bundle)
         component = next(
             item for item in inventory["components"]
@@ -313,7 +314,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(licenses["GPL-3.0"]["source_path"], "LICENSE")
         self.assertEqual(licenses["GPL-3.0"]["source_revision"], commit)
         self.assertEqual(licenses["GPL-3.0"]["source_url"], f"https://github.com/smart-tinker/stcvrc/blob/{commit}/LICENSE")
-        self.assertEqual(licenses["GPL-3.0"]["source_git_blob"], git_blob("Fixture GPL terms.\\nCopyright (c) Mihomo Fixture\\n"))
+        self.assertEqual(licenses["GPL-3.0"]["source_git_blob"], git_blob("Fixture GPL terms.\nCopyright (c) Mihomo Fixture\n"))
         attribution_notice = component["supplemental_notices"][0]
         self.assertIn("go-licenses reported Unknown", attribution_notice["name"])
         self.assertEqual(
@@ -322,7 +323,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         )
         self.assertEqual(
             attribution_notice["source_git_blob"],
-            git_blob("Grabbed from https://github.com/xtaci/tcpraw with modifications\\n"),
+            git_blob("Grabbed from https://github.com/xtaci/tcpraw with modifications\n"),
         )
         self.assertEqual(licenses["MIT"]["source_path"], "transport/kcptun/LICENSE.md")
         self.assertEqual(
