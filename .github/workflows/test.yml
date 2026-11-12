@@ -930,6 +930,34 @@ jobs:
           tar -xzf go.tar.gz
           printf '%s\n' "$RUNNER_TEMP/test-go/go/bin" >> "$GITHUB_PATH"
 
+      - name: Record current public Shadowsocks image digest
+        run: |
+          set -euo pipefail
+          docker pull mritd/shadowsocks:latest
+          repo_digests="$(docker image inspect mritd/shadowsocks:latest --format '{{range .RepoDigests}}{{println .}}{{end}}')"
+          printf 'Pulled Shadowsocks repo digests:\n%s\n' "$repo_digests" | tee -a "$GITHUB_STEP_SUMMARY"
+          found=0
+          while IFS= read -r repo_digest; do
+            [[ "$repo_digest" == *"mritd/shadowsocks@sha256:"* ]] || continue
+            digest="${repo_digest##*@}"
+            if [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              printf 'Image digest to pin: %s\n' "$repo_digest" | tee -a "$GITHUB_STEP_SUMMARY"
+              found=1
+              break
+            fi
+          done <<< "$repo_digests"
+          [[ "$found" == 1 ]]
+
+      - name: Test fragmented v2ray-plugin mux status header
+        working-directory: source
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/mux-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/mux-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/mux-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          go test -count=1 -run='^TestMuxReadHandlesShortStatusHeader$' ./transport/v2ray-plugin
+
       - name: Run the full protocol module suite from clean Go caches
         working-directory: source/test
         run: |
