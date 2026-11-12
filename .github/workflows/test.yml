@@ -20,6 +20,7 @@ name: STCVRC source checks
       - docs/openvpn-profile-contract.md
       - docs/openvpn-profile-examples/**
       - tools/network-lab/**
+      - tools/linux-maintenance/**
       - test/**
       - candidates/cvr-2.5.10/**
       - candidates/v1.19.33-20261022/**
@@ -1424,3 +1425,28 @@ jobs:
           else
             printf "Automated license classification produced no missing-license findings; this is not a legal-compliance decision.\n" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  linux-maintenance-recovery:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch exact PR or main source and run isolated Linux maintenance checks
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          source="$RUNNER_TEMP/stcvrc-linux-maintenance-source"
+          git init --quiet "$source"
+          git -C "$source" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source" rev-parse HEAD)" = "$SOURCE_SHA"
+          printf 'Exact maintenance source: %s\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          bash "$source/tools/linux-maintenance/ci.sh" \
+            "$source" "$RUNNER_TEMP/stcvrc-ci-linux-maintenance"
