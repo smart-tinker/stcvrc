@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -31,6 +33,24 @@ def _source_digest(component):
     value = _required_text(digest.get("value"), "source digest value")
     if value.upper() in {"UNKNOWN", "NOASSERTION", "UNAVAILABLE"}:
         raise AuditIncomplete(f"unresolved source digest for {component.get('name', 'component')}")
+    if algorithm == "git-commit":
+        valid = bool(_COMMIT.fullmatch(value))
+    elif algorithm in {
+        "sha256", "cargo-registry-sha256", "cargo-crate-sha256",
+        "go-archive-sha256",
+    }:
+        valid = bool(_SHA256.fullmatch(value))
+    elif algorithm == "go.sum-h1":
+        encoded = value[3:] if value.startswith("h1:") else ""
+        try:
+            decoded = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            decoded = b""
+        valid = len(decoded) == 32 and base64.b64encode(decoded).decode("ascii") == encoded
+    else:
+        raise AuditIncomplete(f"unsupported source digest algorithm for {component.get('name', 'component')}: {algorithm}")
+    if not valid:
+        raise AuditIncomplete(f"invalid source digest for {component.get('name', 'component')}")
     return {"algorithm": algorithm, "value": value}
 
 
@@ -97,6 +117,12 @@ def _component(component, expected_role):
         "licenses": [item[0] for item in licenses],
         "copyrights": copyrights,
     }
+    for field in ("declared_license", "selected_license", "upstream_module_version"):
+        if field in component:
+            value = component[field]
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise AuditIncomplete(f"invalid {field} for {name}")
+            record[field] = value.strip() if isinstance(value, str) else None
     key = f"{ecosystem}:{name}@{version}"
     return key, record, licenses
 
@@ -109,6 +135,12 @@ def _render_component(record, licenses):
         f"Source: {record['source_url']}",
         f"Source digest: {record['source_digest']['algorithm']} {record['source_digest']['value']}",
     ]
+    if record.get("declared_license"):
+        lines.append(f"Declared license expression: {record['declared_license']}")
+    if record.get("selected_license"):
+        lines.append(f"Selected license: {record['selected_license']}")
+    if record.get("upstream_module_version"):
+        lines.append(f"Upstream module version: {record['upstream_module_version']}")
     if record["copyrights"]:
         lines.extend(["Copyright:", *[f"- {item}" for item in record["copyrights"]]])
     for license_record, license_text in licenses:
@@ -141,6 +173,10 @@ def generate_notices(inventory):
     tags = scope.get("go_build_tags")
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag for tag in tags):
         raise AuditIncomplete("invalid Go build tags")
+    rust_target = _required_text(scope.get("rust_target"), "Rust target")
+    rust_features = scope.get("rust_features")
+    if not isinstance(rust_features, list) or any(not isinstance(item, str) or not item.strip() for item in rust_features):
+        raise AuditIncomplete("invalid Rust features")
     embedded = scope.get("embedded_wasm")
     if not isinstance(embedded, dict):
         raise AuditIncomplete("missing embedded WASM provenance")
@@ -181,6 +217,8 @@ def generate_notices(inventory):
             "core_sha256": core_sha,
             "target": target,
             "go_build_tags": sorted(tags),
+            "rust_target": rust_target,
+            "rust_features": sorted(set(rust_features)),
             "embedded_wasm": {"source_commit": wasm_commit, "sha256": wasm_sha},
         },
         "components": [item[1] for item in normalized_runtime],
@@ -195,6 +233,8 @@ def generate_notices(inventory):
         f"Core binary SHA256: {core_sha}",
         f"Build target: {target}",
         f"Go build tags: {', '.join(sorted(tags))}",
+        f"Rust target: {rust_target}",
+        f"Rust features: {', '.join(sorted(set(rust_features)))}",
         f"Embedded EasyTier WASM source commit: {wasm_commit}",
         f"Embedded EasyTier WASM SHA256: {wasm_sha}",
         "",

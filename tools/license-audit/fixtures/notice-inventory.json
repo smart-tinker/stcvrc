@@ -11,7 +11,14 @@
     "embedded_wasm": {
       "source_commit": "2222222222222222222222222222222222222222",
       "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
-    }
+    },
+    "rust_target": "wasm32-wasip1",
+    "rust_features": [
+      "management-rpc",
+      "proxy-smoltcp-stack",
+      "ring-crypto",
+      "wasi-crypto-offload"
+    ]
   },
   "components": [
     {

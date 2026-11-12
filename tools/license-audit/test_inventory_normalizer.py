@@ -20,12 +20,13 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
         self.assertEqual(
             names,
-            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library"},
+            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "github.com/easytier/easytier/easytier-go"},
         )
         self.assertEqual(
             set(inventory["required_components"]),
             {
                 "go:example.com/go-widget@v1.2.3",
+                "go:github.com/easytier/easytier/easytier-go@source-222222222222",
                 "rust:easytier-core@1.0.0",
                 "rust:example-rust-crate@0.4.2",
                 "go-toolchain-runtime:Go standard library@1.26.11",

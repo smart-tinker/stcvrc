@@ -28,8 +28,8 @@
   },
   "go": {
     "core_module_path": "github.com/metacubex/mihomo",
-    "modules_json": "{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}\n{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}\n",
-    "packages_json": "{\"ImportPath\":\"github.com/metacubex/mihomo\",\"Module\":{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}}\n{\"ImportPath\":\"example.com/go-widget/http\",\"Module\":{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}\n",
+    "modules_json": "{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}\n{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}\n{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}\n",
+    "packages_json": "{\"ImportPath\":\"github.com/metacubex/mihomo\",\"Module\":{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}}\n{\"ImportPath\":\"example.com/go-widget/http\",\"Module\":{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}\n{\"ImportPath\":\"github.com/easytier/easytier/easytier-go/adapter\",\"Module\":{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}}\n",
     "license_report": [
       {
         "Name": "example.com/go-widget",
@@ -38,6 +38,14 @@
         "LicenseURL": "https://github.com/example/go-widget/blob/v1.2.3/LICENSE",
         "LicenseName": "MIT",
         "LicenseText": "Fixture MIT license text.\nCopyright (c) Go Fixture\n"
+      },
+      {
+        "Name": "github.com/easytier/easytier/easytier-go",
+        "Version": "v0.0.0-20260910071355-3d0c9c3ca5e2",
+        "LicensePath": "third_party/easytier-go/LICENSE",
+        "LicenseURL": "",
+        "LicenseName": "LGPL-3.0-or-later",
+        "LicenseText": "Fixture EasyTier Go adapter license text.\nCopyright (c) EasyTier Fixture\n"
       }
     ],
     "stdlib_license": {
@@ -54,21 +62,24 @@
           "name": "easytier-core",
           "version": "1.0.0",
           "source": null,
-          "license": "LGPL-3.0-or-later"
+          "license": "LGPL-3.0-or-later",
+          "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml"
         },
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
           "name": "example-rust-crate",
           "version": "0.4.2",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "license": "MIT"
+          "license": "MIT",
+          "manifest_path": "/cargo/registry/src/example-rust-crate-0.4.2/Cargo.toml"
         },
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
           "name": "build-helper",
           "version": "0.2.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "license": "Apache-2.0"
+          "license": "Apache-2.0",
+          "manifest_path": "/cargo/registry/src/example-rust-crate-0.4.2/Cargo.toml"
         }
       ],
       "resolve": {
@@ -159,7 +170,8 @@
             "name": "easytier-core",
             "version": "1.0.0",
             "source": null,
-            "license": "LGPL-3.0-or-later"
+            "license": "LGPL-3.0-or-later",
+            "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml"
           },
           "license": "LGPL-3.0-or-later"
         },
@@ -169,13 +181,15 @@
             "name": "example-rust-crate",
             "version": "0.4.2",
             "source": "registry+https://github.com/rust-lang/crates.io-index",
-            "license": "MIT"
+            "license": "MIT",
+            "manifest_path": "/cargo/registry/src/example-rust-crate-0.4.2/Cargo.toml"
           },
           "license": "MIT"
         }
       ]
     },
-    "cargo_lock_text": "version = 4\n\n[[package]]\nname = \"example-rust-crate\"\nversion = \"0.4.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n\n[[package]]\nname = \"build-helper\"\nversion = \"0.2.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n"
+    "cargo_lock_text": "version = 4\n\n[[package]]\nname = \"example-rust-crate\"\nversion = \"0.4.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n\n[[package]]\nname = \"build-helper\"\nversion = \"0.2.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n",
+    "source_root": "/tmp/easytier"
   },
   "build_tools": []
 }
