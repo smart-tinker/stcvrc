@@ -17,15 +17,14 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GO_H1 = re.compile(r"^h1:[A-Za-z0-9+/]{43}=$")
 _LICENSE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$")
 _EASYTIER_MODULE = "github.com/easytier/easytier/easytier-go"
-_EASYTIER_MODULE = "github.com/easytier/easytier/easytier-go"
 _EASYTIER_REPO = "https://github.com/EasyTier/EasyTier"
 _CORE_LICENSE_IDS = {
-    "LICENSE": {"GPL-3.0-only", "GPL-3.0-or-later"},
+    "LICENSE": {"GPL-3.0"},
     "transport/kcptun/LICENSE.md": {"MIT"},
 }
 _CORE_ATTRIBUTION_PATH = "transport/hysteria/conns/faketcp/LICENSE"
 _CORE_ATTRIBUTION_TEXT = "Grabbed from https://github.com/xtaci/tcpraw with modifications"
-_CORE_SOURCE_REPO = "https://github.com/MetaCubeX/mihomo"
+_CORE_SOURCE_REPO = "https://github.com/smart-tinker/stcvrc"
 
 
 def _required(value, label):
@@ -322,6 +321,9 @@ def _core_source_component(go, build, core_path, core_version, rows):
                 raise AuditIncomplete(f"unresolved Go license for main Mihomo package: {name}")
             if source_path not in {None, "", _CORE_ATTRIBUTION_PATH}:
                 raise AuditIncomplete("unresolved main-module row maps to an unexpected source file")
+            if source_path == _CORE_ATTRIBUTION_PATH:
+                if row.get("SourceRevision") != commit or not _COMMIT.fullmatch(row.get("SourceGitBlob", "")):
+                    raise AuditIncomplete("faketcp Unknown row is not tied to exact source attribution")
             continue
         if source_path not in _CORE_LICENSE_IDS:
             raise AuditIncomplete(f"unmapped go-licenses row for main Mihomo module: {name}")
@@ -372,6 +374,8 @@ def _core_source_component(go, build, core_path, core_version, rows):
         "source_revision": commit,
         "source_git_blob": notice_row["source_git_blob"],
     }
+    if notice.get("name") != "faketcp attribution; go-licenses reported Unknown (not a license)":
+        raise AuditIncomplete("faketcp Unknown result must remain visible as attribution, not license")
     normalized_notice, notice_text = _supplemental_notice(notice, "Mihomo core")
     if notice_text.strip() != _CORE_ATTRIBUTION_TEXT:
         raise AuditIncomplete("faketcp source record is not an attribution-only notice")
@@ -748,17 +752,60 @@ def _cargo_source(package, lock_packages, build, source_root):
     raise AuditIncomplete(f"unsupported Cargo source kind for {name}@{version}: {source}")
 
 
-def _local_license_url(source_path, source_root, commit):
-    if not source_path:
-        return None
+def _local_license_source(source_path, package, source_root, commit, license_text):
+    root = Path(source_root).resolve(strict=True)
+    manifest_value = _required(package.get("manifest_path"), "local Cargo manifest path")
+    manifest = Path(manifest_value).resolve(strict=True)
     try:
-        relative = Path(source_path).relative_to(Path(source_root))
-    except ValueError:
-        return None
-    path = relative.as_posix()
-    if not path or path == "." or path.startswith("../"):
-        raise AuditIncomplete("invalid local Cargo license path")
-    return f"{_EASYTIER_REPO}/blob/{commit}/{path}"
+        manifest.relative_to(root)
+    except ValueError as error:
+        raise AuditIncomplete("local Cargo manifest is outside pinned EasyTier checkout") from error
+    if not manifest.is_file():
+        raise AuditIncomplete("local Cargo manifest is not a regular file")
+
+    resolved_paths = []
+    for value, label in (
+        (source_path, "cargo-about license source"),
+        (package.get("license_file"), "Cargo metadata license_file"),
+    ):
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str):
+            raise AuditIncomplete(f"invalid {label}")
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = manifest.parent / candidate
+        try:
+            resolved = candidate.resolve(strict=True)
+            relative = resolved.relative_to(root)
+        except (OSError, ValueError) as error:
+            raise AuditIncomplete(f"{label} is outside or missing from pinned EasyTier checkout") from error
+        if not resolved.is_file():
+            raise AuditIncomplete(f"{label} is not a regular source file")
+        resolved_paths.append((resolved, relative.as_posix()))
+
+    if not resolved_paths:
+        raise AuditIncomplete("local Cargo license has no source file mapping")
+    selected = resolved_paths[0]
+    if any(path != selected[0] for path, _ in resolved_paths[1:]):
+        raise AuditIncomplete("cargo-about and Cargo metadata license paths disagree")
+    data = selected[0].read_bytes()
+    try:
+        actual_text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise AuditIncomplete("local Cargo license source is not UTF-8") from error
+    if actual_text != license_text:
+        raise AuditIncomplete("cargo-about license text differs from exact local source file")
+    relative_path = selected[1]
+    blob = hashlib.sha1(
+        b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+    ).hexdigest()
+    return {
+        "source_url": f"{_EASYTIER_REPO}/blob/{commit}/{relative_path}",
+        "source_revision": commit,
+        "source_path": relative_path,
+        "source_git_blob": blob,
+    }
 
 
 def _rust_components(bundle):
@@ -822,15 +869,21 @@ def _rust_components(bundle):
         license_records = []
         for license_entry, text in licenses_by_crate.get(package_id, []):
             lic_url = source_url
+            license_meta = {}
             if source_commit:
-                lic_url = _local_license_url(
-                    license_entry.get("source_path"), source_root, source_commit
-                ) or source_url
+                license_meta = _local_license_source(
+                    license_entry.get("source_path"),
+                    package,
+                    source_root,
+                    source_commit,
+                    text,
+                )
+                lic_url = license_meta.pop("source_url")
             license_records.append(_license_record(
                 license_entry.get("id"),
                 text,
                 lic_url,
-                source_revision=source_commit,
+                **license_meta,
             ))
         if not license_records:
             raise AuditIncomplete(f"missing cargo-about full license text for {package.get('name', package_id)}")
@@ -839,6 +892,12 @@ def _rust_components(bundle):
             unique[(item["spdx"], item["sha256"])] = item
         license_records = [unique[key] for key in sorted(unique)]
         name = _required(package.get("name"), "Cargo package name")
+        component_metadata = {"selected_license": selected.strip()}
+        declared_license = package.get("license")
+        if declared_license is not None:
+            component_metadata["declared_license"] = _required(
+                declared_license, f"declared license for Cargo package {name}"
+            )
         component = _component(
             "rust",
             "runtime",
@@ -848,8 +907,7 @@ def _rust_components(bundle):
             source_digest,
             license_records,
             copyrights=_copyright_lines([item["text"] for item in license_records]),
-            selected_license=selected.strip(),
-            declared_license=package.get("license"),
+            **component_metadata,
         )
         components.append(component)
         required_keys.append(_component_key(component))

@@ -35,7 +35,7 @@ WINTUN_TERMS_PATH = "wintun/LICENSE.txt"
 CHACHA_API = "https://api.github.com/repos/MetaCubeX/chacha"
 _CORE_MODULE_PATH = "github.com/metacubex/mihomo"
 _CORE_LICENSE_IDS = {
-    "LICENSE": {"GPL-3.0-only", "GPL-3.0-or-later"},
+    "LICENSE": {"GPL-3.0"},
     "transport/kcptun/LICENSE.md": {"MIT"},
 }
 _CORE_ATTRIBUTION_PATH = "transport/hysteria/conns/faketcp/LICENSE"
@@ -248,6 +248,14 @@ def _core_report_path(core, value):
     return relative.as_posix()
 
 
+def _committed_source_blob(core, commit, path, data):
+    expected = _run(["git", "rev-parse", f"{commit}:{path}"], core, os.environ).strip()
+    actual = _git_blob(data)
+    if expected != actual:
+        raise AuditIncomplete(f"source bytes do not match the selected Git commit: {path}")
+    return expected
+
+
 def _core_source_notices(core, build, modules, rows):
     commit = build.get("core_source_commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
@@ -287,7 +295,7 @@ def _core_source_notices(core, build, modules, rows):
                 raise AuditIncomplete(f"go-licenses row does not match exact core license source: {path}")
             row["SourcePath"] = path
             row["SourceRevision"] = commit
-            row["SourceGitBlob"] = _git_blob(source_bytes)
+            row["SourceGitBlob"] = _committed_source_blob(core, commit, path, source_bytes)
             core_rows.append(row)
         elif path == _CORE_ATTRIBUTION_PATH:
             source_bytes = _read(Path(core) / path, "faketcp attribution")
@@ -300,7 +308,7 @@ def _core_source_notices(core, build, modules, rows):
                 raise AuditIncomplete("faketcp unknown-license row has unexpected text")
             row["SourcePath"] = path
             row["SourceRevision"] = commit
-            row["SourceGitBlob"] = _git_blob(source_bytes)
+            row["SourceGitBlob"] = _committed_source_blob(core, commit, path, source_bytes)
         elif (
             path is None
             and name == fake_name
@@ -324,13 +332,16 @@ def _core_source_notices(core, build, modules, rows):
     attribution_text = attribution_bytes.decode("utf-8")
     if attribution_text.strip() != _CORE_ATTRIBUTION_TEXT:
         raise AuditIncomplete("faketcp attribution text changed and needs review")
+    attribution_blob = _committed_source_blob(
+        core, commit, _CORE_ATTRIBUTION_PATH, attribution_bytes
+    )
     return [{
-        "name": "faketcp upstream attribution (not a license)",
+        "name": "faketcp attribution; go-licenses reported Unknown (not a license)",
         "text": attribution_text,
         "sha256": _sha256(attribution_bytes),
         "source_path": _CORE_ATTRIBUTION_PATH,
         "source_revision": commit,
-        "source_git_blob": _git_blob(attribution_bytes),
+        "source_git_blob": attribution_blob,
     }]
 
 

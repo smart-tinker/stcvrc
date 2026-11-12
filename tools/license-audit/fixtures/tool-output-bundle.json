@@ -183,8 +183,8 @@
           "name": "easytier-core",
           "version": "1.0.0",
           "source": null,
-          "license": "LGPL-3.0-or-later",
-          "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml"
+          "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml",
+          "license_file": "/tmp/easytier/LICENSE"
         },
         {
           "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
@@ -291,7 +291,6 @@
             "name": "easytier-core",
             "version": "1.0.0",
             "source": null,
-            "license": "LGPL-3.0-or-later",
             "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml"
           },
           "license": "LGPL-3.0-or-later"
