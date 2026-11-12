@@ -107,19 +107,45 @@ def _proc_start_ticks(stat_text):
 
 
 def read_linux_process_identity(pid):
-    """Return a PID-reuse-resistant identity and SHA256 of the running image."""
+    """Return a stable PID identity, credentials, executable path, and image SHA256."""
     if not isinstance(pid, int) or pid <= 1:
         raise ValueError("pid must be greater than 1")
-    stat_path = Path("/proc") / str(pid) / "stat"
+    proc = Path("/proc") / str(pid)
+    stat_path = proc / "stat"
+    exe_path = proc / "exe"
+    status_path = proc / "status"
+
+    def credentials():
+        values = {}
+        for line in status_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith(("Uid:", "Gid:")):
+                name, raw = line.split(":", 1)
+                values[name] = int(raw.split()[0])
+        if "Uid" not in values or "Gid" not in values:
+            raise ProcessIdentityError("proc status lacks UID/GID")
+        return values["Uid"], values["Gid"]
+
     before = _proc_start_ticks(stat_path.read_text(encoding="utf-8"))
+    uid_before, gid_before = credentials()
+    exe_before = os.readlink(exe_path)
     digest = hashlib.sha256()
-    with (Path("/proc") / str(pid) / "exe").open("rb") as image:
+    with exe_path.open("rb") as image:
         for chunk in iter(lambda: image.read(1024 * 1024), b""):
             digest.update(chunk)
+    uid_after, gid_after = credentials()
+    exe_after = os.readlink(exe_path)
     after = _proc_start_ticks(stat_path.read_text(encoding="utf-8"))
-    if before != after:
+    if (before != after or uid_before != uid_after or gid_before != gid_after
+            or exe_before != exe_after):
         raise ProcessLookupError(pid)
-    return {"pid": pid, "start_ticks": before, "exe_sha256": digest.hexdigest()}
+    return {
+        "pid": pid,
+        "start_ticks": before,
+        "exe_sha256": digest.hexdigest(),
+        "uid": uid_before,
+        "gid": gid_before,
+        "exe_path": exe_before,
+    }
 
 
 def wait_for_main_process(read_unit, read_identity, expected_sha256,
@@ -142,7 +168,9 @@ def wait_for_main_process(read_unit, read_identity, expected_sha256,
                 if identity.get("exe_sha256") != expected_sha256:
                     raise ProcessIdentityError("active process executable SHA256 mismatch")
                 key = (identity.get("pid"), identity.get("start_ticks"),
-                       identity.get("exe_sha256"))
+                       identity.get("exe_sha256"), identity.get("uid"),
+                       identity.get("gid"), identity.get("exe_path"),
+                       identity.get("invocation_id"))
                 if key == prior:
                     stable += 1
                 else:

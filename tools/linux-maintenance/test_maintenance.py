@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from maintenance import (
     ProcessIdentityError,
     ReceiptMismatch,
     _proc_start_ticks,
+    read_linux_process_identity,
     restart_once,
     wait_for_main_process,
 )
@@ -144,6 +146,14 @@ class ReceiptTests(unittest.TestCase):
 
 
 class ProcessTransitionTests(unittest.TestCase):
+    def test_proc_identity_reports_credentials_and_running_executable(self):
+        identity = read_linux_process_identity(os.getpid())
+        self.assertEqual(identity["uid"], os.getuid())
+        self.assertEqual(identity["gid"], os.getgid())
+        self.assertEqual(identity["exe_path"], os.readlink("/proc/self/exe"))
+        self.assertEqual(identity["pid"], os.getpid())
+        self.assertRegex(identity["exe_sha256"], r"^[0-9a-f]{64}$")
+
     def test_proc_start_ticks_handles_parenthesized_comm(self):
         # After the final ')', fields begin at Linux stat field 3; starttime is 22.
         stat_text = "91 (worker name ) with parens) S " + " ".join(str(i) for i in range(4, 24))

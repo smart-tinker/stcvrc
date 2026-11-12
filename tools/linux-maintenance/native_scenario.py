@@ -12,7 +12,7 @@ from pathlib import Path
 
 from counter import classify_restart_transition
 from maintenance import (
-    read_linux_process_identity,
+    ProcessIdentityError,
     restart_once,
     wait_for_main_process,
 )
@@ -109,7 +109,7 @@ def write_config(path, proxy_port):
 def read_unit(unit):
     result = run([
         "sudo", "-n", "systemctl", "show", unit,
-        "--property=ActiveState,MainPID,NRestarts,InvocationID,ExecMainStatus",
+        "--property=ActiveState,MainPID,NRestarts,InvocationID,ExecMainStatus,User,Group",
         "--no-pager",
     ])
     fields = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
@@ -120,7 +120,32 @@ def read_unit(unit):
         "n_restarts": int(fields.get("NRestarts", "0") or "0"),
         "invocation_id": fields.get("InvocationID", ""),
         "exec_main_status": int(fields.get("ExecMainStatus", "0") or "0"),
+        "systemd_user": fields.get("User", ""),
+        "systemd_group": fields.get("Group", ""),
     }
+
+
+def read_process_identity_as_root(pid):
+    """Use runner sudo only to read /proc identity for the owned MainPID."""
+    if not isinstance(pid, int) or pid <= 1:
+        raise ValueError("pid must be greater than 1")
+    module_dir = str(Path(__file__).resolve().parent)
+    code = (
+        "import json,sys; from maintenance import read_linux_process_identity; "
+        "print(json.dumps(read_linux_process_identity(int(sys.argv[1])), sort_keys=True))"
+    )
+    result = run([
+        "sudo", "-n", "env", "PYTHONPATH=" + module_dir,
+        sys.executable, "-B", "-c", code, str(pid),
+    ], timeout=10)
+    try:
+        identity = json.loads(result.stdout)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ProcessIdentityError("privileged proc identity reader returned invalid JSON") from error
+    required = {"pid", "start_ticks", "exe_sha256", "uid", "gid", "exe_path"}
+    if not isinstance(identity, dict) or not required.issubset(identity):
+        raise ProcessIdentityError("privileged proc identity is incomplete")
+    return identity
 
 
 def wait_state(unit, predicate, timeout=15):
@@ -133,22 +158,77 @@ def wait_state(unit, predicate, timeout=15):
     raise TimeoutError("transient service did not reach expected state")
 
 
-def observe_process(unit, expected_sha, previous_invocation=None, timeout=12):
+def observe_process(unit, expected_binary, expected_sha,
+                    previous_invocation=None, timeout=12):
+    expected_uid = os.getuid()
+    expected_gid = os.getgid()
+    expected_exe = os.path.realpath(str(expected_binary))
+
     def fresh_state():
         state = read_unit(unit)
         if previous_invocation and state["invocation_id"] == previous_invocation:
             return {**state, "active_state": "activating", "main_pid": 0}
         return state
 
+    def read_stable_owned_process(pid):
+        before = read_unit(unit)
+        if before["active_state"] != "active" or before["main_pid"] != pid:
+            raise ProcessLookupError(pid)
+        identity = read_process_identity_as_root(pid)
+        after = read_unit(unit)
+        if (after["active_state"] != "active" or after["main_pid"] != pid
+                or after["invocation_id"] != before["invocation_id"]):
+            raise ProcessLookupError(pid)
+        actual_exe = identity["exe_path"]
+        if actual_exe.endswith(" (deleted)"):
+            actual_exe = actual_exe[:-10]
+        actual_exe = os.path.realpath(actual_exe)
+        diagnostic = {
+            "unit": unit,
+            "active_state": after["active_state"],
+            "main_pid": after["main_pid"],
+            "systemd_user": after["systemd_user"],
+            "systemd_group": after["systemd_group"],
+            "invocation_id": after["invocation_id"],
+            "n_restarts": after["n_restarts"],
+            "exec_main_status": after["exec_main_status"],
+            "proc_uid": identity["uid"],
+            "proc_gid": identity["gid"],
+            "start_ticks": identity["start_ticks"],
+            "exe_name": Path(actual_exe).name,
+            "exe_sha256": identity["exe_sha256"],
+            "expected_uid": expected_uid,
+            "expected_gid": expected_gid,
+            "expected_exe_name": Path(expected_exe).name,
+            "expected_exe_sha256": expected_sha,
+        }
+        if identity["uid"] != expected_uid or identity["gid"] != expected_gid:
+            raise ProcessIdentityError(
+                "MainPID credentials did not match the runner: "
+                + json.dumps(diagnostic, sort_keys=True)
+            )
+        if actual_exe != expected_exe or identity["exe_sha256"] != expected_sha:
+            raise ProcessIdentityError(
+                "MainPID was not the exact expected Xray executable: "
+                + json.dumps(diagnostic, sort_keys=True)
+            )
+        identity["invocation_id"] = after["invocation_id"]
+        return identity
+
     identity = wait_for_main_process(
         fresh_state,
-        read_linux_process_identity,
+        read_stable_owned_process,
         expected_sha256=expected_sha,
         timeout_seconds=timeout,
         poll_interval=0.1,
         stable_samples=3,
     )
     state = read_unit(unit)
+    if (state["main_pid"] != identity["pid"]
+            or state["invocation_id"] != identity["invocation_id"]):
+        raise ProcessIdentityError(
+            "systemd MainPID or InvocationID changed after identity verification"
+        )
     if previous_invocation and state["invocation_id"] == previous_invocation:
         raise RuntimeError("systemd invocation did not change")
     return {**state, **identity}
@@ -210,7 +290,6 @@ def main():
     health_unit = "stcvrc-ci-health-" + suffix + ".service"
     anchor_launcher = None
     anchor_pid = None
-    units = [core_unit, health_unit]
     touched_units = set()
     try:
         for command in ("sudo", "unshare", "nsenter", "ip", "curl", "systemd-run", "systemctl", "busctl"):
@@ -330,7 +409,7 @@ def main():
             ])
 
         start_core()
-        baseline_process = observe_process(core_unit, baseline_sha)
+        baseline_process = observe_process(core_unit, baseline, baseline_sha)
         if namespace_inode(baseline_process["pid"]) != isolated_netns:
             raise RuntimeError("baseline Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
@@ -338,6 +417,13 @@ def main():
             "phase": "baseline-active",
             "version": report["versions"]["baseline"],
             "pid": baseline_process["pid"],
+            "process_uid": baseline_process["uid"],
+            "process_gid": baseline_process["gid"],
+            "unit_user": baseline_process["systemd_user"],
+            "unit_group": baseline_process["systemd_group"],
+            "start_ticks": baseline_process["start_ticks"],
+            "invocation_id": baseline_process["invocation_id"],
+            "exe_name": Path(baseline_process["exe_path"]).name,
             "exe_sha256": baseline_sha,
             "loopback_http": "PASS",
         })
@@ -348,7 +434,7 @@ def main():
         receipt, process = restart_once(
             receipt_path, "baseline-to-candidate", core_unit, "RestartUnit",
             request(core_unit, "RestartUnit"),
-            lambda value: observe_process(core_unit, candidate_sha, previous["invocation_id"]),
+            lambda value: observe_process(core_unit, candidate, candidate_sha, previous["invocation_id"]),
         )
         restart_attribution = classify_restart_transition(
             previous, process, receipt, manual_restart_resets_counter=True
@@ -371,6 +457,13 @@ def main():
             "phase": "candidate-active",
             "version": report["versions"]["candidate"],
             "pid": process["pid"],
+            "process_uid": process["uid"],
+            "process_gid": process["gid"],
+            "unit_user": process["systemd_user"],
+            "unit_group": process["systemd_group"],
+            "start_ticks": process["start_ticks"],
+            "invocation_id": process["invocation_id"],
+            "exe_name": Path(process["exe_path"]).name,
             "exe_sha256": candidate_sha,
             "receipt_state": receipt["state"],
             "restart_attribution": restart_attribution,
@@ -388,7 +481,7 @@ def main():
                 failed_receipt_path, "invalid-candidate", core_unit, "RestartUnit",
                 request(core_unit, "RestartUnit"),
                 lambda _receipt: observe_process(
-                    core_unit, candidate_sha, previous_candidate["invocation_id"], timeout=8
+                    core_unit, candidate, candidate_sha, previous_candidate["invocation_id"], timeout=8
                 ),
             )
             raise RuntimeError("invalid candidate unexpectedly started")
@@ -415,9 +508,17 @@ def main():
             rollback_path, "candidate-to-baseline", core_unit, "RestartUnit",
             request(core_unit, "RestartUnit"),
             lambda value: observe_process(
-                core_unit, baseline_sha, previous_failed["invocation_id"]
+                core_unit, baseline, baseline_sha, previous_failed["invocation_id"]
             ),
         )
+        rollback_attribution = classify_restart_transition(
+            previous_failed, recovered, rollback_receipt,
+            manual_restart_resets_counter=True,
+        )
+        if rollback_attribution != "requested-restart-counter-reset":
+            raise RuntimeError(
+                "baseline recovery had an unexpected attribution: " + rollback_attribution
+            )
         if namespace_inode(recovered["pid"]) != isolated_netns:
             raise RuntimeError("recovered Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
@@ -429,8 +530,16 @@ def main():
             "phase": "baseline-recovered",
             "version": report["versions"]["baseline"],
             "pid": recovered["pid"],
+            "process_uid": recovered["uid"],
+            "process_gid": recovered["gid"],
+            "unit_user": recovered["systemd_user"],
+            "unit_group": recovered["systemd_group"],
+            "start_ticks": recovered["start_ticks"],
+            "invocation_id": recovered["invocation_id"],
+            "exe_name": Path(recovered["exe_path"]).name,
             "exe_sha256": baseline_sha,
             "receipt_state": rollback_receipt["state"],
+            "restart_attribution": rollback_attribution,
             "post_health_attribution": recovery_attribution,
             "loopback_http": "PASS",
         })
@@ -448,25 +557,102 @@ def main():
             except (OSError, subprocess.TimeoutExpired):
                 return None
 
+        def cleanup_snapshot(unit):
+            result = cleanup_command([
+                "sudo", "-n", "systemctl", "show", unit,
+                "--property=LoadState,ActiveState,MainPID,NRestarts,InvocationID,ExecMainStatus,User,Group",
+                "--no-pager",
+            ])
+            if result is None or result.returncode != 0:
+                return result, None
+            values = dict(
+                line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+            )
+            try:
+                state = {
+                    "unit": unit,
+                    "load_state": values.get("LoadState", ""),
+                    "active_state": values.get("ActiveState", ""),
+                    "main_pid": int(values.get("MainPID", "0") or "0"),
+                    "n_restarts": int(values.get("NRestarts", "0") or "0"),
+                    "invocation_id": values.get("InvocationID", ""),
+                    "exec_main_status": int(values.get("ExecMainStatus", "0") or "0"),
+                    "systemd_user": values.get("User", ""),
+                    "systemd_group": values.get("Group", ""),
+                }
+            except ValueError:
+                return result, None
+            return result, state
+
+        def cleanup_error(unit, step, result, state=None):
+            report["cleanup_errors"].append({
+                "unit": unit,
+                "step": step,
+                "exit_code": None if result is None else result.returncode,
+                "stdout": "" if result is None else safe_text(result.stdout.strip())[:240],
+                "stderr": "" if result is None else safe_text(result.stderr.strip())[:240],
+                "unit_state": state,
+            })
+
         if shutil.which("sudo") and shutil.which("systemctl"):
             for unit in sorted(touched_units):
-                loaded = cleanup_command([
-                    "sudo", "-n", "systemctl", "show", unit,
-                    "--property=LoadState", "--value",
-                ])
-                if loaded is None or loaded.returncode != 0:
-                    report["cleanup_errors"].append("could not query an owned unit before cleanup")
+                loaded_result, initial = cleanup_snapshot(unit)
+                if loaded_result is None or loaded_result.returncode != 0 or initial is None:
+                    cleanup_error(unit, "query-before-stop", loaded_result)
                     continue
-                if loaded.stdout.strip() == "not-found":
+                if initial["load_state"] == "not-found":
                     continue
-                stop = cleanup_command(["sudo", "-n", "systemctl", "stop", unit])
-                if stop is None or stop.returncode not in (0, 5):
-                    report["cleanup_errors"].append("systemctl stop failed for owned unit")
-                reset = cleanup_command(["sudo", "-n", "systemctl", "reset-failed", unit])
-                if reset is None or reset.returncode not in (0, 5):
-                    report["cleanup_errors"].append("systemctl reset-failed failed for owned unit")
+
+                if initial["active_state"] in {
+                    "active", "activating", "deactivating", "reloading",
+                } or initial["main_pid"] > 1:
+                    stop = cleanup_command(["sudo", "-n", "systemctl", "stop", unit])
+                    if stop is None or stop.returncode != 0:
+                        cleanup_error(unit, "stop", stop, initial)
+
+                post_stop_result, post_stop = cleanup_snapshot(unit)
+                if post_stop_result is None or post_stop_result.returncode != 0 or post_stop is None:
+                    cleanup_error(unit, "query-after-stop", post_stop_result)
+                    continue
+
+                if post_stop["active_state"] in {
+                    "active", "activating", "deactivating", "reloading",
+                } or post_stop["main_pid"] > 1:
+                    kill = cleanup_command([
+                        "sudo", "-n", "systemctl", "kill", "--kill-who=all",
+                        "--signal=KILL", unit,
+                    ])
+                    if kill is None or kill.returncode != 0:
+                        cleanup_error(unit, "kill-owned-unit", kill, post_stop)
+                    stop = cleanup_command(["sudo", "-n", "systemctl", "stop", unit])
+                    if stop is None or stop.returncode != 0:
+                        cleanup_error(unit, "stop-after-kill", stop, post_stop)
+                    post_stop_result, post_stop = cleanup_snapshot(unit)
+                    if post_stop_result is None or post_stop_result.returncode != 0 or post_stop is None:
+                        cleanup_error(unit, "query-after-kill", post_stop_result)
+                        continue
+
+                if post_stop["active_state"] == "failed":
+                    reset = cleanup_command([
+                        "sudo", "-n", "systemctl", "reset-failed", unit,
+                    ])
+                    if reset is None or reset.returncode != 0:
+                        cleanup_error(unit, "reset-failed", reset, post_stop)
+                    final_result, final_state = cleanup_snapshot(unit)
+                else:
+                    final_result, final_state = post_stop_result, post_stop
+
+                if final_result is None or final_result.returncode != 0 or final_state is None:
+                    cleanup_error(unit, "query-final", final_result)
+                elif (final_state["load_state"] != "not-found"
+                        and (final_state["active_state"] != "inactive"
+                             or final_state["main_pid"] > 1)):
+                    cleanup_error(unit, "verify-inactive", final_result, final_state)
         elif touched_units:
-            report["cleanup_errors"].append("sudo/systemctl unavailable for owned-unit cleanup")
+            report["cleanup_errors"].append({
+                "step": "preflight",
+                "error": "sudo/systemctl unavailable for owned-unit cleanup",
+            })
 
         if anchor_pid is not None:
             if not shutil.which("sudo"):
