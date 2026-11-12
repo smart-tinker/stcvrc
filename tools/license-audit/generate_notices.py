@@ -15,7 +15,6 @@ class AuditIncomplete(ValueError):
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _SPDX_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]*$")
-_SPDX_PARTS = re.compile(r"\\(|\\)|AND|OR|WITH|[A-Za-z0-9][A-Za-z0-9.+-]*")
 
 
 def _required_text(value, label):
@@ -35,39 +34,13 @@ def _source_digest(component):
     return {"algorithm": algorithm, "value": value}
 
 
-def _license_expression(value, component_name):
-    expression = _required_text(value, f"license expression for {component_name}")
-    if re.search(r"(?i)(^|[\\s(])(?:NOASSERTION|UNKNOWN|UNLICENSED)(?=$|[\\s)])", expression):
-        raise AuditIncomplete(f"unresolved license for {component_name}: {expression}")
-    tokens = _SPDX_PARTS.findall(expression)
-    remainder = _SPDX_PARTS.sub("", expression)
-    if not tokens or remainder.strip():
-        raise AuditIncomplete(f"invalid SPDX expression for {component_name}: {expression}")
-    depth = 0
-    expecting_operand = True
-    for token in tokens:
-        if token == "(":
-            if not expecting_operand:
-                raise AuditIncomplete(f"invalid SPDX expression for {component_name}: {expression}")
-            depth += 1
-        elif token == ")":
-            if expecting_operand or depth == 0:
-                raise AuditIncomplete(f"invalid SPDX expression for {component_name}: {expression}")
-            depth -= 1
-            expecting_operand = False
-        elif token in {"AND", "OR", "WITH"}:
-            if expecting_operand:
-                raise AuditIncomplete(f"invalid SPDX expression for {component_name}: {expression}")
-            expecting_operand = True
-        else:
-            if not expecting_operand:
-                raise AuditIncomplete(f"invalid SPDX expression for {component_name}: {expression}")
-            if not _SPDX_TOKEN.fullmatch(token) or token.startswith("LicenseRef-"):
-                raise AuditIncomplete(f"unresolved SPDX license for {component_name}: {expression}")
-            expecting_operand = False
-    if expecting_operand or depth:
-        raise AuditIncomplete(f"invalid SPDX expression for {component_name}: {expression}")
-    return expression
+def _license_id(value, component_name):
+    license_id = _required_text(value, f"license identifier for {component_name}")
+    if license_id.upper() in {"NOASSERTION", "UNKNOWN", "UNLICENSED"} or license_id.startswith("LicenseRef-"):
+        raise AuditIncomplete(f"unresolved license for {component_name}: {license_id}")
+    if not _SPDX_TOKEN.fullmatch(license_id):
+        raise AuditIncomplete(f"invalid SPDX license identifier for {component_name}: {license_id}")
+    return license_id
 def _component(component, expected_role):
     if not isinstance(component, dict):
         raise AuditIncomplete("component record is not an object")
@@ -90,7 +63,7 @@ def _component(component, expected_role):
     for license_record in license_records:
         if not isinstance(license_record, dict):
             raise AuditIncomplete(f"invalid license record for {name}")
-        spdx = _license_expression(license_record.get("spdx"), name)
+        spdx = _license_id(license_record.get("spdx"), name)
         text = license_record.get("text")
         if not isinstance(text, str) or not text.strip():
             raise AuditIncomplete(f"missing license text for {name} ({spdx})")
