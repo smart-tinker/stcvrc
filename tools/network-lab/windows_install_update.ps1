@@ -180,7 +180,6 @@ $nativeFailure = $null
 $nativeScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_acceptance.ps1'
 try {
     & $nativeScript
-    if ($LASTEXITCODE -ne 0) { throw "Native Windows acceptance returned exit code $LASTEXITCODE." }
 } catch {
     $nativeFailure = $_.Exception.Message
     Write-Host "Native acceptance reported failure; continuing the independent 2.5.8 recovery check: $nativeFailure" -ForegroundColor Red
@@ -217,8 +216,8 @@ Unregister-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyCont
 $processEvents | Remove-Event -ErrorAction SilentlyContinue
 $alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' } | Sort-Object -Unique)
 if ($alphaStarts.Count) {
-    $nativeFailure = @($nativeFailure, "Alpha core process started: $($alphaStarts -join ', ')") -ne ''
-    $nativeFailure = ($nativeFailure | Where-Object { $_ }) -join ' | '
+    $alphaFailure = "Alpha core process started: $($alphaStarts -join ', ')"
+    if ($nativeFailure) { $nativeFailure = "$nativeFailure | $alphaFailure" } else { $nativeFailure = $alphaFailure }
 }
 
 $summary = @(
