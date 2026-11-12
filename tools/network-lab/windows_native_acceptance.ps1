@@ -171,6 +171,9 @@ function Assert-LiveCoreIdentity {
     Assert-LiveServiceIdentity
     $processes = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'" | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq [IO.Path]::GetFullPath($serviceCore) })
     if ($processes.Count -ne 1) { throw "Expected one live core at the service staging path; found $($processes.Count)." }
+    $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
+    if (-not $serviceRecord -or $serviceRecord.State -ne 'Running' -or [uint32]$serviceRecord.ProcessId -le 0) { throw 'The registered CVR service has no live process identity.' }
+    if ([uint32]$processes[0].ParentProcessId -ne [uint32]$serviceRecord.ProcessId) { throw 'The live core is not a direct child of the registered CVR service process.' }
     if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
     $yaml = Get-RuntimeYaml
     $controller = [regex]::Match($yaml, '(?m)^external-controller:\s*"?127\.0\.0\.1:(\d+)"?')
@@ -394,6 +397,7 @@ try {
         try {
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true; enable_system_proxy=$false; enable_auto_launch=$false } })
+            [void](Invoke-CvrCommand -Command 'restart_core')
             Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'TUN fixture A'
             Test-FixtureTraffic -FixtureName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort
         } catch { Add-Failure "Fixture A TUN/DNS traffic: $($_.Exception.Message)" }

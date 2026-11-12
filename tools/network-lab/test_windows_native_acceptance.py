@@ -79,6 +79,16 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
 
 
+    def test_live_core_is_direct_child_of_ready_service(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        readiness = source.split("function Wait-ServiceReady", 1)[1].split("function Assert-LiveServiceIdentity", 1)[0]
+        self.assertIn("([string]$lastState.mode).ToLowerInvariant() -eq 'service'", readiness)
+        identity = source.split("function Assert-LiveServiceIdentity", 1)[1].split("function Get-RuntimeYaml", 1)[0]
+        self.assertIn("Get-CimInstance Win32_Service", identity)
+        self.assertIn("$serviceRecord.ProcessId", identity)
+        self.assertIn("$processes[0].ParentProcessId", identity)
+
+
 
 if __name__ == "__main__":
     unittest.main()
