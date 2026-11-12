@@ -35,7 +35,7 @@ def load_bundle():
     bundle = json.loads(FIXTURE.read_text(encoding="utf-8"))
     bundle["rust"]["source_root"] = str(EASYTIER_SOURCE_FIXTURE)
     metadata_by_id = {package["id"]: package for package in bundle["rust"]["metadata"]["packages"]}
-    bundle["rust"]["runtime_tree"] = "\\n".join(
+    bundle["rust"]["runtime_tree"] = "\n".join(
         f'{metadata_by_id[entry["package"]["id"]]["name"]} v{metadata_by_id[entry["package"]["id"]]["version"]}'
         for entry in bundle["rust"]["about"]["crates"]
     )
