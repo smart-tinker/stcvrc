@@ -85,7 +85,64 @@
           "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-APACHE"
         }
       ],
-      "copyrights": []
+      "copyrights": [],
+      "supplemental_notices": [
+        {
+          "name": "COPYRIGHT",
+          "text": "Fixture Rust copyright notice.\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "COPYRIGHT"
+        },
+        {
+          "name": "COPYRIGHT-library.html",
+          "text": "<html>Fixture Rust library notices.</html>\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "share/doc/rust/COPYRIGHT-library.html"
+        }
+      ]
+    },
+    {
+      "ecosystem": "embedded-binary",
+      "role": "runtime",
+      "name": "wintun.dll",
+      "version": "0.14.1",
+      "source_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+      "source_digest": {
+        "algorithm": "sha256",
+        "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "licenses": [],
+      "copyrights": [],
+      "source_archive": {
+        "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "wintun/bin/amd64/wintun.dll"
+      },
+      "embedded_from": {
+        "module": "github.com/metacubex/sing-tun",
+        "version": "v0.4.28",
+        "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+        "source_path": "internal/wintun/amd64/wintun.dll",
+        "source_git_blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "size": 4,
+        "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/amd64/wintun.dll"
+      },
+      "asset_size": 4,
+      "supplemental_notices": [
+        {
+          "name": "Wintun signed-binary terms",
+          "text": "Fixture Wintun distribution terms.\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+          "source_path": "wintun/LICENSE.txt",
+          "source_archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
     }
   ],
   "build_tools": [
@@ -111,6 +168,7 @@
   "required_components": [
     "go:example.invalid/go-widget@v1.2.3",
     "rust:example-rust-crate@0.4.2",
-    "rust-toolchain-runtime:Rust standard library@1.95.0"
+    "rust-toolchain-runtime:Rust standard library@1.95.0",
+    "embedded-binary:wintun.dll@0.14.1"
   ]
 }

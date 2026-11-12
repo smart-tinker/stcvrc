@@ -3,7 +3,9 @@
   "candidate_id": "candidate-1.19.33-mit-lzo",
   "candidate_source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
   "go_target": "windows/amd64",
-  "go_build_tags": ["with_gvisor"],
+  "go_build_tags": [
+    "with_gvisor"
+  ],
   "meta_gpl_overrides": [
     {
       "module": "github.com/metacubex/fswatch",
@@ -88,17 +90,45 @@
     "license_file_parent": "07294f500ca8384015f6cc21311de7b6f093607d",
     "license_source_url": "https://github.com/MetaCubeX/chacha/blob/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE",
     "source_commit_url": "https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
-    "diff_files": ["LICENSE"],
+    "diff_files": [
+      "LICENSE"
+    ],
     "copyrights": [
       "Copyright (c) 2016 Andreas Auernhammer",
       "Copyright (c) 2025 MetaCubex"
     ]
   },
   "historical_lzo_risk": {
-    "variants": ["accepted-1.19.29", "candidate-1.19.33-rc.2"],
+    "variants": [
+      "accepted-1.19.29",
+      "candidate-1.19.33-rc.2"
+    ],
     "module": "github.com/rasky/go-lzo",
     "source_revision": "96a758eda86e",
     "license_spdx": "GPL-2.0-only",
     "disposition": "historical dependency risk; no infringement conclusion"
+  },
+  "canonical_license_texts": {
+    "GPL-3.0-or-later": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-or-later.txt",
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+      "source_revision": "v3.29.0",
+      "source_path": "text/GPL-3.0-or-later.txt"
+    }
+  },
+  "wintun_embedded": {
+    "module": "github.com/metacubex/sing-tun",
+    "module_version": "v0.4.28",
+    "binary_version": "0.14.1",
+    "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+    "source_path": "internal/wintun/amd64/wintun.dll",
+    "source_git_blob": "aee04e77bfbd6601adbcd5a46435f059e31cf6e4",
+    "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce",
+    "size": 427552,
+    "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/amd64/wintun.dll",
+    "archive_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+    "archive_sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
+    "archive_path": "wintun/bin/amd64/wintun.dll",
+    "terms_path": "wintun/LICENSE.txt"
   }
 }

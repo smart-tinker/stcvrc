@@ -18,6 +18,9 @@ def inventory_fixture():
             license_item["sha256"] = hashlib.sha256(
                 license_item["text"].encode("utf-8")
             ).hexdigest()
+    for component in inventory["components"]:
+        for notice in component.get("supplemental_notices", []):
+            notice["sha256"] = hashlib.sha256(notice["text"].encode("utf-8")).hexdigest()
     return inventory
 
 
@@ -30,11 +33,12 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
         self.assertIn("Fixture-only Apache license text.", notices)
         self.assertIn("Fixture Rust standard library MIT license text.", notices)
         self.assertIn("Fixture Rust standard library Apache license text.", notices)
+        self.assertIn("Fixture Wintun distribution terms.", notices)
         self.assertIn("Rust default features: disabled", notices)
         self.assertIn("Build-time tools (not included in the runtime dependency graph)", notices)
         self.assertEqual(
             {item["name"] for item in sources["components"]},
-            {"example.invalid/go-widget", "example-rust-crate", "Rust standard library"},
+            {"example.invalid/go-widget", "example-rust-crate", "Rust standard library", "wintun.dll"},
         )
         self.assertTrue(sources["scope"]["rust_no_default_features"])
         self.assertEqual(sources["scope"]["core_size"], 123)
@@ -48,8 +52,12 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
                 "https://example.invalid/go-widget/tree/v1.2.3",
                 "https://crates.io/crates/example-rust-crate/0.4.2",
                 "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860",
+                "https://www.wintun.net/builds/wintun-0.14.1.zip",
             },
         )
+        wintun = next(item for item in sources["components"] if item["name"] == "wintun.dll")
+        self.assertEqual(wintun["licenses"], [])
+        self.assertEqual(wintun["source_archive"]["path"], "wintun/bin/amd64/wintun.dll")
         self.assertEqual(
             generate_notices(inventory),
             (notices, sources),
@@ -64,7 +72,9 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
             "name": "COPYRIGHT-library.html",
             "text": text,
             "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+            "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
+            "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+            "source_path": "share/doc/rust/COPYRIGHT-library.html",
         }]
 
         notices, sources = generate_notices(inventory)
@@ -84,7 +94,9 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
             "name": "COPYRIGHT-library.html",
             "text": "tampered",
             "sha256": "0" * 64,
-            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+            "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
+            "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+            "source_path": "share/doc/rust/COPYRIGHT-library.html",
         }]
 
         with self.assertRaises(AuditIncomplete):

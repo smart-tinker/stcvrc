@@ -40,8 +40,8 @@
   },
   "go": {
     "core_module_path": "github.com/metacubex/mihomo",
-    "modules_json": "{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}\n{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}\n{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}\n{\"Path\":\"google.golang.org/protobuf\",\"Version\":\"v1.34.2\",\"Sum\":\"h1:GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG=\",\"GoModSum\":\"h1:HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=\",\"Replace\":{\"Path\":\"github.com/metacubex/protobuf-go\",\"Version\":\"v0.0.0-20260306035419-7ceee0674686\",\"Sum\":\"h1:IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=\",\"GoModSum\":\"h1:JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ=\"}}\n",
-    "packages_json": "{\"ImportPath\":\"github.com/metacubex/mihomo\",\"Module\":{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}}\n{\"ImportPath\":\"example.com/go-widget/http\",\"Module\":{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}\n{\"ImportPath\":\"github.com/easytier/easytier/easytier-go/adapter\",\"Module\":{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}}\n{\"ImportPath\":\"google.golang.org/protobuf/proto\",\"Module\":{\"Path\":\"google.golang.org/protobuf\",\"Version\":\"v1.34.2\",\"Sum\":\"h1:GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG=\",\"GoModSum\":\"h1:HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=\",\"Replace\":{\"Path\":\"github.com/metacubex/protobuf-go\",\"Version\":\"v0.0.0-20260306035419-7ceee0674686\",\"Sum\":\"h1:IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=\",\"GoModSum\":\"h1:JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ=\"}}}\n",
+    "modules_json": "{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}\n{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}\n{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}\n{\"Path\":\"google.golang.org/protobuf\",\"Version\":\"v1.34.2\",\"Sum\":\"h1:GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG=\",\"GoModSum\":\"h1:HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=\",\"Replace\":{\"Path\":\"github.com/metacubex/protobuf-go\",\"Version\":\"v0.0.0-20260306035419-7ceee0674686\",\"Sum\":\"h1:IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=\",\"GoModSum\":\"h1:JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ=\"}}\n{\"Path\":\"github.com/metacubex/chacha\",\"Version\":\"v0.1.5\",\"Sum\":\"h1:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=\"}\n{\"Path\":\"github.com/metacubex/sing-tun\",\"Version\":\"v0.4.28\",\"Sum\":\"h1:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=\"}\n",
+    "packages_json": "{\"ImportPath\":\"github.com/metacubex/mihomo\",\"Module\":{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}}\n{\"ImportPath\":\"example.com/go-widget/http\",\"Module\":{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}\n{\"ImportPath\":\"github.com/easytier/easytier/easytier-go/adapter\",\"Module\":{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}}\n{\"ImportPath\":\"google.golang.org/protobuf/proto\",\"Module\":{\"Path\":\"google.golang.org/protobuf\",\"Version\":\"v1.34.2\",\"Sum\":\"h1:GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG=\",\"GoModSum\":\"h1:HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH=\",\"Replace\":{\"Path\":\"github.com/metacubex/protobuf-go\",\"Version\":\"v0.0.0-20260306035419-7ceee0674686\",\"Sum\":\"h1:IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=\",\"GoModSum\":\"h1:JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ=\"}}}\n{\"ImportPath\":\"github.com/metacubex/chacha\",\"Module\":{\"Path\":\"github.com/metacubex/chacha\",\"Version\":\"v0.1.5\",\"Sum\":\"h1:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=\"}}\n{\"ImportPath\":\"github.com/metacubex/sing-tun\",\"Module\":{\"Path\":\"github.com/metacubex/sing-tun\",\"Version\":\"v0.4.28\",\"Sum\":\"h1:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=\"}}\n",
     "license_report": [
       {
         "Name": "example.com/go-widget",
@@ -66,13 +66,67 @@
         "LicenseURL": "https://github.com/MetaCubeX/protobuf-go/blob/v0.0.0-20260306035419-7ceee0674686/LICENSE",
         "LicenseName": "BSD-3-Clause",
         "LicenseText": "Fixture replacement protobuf license text.\n"
+      },
+      {
+        "Name": "github.com/metacubex/sing-tun",
+        "Version": "v0.4.28",
+        "LicenseURL": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/LICENSE",
+        "LicenseName": "GPL-3.0-or-later",
+        "LicensePath": "LICENSE",
+        "LicenseText": "Fixture sing-tun full license text.\n"
       }
     ],
     "stdlib_license": {
       "spdx": "BSD-3-Clause",
       "text": "Fixture Go standard-library license text.\n",
       "source_url": "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz"
-    }
+    },
+    "manual_overrides": [
+      {
+        "module": "github.com/metacubex/chacha",
+        "version": "v0.1.5",
+        "source_revision": "07294f500ca8384015f6cc21311de7b6f093607d",
+        "license_spdx": "MIT",
+        "license_text": "Fixture chacha MIT license text.\n",
+        "license_source_url": "https://github.com/MetaCubeX/chacha/blob/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE",
+        "license_text_source_revision": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
+        "license_text_path": "LICENSE",
+        "license_text_git_blob": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "copyrights": [
+          "Copyright (c) Example Chacha"
+        ]
+      }
+    ],
+    "required_manual_overrides": [
+      {
+        "module": "github.com/metacubex/chacha",
+        "version": "v0.1.5"
+      }
+    ],
+    "embedded_assets": [
+      {
+        "module": "github.com/metacubex/sing-tun",
+        "module_version": "v0.4.28",
+        "name": "wintun.dll",
+        "version": "0.14.1",
+        "target": "windows/amd64",
+        "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+        "source_path": "internal/wintun/amd64/wintun.dll",
+        "source_git_blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "expected_source_git_blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "size": 4,
+        "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/amd64/wintun.dll",
+        "archive_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_path": "wintun/bin/amd64/wintun.dll",
+        "terms_name": "Wintun fixture terms",
+        "terms_text": "Fixture Wintun terms.\n",
+        "terms_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "terms_path": "wintun/LICENSE.txt",
+        "copyrights": []
+      }
+    ]
   },
   "rust": {
     "metadata": {
@@ -223,6 +277,24 @@
           "spdx": "Apache-2.0",
           "text": "Fixture Rust standard library Apache license text.\n",
           "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-APACHE"
+        }
+      ],
+      "supplemental_notices": [
+        {
+          "name": "COPYRIGHT",
+          "text": "Fixture Rust COPYRIGHT notice.\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "COPYRIGHT"
+        },
+        {
+          "name": "COPYRIGHT-library.html",
+          "text": "<html>Fixture Rust library notices.</html>\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "share/doc/rust/COPYRIGHT-library.html"
         }
       ]
     }

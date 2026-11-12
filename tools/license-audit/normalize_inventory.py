@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from generate_notices import AuditIncomplete
+from generate_notices import AuditIncomplete, _embedded_source, _source_archive, _supplemental_notice
 
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -81,6 +81,16 @@ def _license_record(spdx, text, source_url, **extra):
 
 def _component_key(component):
     return f"{component['ecosystem']}:{component['name']}@{component['version']}"
+
+
+def _copyright_lines(texts):
+    if isinstance(texts, str):
+        texts = [texts]
+    result = set()
+    for text in texts:
+        if isinstance(text, str):
+            result.update(line.strip() for line in text.splitlines() if re.search(r"\bcopyright\b", line, re.IGNORECASE))
+    return sorted(result)
 
 
 def _component(ecosystem, role, name, version, source_url, source_digest, licenses, **extra):
@@ -209,11 +219,13 @@ def _go_components(bundle):
             spdx = override.get("license_spdx")
             text = override.get("license_text")
             license_source = override.get("license_source_url") or override.get("source_url")
-            license_meta = {
-                "source_revision": override.get("license_source_revision") or override.get("source_revision"),
-                "source_path": override.get("license_path"),
-                "source_git_blob": override.get("license_git_blob"),
-            }
+            license_meta = {}
+            if override.get("license_text_source_revision") or override.get("license_source_revision"):
+                license_meta["source_revision"] = override.get("license_text_source_revision") or override.get("license_source_revision")
+            if override.get("license_text_path") or override.get("license_source_path"):
+                license_meta["source_path"] = override.get("license_text_path") or override.get("license_source_path")
+            if override.get("license_text_git_blob"):
+                license_meta["source_git_blob"] = override["license_text_git_blob"]
             licenses = [_license_record(spdx, text, license_source, **license_meta)]
         else:
             licenses = []
@@ -294,9 +306,18 @@ def _go_components(bundle):
             source_url,
             source_digest,
             licenses,
+            copyrights=_copyright_lines([license_item["text"] for license_item in licenses]),
             **({"upstream_module_version": upstream_version} if upstream_version else {}),
             **({"replacement_module": replacement_module} if replacement_module else {}),
         )
+        if override is not None:
+            if override.get("copyrights"):
+                component["copyrights"] = list(override["copyrights"])
+            if override.get("supplemental_notices"):
+                component["supplemental_notices"] = [
+                    dict(_supplemental_notice(item, module_path)[0], text=item["text"])
+                    for item in override["supplemental_notices"]
+                ]
         components.append(component)
 
     stdlib = go.get("stdlib_license")
@@ -317,6 +338,14 @@ def _go_components(bundle):
         stdlib.get("text"),
         go_archive_url,
     )
+    go_copyrights = stdlib.get("copyrights") or _copyright_lines(stdlib.get("text"))
+    go_supplemental = stdlib.get("supplemental_notices", [])
+    if not isinstance(go_supplemental, list):
+        raise AuditIncomplete("invalid Go standard-library supplemental notices")
+    normalized_go_supplemental = []
+    for item in go_supplemental:
+        normalized, text = _supplemental_notice(item, "Go standard library")
+        normalized_go_supplemental.append(dict(normalized, text=text))
     stdlib_component = _component(
         "go-toolchain-runtime",
         "runtime",
@@ -325,6 +354,8 @@ def _go_components(bundle):
         go_archive_url,
         {"algorithm": "go-archive-sha256", "value": go_archive_sha},
         [stdlib_license],
+        copyrights=list(go_copyrights),
+        supplemental_notices=normalized_go_supplemental,
     )
     components.append(stdlib_component)
 
@@ -336,8 +367,76 @@ def _go_components(bundle):
         go_archive_url,
         {"algorithm": "go-archive-sha256", "value": go_archive_sha},
         [dict(stdlib_license)],
+        copyrights=list(go_copyrights),
     )
     return components, [_component_key(item) for item in components], [toolchain_component]
+
+
+def _go_embedded_assets(bundle, graph):
+    go = bundle["go"]
+    records = go.get("embedded_assets")
+    if not isinstance(records, list):
+        raise AuditIncomplete("missing embedded Go runtime asset inventory")
+    components = []
+    for item in records:
+        if not isinstance(item, dict):
+            raise AuditIncomplete("invalid embedded Go runtime asset record")
+        module = _required(item.get("module"), "embedded asset Go module")
+        module_version = _required(item.get("module_version"), f"embedded asset module version for {module}")
+        if module not in graph or graph[module]["Version"] != module_version:
+            raise AuditIncomplete(f"embedded asset source does not match selected Go module: {module}")
+        name = _required(item.get("name"), "embedded runtime asset name")
+        version = _required(item.get("version"), f"embedded runtime asset version for {name}")
+        target = _required(item.get("target"), f"embedded runtime asset target for {name}")
+        if target != "windows/amd64":
+            raise AuditIncomplete(f"unexpected embedded runtime asset target for {name}: {target}")
+        binary_sha = _required(item.get("sha256"), f"embedded runtime asset SHA256 for {name}")
+        size = item.get("size")
+        if not _SHA256.fullmatch(binary_sha) or not isinstance(size, int) or isinstance(size, bool) or size < 1:
+            raise AuditIncomplete(f"invalid embedded runtime asset bytes for {name}")
+        archive = _source_archive(
+            {"url": item.get("archive_url"), "sha256": item.get("archive_sha256"), "path": item.get("archive_path")},
+            name,
+        )
+        embedded = _embedded_source({
+            "module": module,
+            "version": module_version,
+            "source_revision": item.get("source_revision"),
+            "source_path": item.get("source_path"),
+            "source_git_blob": item.get("source_git_blob"),
+            "source_sha256": binary_sha,
+            "size": size,
+            "source_url": item.get("source_url"),
+        }, name)
+        if embedded["source_git_blob"] != _required(item.get("expected_source_git_blob"), f"expected embedded source Git blob for {name}"):
+            raise AuditIncomplete(f"embedded runtime asset source Git blob mismatch for {name}")
+        terms = {
+            "name": _required(item.get("terms_name"), f"embedded asset terms name for {name}"),
+            "text": _required(item.get("terms_text"), f"embedded asset terms text for {name}"),
+            "sha256": _required(item.get("terms_sha256"), f"embedded asset terms SHA256 for {name}"),
+            "source_url": archive["url"],
+            "source_archive_sha256": archive["sha256"],
+            "source_path": _required(item.get("terms_path"), f"embedded asset terms path for {name}"),
+        }
+        normalized_terms, terms_text = _supplemental_notice(terms, name)
+        component = _component(
+            "embedded-binary",
+            "runtime",
+            name,
+            version,
+            archive["url"],
+            {"algorithm": "sha256", "value": binary_sha},
+            [],
+            copyrights=list(item.get("copyrights", [])),
+            supplemental_notices=[dict(normalized_terms, text=terms_text)],
+            embedded_from=embedded,
+            source_archive=archive,
+            asset_size=size,
+        )
+        components.append(component)
+    if not components:
+        raise AuditIncomplete("embedded Go runtime asset inventory is empty")
+    return components
 
 
 def _rust_runtime_ids(metadata):
@@ -530,6 +629,7 @@ def _rust_components(bundle):
             source_url,
             source_digest,
             license_records,
+            copyrights=_copyright_lines([item["text"] for item in license_records]),
             selected_license=selected.strip(),
             declared_license=package.get("license"),
         )
@@ -564,6 +664,19 @@ def _rust_components(bundle):
         )
     if set(stdlib_by_id) != {"MIT", "Apache-2.0"}:
         raise AuditIncomplete("Rust standard library requires MIT and Apache-2.0 license texts")
+    supplemental_records = standard_library.get("supplemental_notices")
+    if not isinstance(supplemental_records, list):
+        raise AuditIncomplete("missing Rust distribution copyright notices")
+    expected_supplemental = {"COPYRIGHT", "COPYRIGHT-library.html"}
+    if {item.get("name") for item in supplemental_records if isinstance(item, dict)} != expected_supplemental:
+        raise AuditIncomplete("Rust standard library requires COPYRIGHT and COPYRIGHT-library.html")
+    supplemental = []
+    for item in supplemental_records:
+        normalized, text = _supplemental_notice(item, "Rust standard library")
+        if normalized.get("source_revision") != stdlib_commit:
+            raise AuditIncomplete("Rust distribution copyright source does not match the selected rustc commit")
+        supplemental.append(dict(normalized, text=text))
+
     stdlib_component = _component(
         "rust-toolchain-runtime",
         "runtime",
@@ -572,10 +685,27 @@ def _rust_components(bundle):
         f"https://github.com/rust-lang/rust/tree/{stdlib_commit}",
         {"algorithm": "git-commit", "value": stdlib_commit},
         [stdlib_by_id[key] for key in sorted(stdlib_by_id)],
+        copyrights=standard_library.get("copyrights") or _copyright_lines(
+            [entry["text"] for entry in stdlib_licenses]
+        ),
+        supplemental_notices=supplemental,
     )
     components.append(stdlib_component)
     required_keys.append(_component_key(stdlib_component))
-    return components, required_keys
+
+    toolchain_component = _component(
+        "toolchain",
+        "build-tool",
+        "Rust compiler and toolchain",
+        rust_version,
+        f"https://github.com/rust-lang/rust/tree/{stdlib_commit}",
+        {"algorithm": "git-commit", "value": stdlib_commit},
+        [dict(stdlib_by_id[key]) for key in sorted(stdlib_by_id)],
+        copyrights=standard_library.get("copyrights") or _copyright_lines(
+            [entry["text"] for entry in stdlib_licenses]
+        ),
+    )
+    return components, required_keys, [toolchain_component]
 
 
 def normalize_inventory(bundle):
@@ -629,16 +759,18 @@ def normalize_inventory(bundle):
         "embedded_wasm": {"source_commit": wasm_commit, "sha256": wasm_sha},
     }
     go_components, go_required, go_tools = _go_components(bundle)
-    rust_components, rust_required = _rust_components(bundle)
+    go, go_graph = _go_graph(bundle)
+    embedded_components = _go_embedded_assets(bundle, go_graph)
+    rust_components, rust_required, rust_tools = _rust_components(bundle)
     supplied_tools = bundle.get("build_tools", [])
     if not isinstance(supplied_tools, list):
         raise AuditIncomplete("invalid build-tool inventory")
     return {
         "schema_version": 1,
         "scope": scope,
-        "components": go_components + rust_components,
-        "build_tools": go_tools + supplied_tools,
-        "required_components": sorted(set(go_required + rust_required)),
+        "components": go_components + embedded_components + rust_components,
+        "build_tools": go_tools + rust_tools + supplied_tools,
+        "required_components": sorted(set(go_required + [_component_key(item) for item in embedded_components] + rust_required)),
     }
 
 

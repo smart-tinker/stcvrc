@@ -1,3 +1,4 @@
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -10,7 +11,13 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "tool-output-bundle.jso
 
 
 def load_bundle():
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+    bundle = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    for notice in bundle.get("go", {}).get("embedded_assets", []):
+        text = notice.get("terms_text", "")
+        notice["terms_sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    for notice in bundle.get("rust", {}).get("standard_library", {}).get("supplemental_notices", []):
+        notice["sha256"] = hashlib.sha256(notice["text"].encode("utf-8")).hexdigest()
+    return bundle
 
 
 class ToolOutputNormalizationTests(unittest.TestCase):
@@ -20,7 +27,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
         self.assertEqual(
             names,
-            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "Rust standard library", "google.golang.org/protobuf", "github.com/easytier/easytier/easytier-go"},
+            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "Rust standard library", "google.golang.org/protobuf", "github.com/easytier/easytier/easytier-go", "github.com/metacubex/chacha", "github.com/metacubex/sing-tun", "wintun.dll"},
         )
         self.assertEqual(
             set(inventory["required_components"]),
@@ -32,6 +39,9 @@ class ToolOutputNormalizationTests(unittest.TestCase):
                 "go-toolchain-runtime:Go standard library@1.26.11",
                 "rust-toolchain-runtime:Rust standard library@1.95.0",
                 "go:google.golang.org/protobuf@v1.34.2",
+                "go:github.com/metacubex/chacha@v0.1.5",
+                "go:github.com/metacubex/sing-tun@v0.4.28",
+                "embedded-binary:wintun.dll@0.14.1",
             },
         )
         rendered = json.dumps(inventory, sort_keys=True)
@@ -45,6 +55,25 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(component["source_url"], "https://proxy.golang.org/github.com/metacubex/protobuf-go/@v/v0.0.0-20260306035419-7ceee0674686.zip")
         self.assertEqual(component["source_digest"], {"algorithm": "go.sum-h1", "value": "h1:" + ("I" * 43) + "="})
         self.assertEqual(component["upstream_module_version"], "v1.34.2")
+
+    def test_preserves_chacha_license_only_child_as_separate_source_evidence(self):
+        inventory = normalize_inventory(load_bundle())
+        component = next(item for item in inventory["components"] if item["name"] == "github.com/metacubex/chacha")
+
+        self.assertEqual(component["source_digest"]["algorithm"], "go.sum-h1")
+        self.assertEqual(component["licenses"][0]["spdx"], "MIT")
+        self.assertEqual(component["licenses"][0]["source_url"], "https://github.com/MetaCubeX/chacha/blob/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE")
+        self.assertEqual(component["licenses"][0]["source_revision"], "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a")
+        self.assertEqual(component["licenses"][0]["source_git_blob"], "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+
+    def test_records_wintun_as_an_embedded_binary_with_distinct_archive_terms(self):
+        inventory = normalize_inventory(load_bundle())
+        component = next(item for item in inventory["components"] if item["name"] == "wintun.dll")
+
+        self.assertEqual(component["licenses"], [])
+        self.assertEqual(component["embedded_from"]["module"], "github.com/metacubex/sing-tun")
+        self.assertEqual(component["source_archive"]["path"], "wintun/bin/amd64/wintun.dll")
+        self.assertEqual(component["supplemental_notices"][0]["source_path"], "wintun/LICENSE.txt")
 
     def test_rejects_a_runtime_crate_with_no_cargo_about_license_text(self):
         bundle = load_bundle()
