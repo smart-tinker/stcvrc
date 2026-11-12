@@ -72,6 +72,62 @@ function Receive-CdpMessage {
     } while (-not $result.EndOfMessage)
     return ($builder.ToString() | ConvertFrom-Json)
 }
+function Get-CdpEvaluationError {
+    param($Result)
+    if ($null -eq $Result) { return $null }
+    $detailsProperty = $Result.PSObject.Properties['exceptionDetails']
+    if (-not $detailsProperty -or $null -eq $detailsProperty.Value) { return $null }
+    $details = $detailsProperty.Value
+    $exception = $details.exception
+    $exceptionMessage = $null
+    if ($exception) {
+        $descriptionProperty = $exception.PSObject.Properties['description']
+        if ($descriptionProperty -and -not [string]::IsNullOrWhiteSpace([string]$descriptionProperty.Value)) {
+            $exceptionMessage = [string]$descriptionProperty.Value
+        } else {
+            $valueProperty = $exception.PSObject.Properties['value']
+            if ($valueProperty) {
+                if ($null -eq $valueProperty.Value) {
+                    $exceptionMessage = 'null'
+                } elseif ($valueProperty.Value -is [string]) {
+                    $exceptionMessage = [string]$valueProperty.Value
+                } else {
+                    $exceptionMessage = ConvertTo-Json -InputObject $valueProperty.Value -Compress -Depth 12
+                }
+            } else {
+                $exceptionMessage = ConvertTo-Json -InputObject $exception -Compress -Depth 12
+            }
+        }
+    } else {
+        $exceptionMessage = 'no exception object'
+    }
+    return "$($details.text); exception=$exceptionMessage"
+}
+function Test-CdpEvaluationErrorFormatting {
+    $primitive = [pscustomobject]@{
+        exceptionDetails = [pscustomobject]@{
+            text = 'Uncaught (in promise)'
+            exception = [pscustomobject]@{ type = 'string'; value = 'primitive fixture rejection' }
+        }
+    }
+    if ((Get-CdpEvaluationError -Result $primitive) -ne 'Uncaught (in promise); exception=primitive fixture rejection') {
+        throw 'CDP exception formatting did not preserve a primitive exception.value.'
+    }
+    $described = [pscustomobject]@{
+        exceptionDetails = [pscustomobject]@{
+            text = 'Uncaught'
+            exception = [pscustomobject]@{ type = 'object'; description = 'Error: fixture rejection' }
+        }
+    }
+    if ((Get-CdpEvaluationError -Result $described) -ne 'Uncaught; exception=Error: fixture rejection') {
+        throw 'CDP exception formatting did not preserve an exception.description.'
+    }
+    if ($null -ne (Get-CdpEvaluationError -Result ([pscustomobject]@{ result = [pscustomobject]@{ value = $true } }))) {
+        throw 'CDP exception formatting treated a successful evaluation as an exception.'
+    }
+}
+Test-CdpEvaluationErrorFormatting
+
 function Invoke-CvrCommand {
     param([string]$Command, [hashtable]$Payload = @{})
     if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected.' }
@@ -84,10 +140,10 @@ function Invoke-CvrCommand {
     while ($true) {
         $reply = Receive-CdpMessage
         if ($reply.id -ne $script:cdpId) { continue }
-        if ($reply.result.exceptionDetails) {
-            $details = $reply.result.exceptionDetails
-            $detailsJson = ConvertTo-Json -InputObject $details -Compress -Depth 12
-            throw "CVR Tauri command $Command failed: $($details.text); exception=$($details.exception.description); details=$detailsJson"
+        $evaluationError = Get-CdpEvaluationError -Result $reply.result
+        if ($null -ne $evaluationError) {
+            $detailsJson = ConvertTo-Json -InputObject $reply.result.exceptionDetails -Compress -Depth 12
+            throw "CVR Tauri command $Command failed: $evaluationError; details=$detailsJson"
         }
         if ($reply.result.result.PSObject.Properties.Name -contains 'value') { return $reply.result.result.value }
         return $null
@@ -437,9 +493,9 @@ function Assert-FixtureNodeSelection {
 }
 function Select-FixtureNode {
     param([string]$Node, [string]$ProfileName)
-    $selectionResult = Invoke-CvrCommand -Command 'switch_proxy_node' -Payload @{ groupName='GLOBAL'; proxyName=$Node; unfix=$false }
+    $selectionResult = Invoke-CvrCommand -Command 'plugin:mihomo|select_node_for_group' -Payload @{ groupName='GLOBAL'; node=$Node }
     $selectionJson = if ($null -eq $selectionResult) { 'null' } else { ConvertTo-Json -InputObject $selectionResult -Compress -Depth 8 }
-    Write-Host "switch_proxy_node GLOBAL=$Node result=$selectionJson."
+    Write-Host "select_node_for_group GLOBAL=$Node result=$selectionJson."
     $recordResult = Invoke-CvrCommand -Command 'record_selected_node' -Payload @{ groupName='GLOBAL'; node=$Node }
     $recordJson = if ($null -eq $recordResult) { 'null' } else { ConvertTo-Json -InputObject $recordResult -Compress -Depth 8 }
     Write-Host "record_selected_node GLOBAL=$Node result=$recordJson."
