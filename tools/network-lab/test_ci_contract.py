@@ -20,6 +20,19 @@ DEPENDABOT = DEPENDABOT_PATH.read_text() if DEPENDABOT_PATH.is_file() else ""
 
 
 class CIContractTests(unittest.TestCase):
+    def test_every_pull_request_runs_all_workflows_without_path_filters(self):
+        for name, workflow in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                in_pull_request = False
+                for line in workflow.splitlines():
+                    if line == "  pull_request:":
+                        in_pull_request = True
+                        continue
+                    if in_pull_request and line.startswith("  ") and not line.startswith("    ") and line.strip():
+                        break
+                    if in_pull_request and line.strip() == "paths:":
+                        self.fail(f"{name} filters pull_request events by changed paths")
+
     def test_codeql_caching_is_disabled(self):
         self.assertIn("CODEQL_OVERLAY_DATABASE_MODE: none", WORKFLOWS["codeql.yml"])
         self.assertIn("dependency-caching: false", WORKFLOWS["codeql.yml"])
