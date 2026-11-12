@@ -151,13 +151,13 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "function Wait-RuntimeRule", 1
         )[0]
         self.assertIn("$snapshot.dnsConfiguration = Get-SafeDnsConfigurationSnapshot", snapshot)
-        self.assertIn("$snapshot.fixtureHttpServerStdoutTail = Get-BoundedLogTail -Path $script:serverStdoutPath -Count 12", snapshot)
-        self.assertIn("$snapshot.fixtureHttpServerStderrTail = Get-BoundedLogTail -Path $script:serverStderrPath -Count 12", snapshot)
+        self.assertIn("$snapshot.fixtureHttpServerStdoutTail = @(Get-BoundedLogTail -Path $script:serverStdoutPath -Count 12)", snapshot)
+        self.assertIn("$snapshot.fixtureHttpServerStderrTail = @(Get-BoundedLogTail -Path $script:serverStderrPath -Count 12)", snapshot)
 
         traffic = source.split("function Test-FixtureTraffic", 1)[1].split(
             "function Test-RejectedFixture", 1
         )[0]
-        self.assertIn("dnsEndpoint=$($dnsEndpoint.address):$($dnsEndpoint.port)", traffic)
+        self.assertIn("dnsEndpoint=$dnsEndpointText; fakeAddress=$fake", traffic)
         self.assertIn("fakeAddress=$fake", traffic)
 
     def test_core_restart_failure_reports_startup_and_process_state(self):
