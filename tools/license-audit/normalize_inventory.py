@@ -869,7 +869,8 @@ def _rust_components(bundle):
             raise AuditIncomplete(f"duplicate cargo-about crate record: {package_id}")
         about_by_id[package_id] = entry
     about_ids = set(about_by_id)
-    if about_ids != required_ids:
+    # cargo-about can report packages beyond the exact target runtime graph.
+    if not required_ids.issubset(about_ids):
         missing_ids = sorted(required_ids - about_ids)
         extra_ids = sorted(about_ids - required_ids)
 
