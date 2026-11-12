@@ -89,10 +89,6 @@ foreach ($release in $manifest.releases) {
     }
 }
 
-$profilePath = Join-Path $profileDirectory 'ci-update-preserve.yaml'
-[IO.Directory]::CreateDirectory($profileDirectory) | Out-Null
-[IO.File]::WriteAllText($profilePath, "synthetic-ci-profile-preserve" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-$profileSha = (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash.ToLowerInvariant()
 
 function Get-InstalledCvrDirectory {
     param([string]$ExpectedVersion)
@@ -131,62 +127,85 @@ function Get-InstalledCvrDirectory {
 
 function Invoke-CvrInstaller {
     param([string]$Version, [string[]]$Arguments)
-    $installer = $installerPaths[$Version]
-    $process = Start-Process -FilePath $installer -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
-    if ($process.ExitCode -ne 0) { throw "CVR $Version installer exited with code $($process.ExitCode)." }
-    $directory = Get-InstalledCvrDirectory -ExpectedVersion $Version
-    Assert-NoService
-    Assert-NoCvrProcesses
-    return $directory
-}
-
-function Assert-ProfilePreserved {
-    param([string]$Phase)
-    if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $profilePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $profileSha) {
-        throw "CVR $Phase did not preserve the synthetic profile marker."
+    $started = [DateTime]::UtcNow
+    try {
+        $installer = $installerPaths[$Version]
+        $process = Start-Process -FilePath $installer -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
+        if ($process.ExitCode -ne 0) { throw "CVR $Version installer exited with code $($process.ExitCode)." }
+        $directory = Get-InstalledCvrDirectory -ExpectedVersion $Version
+        Assert-NoService
+        Assert-NoCvrProcesses
+        return $directory
+    } finally {
+        $script:phaseBoundaries.Add([PSCustomObject]@{ phase="installer-$Version"; startUtc=$started; endUtc=[DateTime]::UtcNow })
     }
 }
+
 function Install-CandidateCore {
     param([string]$InstallDirectory, [string]$Phase)
-    $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
-    if (-not (Test-Path -LiteralPath $installedCore -PathType Leaf)) { throw "CVR $Phase core path is missing." }
-    Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $installedCore -Force
-    if ((Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
-        throw "Fresh candidate core was not restored after $Phase."
-    }
-    $helpers = @(Get-ChildItem -LiteralPath $InstallDirectory -Recurse -File -Filter 'clash-verge-service-install.exe')
-    if ($helpers.Count -ne 1) { throw "Expected one service core-staging helper after $Phase; found $($helpers.Count)." }
-    $stageOutput = & $helpers[0].FullName --install-core $installedCore --sha256 $coreSha 2>&1
-    $stageExit = $LASTEXITCODE
-    if ($stageExit -ne 0) { throw "SHA-pinned core staging failed after $Phase ($stageExit): $($stageOutput -join ' ')" }
-    $stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
-    if (-not (Test-Path -LiteralPath $stagedCore -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $stagedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
-        throw "Service helper did not stage the fresh candidate core after $Phase."
+    $started = [DateTime]::UtcNow
+    try {
+        $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
+        if (-not (Test-Path -LiteralPath $installedCore -PathType Leaf)) { throw "CVR $Phase core path is missing." }
+        Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $installedCore -Force
+        if ((Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
+            throw "Fresh candidate core was not restored after $Phase."
+        }
+        $helpers = @(Get-ChildItem -LiteralPath $InstallDirectory -Recurse -File -Filter 'clash-verge-service-install.exe')
+        if ($helpers.Count -ne 1) { throw "Expected one service core-staging helper after $Phase; found $($helpers.Count)." }
+        $stageOutput = & $helpers[0].FullName --install-core $installedCore --sha256 $coreSha 2>&1
+        $stageExit = $LASTEXITCODE
+        if ($stageExit -ne 0) { throw "SHA-pinned core staging failed after $Phase ($stageExit): $($stageOutput -join ' ')" }
+        $stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
+        if (-not (Test-Path -LiteralPath $stagedCore -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $stagedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
+            throw "Service helper did not stage the fresh candidate core after $Phase."
+        }
+    } finally {
+        $script:phaseBoundaries.Add([PSCustomObject]@{ phase="stage-core-$Phase"; startUtc=$started; endUtc=[DateTime]::UtcNow })
     }
 }
 
+$script:nativeIntervals = [Collections.Generic.List[object]]::new()
+$script:phaseBoundaries = [Collections.Generic.List[object]]::new()
+$script:nativeFailures = [Collections.Generic.List[string]]::new()
+$nativeScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_acceptance.ps1'
+function Invoke-NativePhase {
+    param([ValidateSet('seed','exercise','recovery')][string]$Phase, [string]$InstallDirectory)
+    $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
+    $stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
+    foreach ($path in @($installedCore,$stagedCore)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
+            throw "Refusing native $Phase phase before exact custom core SHA is verified at $path."
+        }
+    }
+    $started = [DateTime]::UtcNow
+    $failure = $null
+    try {
+        & $nativeScript -Phase $Phase
+    } catch {
+        $failure = $_.Exception.Message
+        $script:nativeFailures.Add("$Phase`: $failure")
+        Write-Host "Native $Phase phase failed; continuing the bounded recovery sequence: $failure" -ForegroundColor Red
+    } finally {
+        $ended = [DateTime]::UtcNow
+        $script:nativeIntervals.Add([PSCustomObject]@{ phase=$Phase; startUtc=$started; endUtc=$ended })
+        $script:phaseBoundaries.Add([PSCustomObject]@{ phase="native-$Phase"; startUtc=$started; endUtc=$ended })
+    }
+}
 $processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
 Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
 Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline'
+Invoke-NativePhase -Phase seed -InstallDirectory $install258
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
-Assert-ProfilePreserved -Phase '2.5.10 update'
 Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update'
+Invoke-NativePhase -Phase exercise -InstallDirectory $install2510
 
-$nativeFailure = $null
-$nativeScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_acceptance.ps1'
-try {
-    & $nativeScript
-} catch {
-    $nativeFailure = $_.Exception.Message
-    Write-Host "Native acceptance reported failure; continuing the independent 2.5.8 recovery check: $nativeFailure" -ForegroundColor Red
-}
-
-# The acceptance script normally removes its exact service, process tree and synthetic route.
-# Retry cleanup on this disposable runner before invoking the pinned recovery installer.
+# The native phase normally removes its exact service, process tree and synthetic route.
+# Repeat cleanup on the disposable runner before the pinned recovery installer.
 if (Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue) {
     Stop-Service -Name 'clash_verge_service' -Force -ErrorAction SilentlyContinue
     & sc.exe delete 'clash_verge_service' | Out-Null
@@ -200,34 +219,71 @@ $recoveryFailure = $null
 try {
     $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS')
     if ($installRecovered -ne $install258) { throw 'CVR recovery changed the registered install directory.' }
-    Assert-ProfilePreserved -Phase 'recovery'
     Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'
     Assert-NoService
     Assert-NoCvrProcesses
+    Invoke-NativePhase -Phase recovery -InstallDirectory $installRecovered
 } catch {
     $recoveryFailure = $_.Exception.Message
     Write-Host "Pinned CVR 2.5.8 recovery failed: $recoveryFailure" -ForegroundColor Red
 }
 
-Start-Sleep -Milliseconds 250
+# WMI indication delivery is asynchronous; drain until stable, with a hard bound.
+$drainDeadline = [DateTime]::UtcNow.AddSeconds(8)
+$stableSince = [DateTime]::UtcNow
+$lastEventCount = -1
+while ([DateTime]::UtcNow -lt $drainDeadline) {
+    $currentCount = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue).Count
+    if ($currentCount -ne $lastEventCount) { $lastEventCount=$currentCount; $stableSince=[DateTime]::UtcNow }
+    elseif (([DateTime]::UtcNow - $stableSince).TotalSeconds -ge 2) { break }
+    Start-Sleep -Milliseconds 100
+}
 $processEvents = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue)
-$processNames = @($processEvents | ForEach-Object { [string]$_.SourceEventArgs.NewEvent.ProcessName })
 Unregister-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue
 $processEvents | Remove-Event -ErrorAction SilentlyContinue
-$alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' } | Sort-Object -Unique)
-if ($alphaStarts.Count) {
-    $alphaFailure = "Alpha core process started: $($alphaStarts -join ', ')"
-    if ($nativeFailure) { $nativeFailure = "$nativeFailure | $alphaFailure" } else { $nativeFailure = $alphaFailure }
+$coreEvents = [Collections.Generic.List[object]]::new()
+foreach ($event in $processEvents) {
+    $newEvent = $event.SourceEventArgs.NewEvent
+    $processName = [string]$newEvent.ProcessName
+    if ($processName -notmatch '^(?i:verge-mihomo|verge-mihomo-alpha)\.exe$') { continue }
+    $rawTime = $newEvent.TIME_CREATED
+    if ($null -eq $rawTime) {
+        $script:nativeFailures.Add("Core process start event for $processName had no WMI TIME_CREATED value.")
+        continue
+    }
+    try { $created = [DateTime]::FromFileTimeUtc([Int64]$rawTime) }
+    catch { $script:nativeFailures.Add("Could not decode process start time for $processName: $rawTime"); continue }
+    $phase = $null
+    foreach ($interval in $script:nativeIntervals) {
+        if ($created -ge $interval.startUtc -and $created -le $interval.endUtc) { $phase=$interval.phase; break }
+    }
+    $coreEvents.Add([PSCustomObject]@{ name=$processName; pid=$newEvent.ProcessID; timeUtc=$created; allowedPhase=$phase })
+    if ($processName -ieq 'verge-mihomo-alpha.exe') {
+        $script:nativeFailures.Add("Forbidden Alpha core process started at $($created.ToString('o')).")
+    } elseif (-not $phase) {
+        $script:nativeFailures.Add("Core process started outside an exact native acceptance interval: $processName pid=$($newEvent.ProcessID) at $($created.ToString('o')).")
+    }
+}
+foreach ($interval in $script:nativeIntervals) {
+    $phaseStarts = @($coreEvents | Where-Object { $_.allowedPhase -eq $interval.phase -and $_.name -ieq 'verge-mihomo.exe' })
+    if (-not $phaseStarts.Count) { $script:nativeFailures.Add("No core process-start event was observed inside native phase $($interval.phase); process-start monitoring did not establish coverage.") }
 }
 
 $summary = @(
     '## Bounded CVR install/update/native acceptance/recovery',
-    '- Installed pinned 2.5.8, updated to verified 2.5.10, ran native acceptance on the disposable windows-2022 runner, and attempted pinned recovery to 2.5.8.',
-    '- Native acceptance starts the verified GUI and service, applies generic synthetic profiles, checks DNS/TUN traffic and A-to-B-to-A reload, and binds the live core to the fresh build SHA.',
-    '- Native checks compare default routes and physical DNS before and after; the synthetic route is limited to 198.18.0.0/16.',
-    '- This job does not use production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
+    '- Exercised valid synthetic profiles, DNS override confirmation/on/off, GLOBAL selector persistence, explicit synthetic TUN traffic, and 2.5.8 recovery on the disposable windows-2022 runner.',
+    '- Native core starts were allowed only within phase intervals after the installed and service-staged executable hashes matched the fresh source-built core; every Alpha start is forbidden.',
+    '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
+    '- No production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
-if ($nativeFailure) { $summary += "- Native acceptance: FAIL — $nativeFailure" } else { $summary += '- Native acceptance: PASS.' }
+foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }
+foreach ($interval in $script:nativeIntervals) { $summary += "- Allowed native core interval $($interval.phase): $($interval.startUtc.ToString('o')) .. $($interval.endUtc.ToString('o'))." }
+foreach ($event in $coreEvents) {
+    $eventPhase = if ($event.allowedPhase) { $event.allowedPhase } else { 'none' }
+    $summary += "- Core process event $($event.name) pid=$($event.pid) at $($event.timeUtc.ToString('o')); native phase=$eventPhase."
+}
+if ($script:nativeFailures.Count) { $summary += '- Native/process-start acceptance: FAIL.'; $summary += $script:nativeFailures | ForEach-Object { "- Failure: $_" } }
+else { $summary += '- Native/process-start acceptance: PASS.' }
 if ($recoveryFailure) { $summary += "- 2.5.8 recovery: FAIL — $recoveryFailure" } else { $summary += '- 2.5.8 recovery: PASS.' }
-Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
-if ($nativeFailure -or $recoveryFailure) { throw "Native acceptance/recovery failed. Native: $nativeFailure; recovery: $recoveryFailure" }
+Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
+if ($script:nativeFailures.Count -or $recoveryFailure) { throw "Native acceptance/recovery failed. Native: $($script:nativeFailures -join ' | '); recovery: $recoveryFailure" }

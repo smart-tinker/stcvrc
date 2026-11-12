@@ -14,9 +14,14 @@ NATIVE_SMOKE = ROOT / "tools" / "network-lab" / "windows_native_acceptance.ps1"
 
 
 class NativeWindowsAcceptanceContract(unittest.TestCase):
-    def test_update_smoke_invokes_native_acceptance(self):
+    def test_install_update_and_recovery_run_native_phases_in_order(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        self.assertIn("windows_native_acceptance.ps1", source)
+        phases = ("-Phase seed", "-Phase exercise", "-Phase recovery")
+        positions = [source.index(phase) for phase in phases]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("Invoke-CvrInstaller -Version '2.5.8'", source)
+        self.assertIn("Invoke-CvrInstaller -Version '2.5.10'", source)
+        self.assertIn("Invoke-NativePhase", source)
 
     def test_native_acceptance_checks_safety_and_real_runtime(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
@@ -27,6 +32,12 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "clash_verge_service",
             "Get-FileHash",
             "Invoke-DnsQuery",
+            "set_dns_override",
+            "save_dns_config",
+            "switch_proxy_node",
+            "get_proxy_view",
+            "Get-ProfileDnsState",
+            "get_profiles",
             "native-fixture",
         )
         for assertion in required:
@@ -63,23 +74,18 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("-AllowedControlName 'native-fixture-b.invalid'", source)
         self.assertIn("-AllowedControlName 'native-fixture-a.invalid'", source)
 
-    def test_tun_start_hands_off_to_service_before_fixture_traffic(self):
+    def test_native_phase_uses_real_service_and_recovery_paths(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
-        start = source.index("if ($uidA) {")
-        end = source.index("if ($uidB) {", start)
-        fixture_a = source[start:end]
-        required = (
-            "patch_verge_config",
-            "Invoke-CvrCommand -Command 'restart_core'",
-            "Assert-SelectedProfileReady",
-            "Test-FixtureTraffic",
-        )
-        positions = []
-        for assertion in required:
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, fixture_a)
-                positions.append(fixture_a.index(assertion))
-        self.assertEqual(positions, sorted(positions))
+        service = source.index("Invoke-CvrCommand -Command 'install_service'")
+        service_identity = source.index("Assert-LiveServiceIdentity", service)
+        fixture = source.index("Assert-SelectedProfileReady", service_identity)
+        self.assertLess(service, service_identity)
+        self.assertLess(service_identity, fixture)
+        self.assertIn("Assert-LiveCoreIdentity", source)
+        self.assertIn("Assert-LiveSidecarCoreIdentity", source)
+        self.assertIn("if ($Phase -eq 'seed')", source)
+        self.assertIn("elseif ($Phase -eq 'recovery')", source)
+        self.assertIn("DNS override on/off/confirmation", source)
 
 
     def test_live_core_is_direct_child_of_ready_service(self):

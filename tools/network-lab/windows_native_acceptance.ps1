@@ -1,9 +1,12 @@
+param([ValidateSet('seed','exercise','recovery')][string]$Phase = 'exercise')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:GITHUB_REPOSITORY -ne 'smart-tinker/stcvrc') { throw 'Native acceptance is restricted to the disposable public STCVRC GitHub runner.' }
-if (-not $env:PR_SOURCE -or -not $env:CUSTOM_CORE -or -not $env:CVR_2510_GUI_SHA256 -or -not $env:CVR_2510_SERVICE_SHA256) { throw 'The exact PR source, fresh custom core, or pinned CVR GUI/service SHA is missing.' }
-if ($env:CVR_2510_SERVICE_SHA256 -notmatch '^[0-9a-f]{64}$') { throw 'The pinned CVR service SHA is malformed.' }
+if (-not $env:PR_SOURCE -or -not $env:CUSTOM_CORE -or -not $env:CVR_258_GUI_SHA256 -or -not $env:CVR_2510_GUI_SHA256) { throw 'The exact PR source, fresh custom core, or pinned CVR GUI SHA is missing.' }
+$expectedVersion = if ($Phase -in @('seed','recovery')) { '2.5.8' } else { '2.5.10' }
+$expectedGuiSha = if ($expectedVersion -eq '2.5.8') { [string]$env:CVR_258_GUI_SHA256 } else { [string]$env:CVR_2510_GUI_SHA256 }
+if ($Phase -eq 'exercise' -and $env:CVR_2510_SERVICE_SHA256 -notmatch '^[0-9a-f]{64}$') { throw 'The pinned CVR service SHA is malformed.' }
 $manifest = Get-Content -LiteralPath (Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json') -Raw | ConvertFrom-Json
 $coreSha = ([string]$manifest.core.sha256).ToLowerInvariant()
 if ($coreSha -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') { throw 'Unexpected fresh STCVRC core identity.' }
@@ -13,18 +16,25 @@ $serviceName = 'clash_verge_service'
 $serviceData = Join-Path $env:ProgramData 'clash-verge-service'
 $serviceCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
 $expectedServiceExe = Join-Path $serviceData 'bin\clash-verge-service.exe'
+$installedCore = Join-Path $env:ProgramFiles 'Clash Verge\verge-mihomo.exe'
 $installRoot = Join-Path $env:ProgramFiles 'Clash Verge'
 $guiPath = Join-Path $installRoot 'clash-verge.exe'
-$helper = Get-ChildItem -LiteralPath $installRoot -Recurse -File -Filter 'clash-verge-service-install.exe' | Select-Object -First 1
-if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf) -or -not $helper) { throw 'The verified 2.5.10 GUI or service helper is absent from the installed payload.' }
-if ((Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'The service staging path does not contain the fresh source-built core.' }
+if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf)) { throw "The verified CVR $expectedVersion GUI is absent from the installed payload." }
+if ((Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedGuiSha.ToLowerInvariant()) { throw "The installed CVR $expectedVersion GUI SHA256 does not match the pinned extracted payload." }
+if ((Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw "The installed CVR $expectedVersion core path does not contain the fresh source-built bytes." }
+if (Test-Path -LiteralPath $serviceCore -PathType Leaf) {
+    if ((Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'The service staging path does not contain the fresh source-built core.' }
+}
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Clean-runner precondition failed: a CVR service already exists.' }
-
 $failures = [Collections.Generic.List[string]]::new()
+$script:usedPorts = [Collections.Generic.HashSet[int]]::new()
 function Add-Failure { param([string]$Message) $failures.Add($Message); Write-Host "ASSERTION FAILED: $Message" -ForegroundColor Red }
 function Get-FreeTcpPort {
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    $listener.Start(); $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port; $listener.Stop(); return $port
+    do {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $listener.Start(); $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port; $listener.Stop()
+    } while (-not $script:usedPorts.Add([int]$port))
+    return $port
 }
 function Get-DefaultRouteSnapshot {
     @(Get-NetRoute -AddressFamily IPv4,IPv6 -ErrorAction Stop |
@@ -168,7 +178,9 @@ function Assert-LiveServiceIdentity {
 }
 function Assert-LiveCoreIdentity {
     Assert-LiveServiceIdentity
-    $processes = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'" | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq [IO.Path]::GetFullPath($serviceCore) })
+    $allCores = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'")
+    if ($allCores.Count -ne 1) { throw "Expected exactly one live core process; found $($allCores.Count)." }
+    $processes = @($allCores | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq [IO.Path]::GetFullPath($serviceCore) })
     if ($processes.Count -ne 1) { throw "Expected one live core at the service staging path; found $($processes.Count)." }
     $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if (-not $serviceRecord -or $serviceRecord.State -ne 'Running' -or [uint32]$serviceRecord.ProcessId -le 0) { throw 'The registered CVR service has no live process identity.' }
@@ -176,7 +188,16 @@ function Assert-LiveCoreIdentity {
     if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
 }
-function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
+function Assert-LiveSidecarCoreIdentity {
+    $state = Invoke-CvrCommand -Command 'get_runtime_state'
+    if (([string]$state.mode).ToLowerInvariant() -ne 'sidecar') { throw "Expected the explicitly isolated sidecar mode, got $($state.mode)." }
+    $allCores = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'")
+    if ($allCores.Count -ne 1) { throw "Expected exactly one live sidecar core process; found $($allCores.Count)." }
+    $path = [IO.Path]::GetFullPath([string]$allCores[0].ExecutablePath)
+    if (-not [StringComparer]::OrdinalIgnoreCase.Equals($path,[IO.Path]::GetFullPath($installedCore))) { throw "Recovered/seeded core path differs from the installed custom core: $path" }
+    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live sidecar core SHA256 mismatch.' }
+    if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
+}function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
 function Wait-RuntimeRule {
     param([string]$Rule)
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -184,7 +205,7 @@ function Wait-RuntimeRule {
     throw "Loaded runtime did not contain $Rule."
 }
 function Add-FixtureProfile {
-    param([string]$Name, [string]$AllowName, [string]$RejectName, [int]$DnsPort, [int]$UpstreamPort, [int]$ControllerPort)
+    param([string]$Name, [string]$AllowName, [string]$RejectName, [int]$DnsPort, [int]$ProfileDnsPort, [int]$ControllerPort, [int]$ProxyPortA, [int]$ProxyPortB)
     $yaml = @"
 mode: rule
 log-level: info
@@ -201,7 +222,26 @@ dns:
   default-nameserver:
     - 127.0.0.1
   nameserver:
-    - udp://127.0.0.1:$UpstreamPort
+    - udp://127.0.0.1:$ProfileDnsPort
+  proxy-server-nameserver:
+    - udp://127.0.0.1:$ProfileDnsPort
+  nameserver-policy:
+    proxy-fixture.invalid: udp://127.0.0.1:$ProfileDnsPort
+proxies:
+  - name: fixture-node-a
+    type: socks5
+    server: 127.0.0.1
+    port: $ProxyPortA
+  - name: fixture-node-b
+    type: socks5
+    server: 127.0.0.1
+    port: $ProxyPortB
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    proxies:
+      - fixture-node-a
+      - fixture-node-b
 tun:
   enable: true
   device: STCVRC-CI
@@ -212,22 +252,106 @@ tun:
   route-address:
     - 198.18.0.0/16
 rules:
-  - DOMAIN,$AllowName,DIRECT
-  - DOMAIN,$RejectName,REJECT
-  - MATCH,DIRECT
+  - DOMAIN-SUFFIX,$AllowName,DIRECT
+  - DOMAIN-SUFFIX,$RejectName,REJECT
+  - MATCH,GLOBAL
 "@
     $item = @{ type='local'; name=$Name; desc='Disposable synthetic CI fixture'; url=$null; option=$null }
     [void](Invoke-CvrCommand -Command 'create_profile' -Payload @{ item=$item; fileData=$yaml })
+    $profile = Get-FixtureProfile -Name $Name
+    return [string]$profile.uid
+}
+function Get-FixtureProfile {
+    param([string]$Name)
     $profiles = Invoke-CvrCommand -Command 'get_profiles'
     $found = @($profiles.items | Where-Object { $_.name -eq $Name })
-    if ($found.Count -ne 1 -or -not $found[0].uid) { throw "CVR did not persist profile $Name." }
-    return [string]$found[0].uid
+    if ($found.Count -ne 1 -or -not $found[0].uid) { throw "Expected one persisted profile named $Name; found $($found.Count)." }
+    $yaml = [string](Invoke-CvrCommand -Command 'read_profile_file' -Payload @{ index=[string]$found[0].uid })
+    foreach ($required in @('proxy-server-nameserver:', 'nameserver-policy:', 'name: GLOBAL', 'name: fixture-node-a', 'name: fixture-node-b')) {
+        if (-not $yaml.Contains($required)) { throw "Persisted $Name profile file is missing $required." }
+    }
+    return $found[0]
+}
+function Get-ProfileDnsState {
+    param([string]$Uid)
+    $verge = Invoke-CvrCommand -Command 'get_verge_config'
+    $settings = $verge.profile_dns_settings
+    if ($null -eq $settings) { $settings = $verge.profileDnsSettings }
+    $entry = if ($settings) { $settings.PSObject.Properties[$Uid] } else { $null }
+    if (-not $entry) { throw "CVR did not expose profile-scoped DNS override state for $Uid." }
+    return $entry.Value
+}
+function Set-FixtureDnsOverride {
+    param([string]$Uid, [bool]$Enabled, [bool]$Confirm)
+    $first = Invoke-CvrCommand -Command 'set_dns_override' -Payload @{ profileUid=$Uid; enabled=$Enabled; confirmation=$null }
+    $status = ([string]$first.status).ToLowerInvariant()
+    if (-not $Enabled) {
+        if ($status -ne 'applied') { throw "Disabling the DNS override returned $status instead of applied." }
+        return $null
+    }
+    if ($status -ne 'confirmation_required' -or [string]$first.source -notmatch '^[0-9a-f]{64}$') {
+        throw "Enabling DNS override did not request a source-bound confirmation: $($first | ConvertTo-Json -Compress -Depth 5)"
+    }
+    $source = [string]$first.source
+    if (-not $Confirm) { return $source }
+    $confirmed = Invoke-CvrCommand -Command 'set_dns_override' -Payload @{ profileUid=$Uid; enabled=$true; confirmation=$source }
+    if (([string]$confirmed.status).ToLowerInvariant() -ne 'applied') { throw "Confirmed DNS override did not apply: $($confirmed | ConvertTo-Json -Compress -Depth 5)" }
+    return $source
+}
+function Assert-ProfileDnsState {
+    param([string]$Uid, [bool]$Enabled, [string]$Phase)
+    $state = Get-ProfileDnsState -Uid $Uid
+    if ([bool]$state.enabled -ne $Enabled) { throw "$Phase expected profile DNS override enabled=$Enabled, got $($state.enabled)." }
+}
+function Assert-DnsResolver {
+    param([string]$Name, [ValidateSet('profile','app')][string]$Resolver)
+    $expected = "$Resolver|$($Name.ToLowerInvariant())"
+    $deadline = [DateTime]::UtcNow.AddSeconds(4)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $script:dnsLogPath -PathType Leaf) {
+            if (@(Get-Content -LiteralPath $script:dnsLogPath | Where-Object { $_.ToLowerInvariant() -eq $expected }).Count) { return }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    $observed = if (Test-Path -LiteralPath $script:dnsLogPath) { Get-Content -LiteralPath $script:dnsLogPath -Tail 20 } else { @() }
+    throw "DNS query $Name did not reach the expected $Resolver resolver; recent resolver log: $($observed -join ' | ')"
+}
+function Get-GlobalNodeSelection {
+    $view = Invoke-CvrCommand -Command 'get_proxy_view'
+    if (-not $view.global) { throw 'The active native core did not expose the GLOBAL proxy selector.' }
+    return [string]$view.global.now
+}
+function Assert-FixtureNodeSelection {
+    param([string]$ProfileName, [string]$ExpectedNode, [string]$Phase)
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    $actual = $null
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $actual = Get-GlobalNodeSelection
+        if ($actual -eq $ExpectedNode) { break }
+        Start-Sleep -Milliseconds 300
+    }
+    if ($actual -ne $ExpectedNode) { throw "$Phase core selected GLOBAL=$actual, expected $ExpectedNode for $ProfileName." }
+    $profile = Get-FixtureProfile -Name $ProfileName
+    $matches = @($profile.selected | Where-Object { $_.name -eq 'GLOBAL' })
+    if ($matches.Count -ne 1 -or [string]$matches[0].now -ne $ExpectedNode) {
+        throw "$Phase profiles.yaml did not retain GLOBAL=$ExpectedNode for $ProfileName."
+    }
+}
+function Select-FixtureNode {
+    param([string]$Node, [string]$ProfileName)
+    [void](Invoke-CvrCommand -Command 'switch_proxy_node' -Payload @{ groupName='GLOBAL'; proxyName=$Node; unfix=$false })
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ((Get-GlobalNodeSelection) -eq $Node) { break }
+        Start-Sleep -Milliseconds 300
+    }
+    Assert-FixtureNodeSelection -ProfileName $ProfileName -ExpectedNode $Node -Phase 'proxy switch'
 }
 function Select-FixtureProfile {
     param([string]$Uid, [string]$AllowName, [string]$RejectName)
     [void](Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } })
-    $yaml = Wait-RuntimeRule -Rule "DOMAIN,$AllowName,DIRECT"
-    if (-not $yaml.Contains("DOMAIN,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
+    $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
+    if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
 }
 function Assert-SelectedProfileReady {
     param([string[]]$OriginalDefaults, [string[]]$OriginalDns, [string]$Phase)
@@ -237,7 +361,13 @@ function Assert-SelectedProfileReady {
     Assert-FixtureRoute
     Assert-SystemRoutesRemainScoped -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase $Phase
 }
-function Test-FixtureTraffic { param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort); $fake=Invoke-DnsQuery -Name $FixtureName -Port $DnsPort; [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort); Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP." }
+function Test-FixtureTraffic {
+    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[string]$ExpectedResolver)
+    $fake=Invoke-DnsQuery -Name $FixtureName -Port $DnsPort
+    if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Resolver $ExpectedResolver }
+    [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
+    Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
+}
 function Test-RejectedFixture {
     param(
         [string]$FixtureName,
@@ -337,13 +467,20 @@ $baselineDefaults = @(Get-DefaultRouteSnapshot)
 $baselineDns = @(Get-PhysicalDnsSnapshot)
 if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw 'Clean-runner precondition failed: synthetic route already exists.' }
 $script:cdp=$null; $script:cdpId=0; $gui=$null; $server=$null
-$devtoolsPort=Get-FreeTcpPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort; $upstreamDnsPort=Get-FreeTcpPort
+$devtoolsPort=Get-FreeTcpPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort
+$profileDnsPort=Get-FreeTcpPort; $appDnsPort=Get-FreeTcpPort
+$proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
+$script:dnsLogPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-dns-$Phase.log"
+if (Test-Path -LiteralPath $script:dnsLogPath) { Remove-Item -LiteralPath $script:dnsLogPath -Force }
 $serverPath=Join-Path $env:RUNNER_TEMP 'stcvrc-native-fixture-server.py'
 $serverCode=@'
 import os, socket, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 HTTP_PORT=int(os.environ["STCVRC_NATIVE_HTTP_PORT"])
-DNS_PORT=int(os.environ["STCVRC_NATIVE_DNS_UPSTREAM_PORT"])
+PROFILE_DNS_PORT=int(os.environ["STCVRC_NATIVE_PROFILE_DNS_PORT"])
+APP_DNS_PORT=int(os.environ["STCVRC_NATIVE_APP_DNS_PORT"])
+DNS_LOG=os.environ["STCVRC_NATIVE_DNS_LOG"]
+LOG_LOCK=threading.Lock()
 class Handler(BaseHTTPRequestHandler):
     protocol_version="HTTP/1.1"
     def do_GET(self):
@@ -353,23 +490,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(body))); self.send_header("Connection","close")
         self.end_headers(); self.wfile.write(body)
     def log_message(self,fmt,*args): print("HTTP "+(fmt%args),flush=True)
-def dns_server():
-    sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.bind(("127.0.0.1",DNS_PORT))
+def dns_server(port,label):
+    sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.bind(("127.0.0.1",port))
     while True:
         packet,peer=sock.recvfrom(4096)
         if len(packet)<17: continue
-        end=12
-        while end<len(packet) and packet[end]!=0: end += 1+packet[end]
+        end=12; labels=[]
+        while end<len(packet) and packet[end]!=0:
+            length=packet[end]; labels.append(packet[end+1:end+1+length].decode("ascii","replace"))
+            end += 1+length
         if end+5>len(packet): continue
+        qname=".".join(labels).lower()
         end += 5
-        response=packet[:2]+b"\x81\x80"+packet[4:6]+b"\x00\x01\x00\x00\x00\x00"
-        response+=packet[12:end]+b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x05\x00\x04\x7f\x00\x00\x01"
+        with LOG_LOCK:
+            with open(DNS_LOG,"a",encoding="utf-8") as log: log.write(label+"|"+qname+chr(10))
+        response=packet[:2]+bytes.fromhex("8180")+packet[4:6]+bytes.fromhex("000100000000")
+        response+=packet[12:end]+bytes.fromhex("c00c000100010000000500047f000001")
         sock.sendto(response,peer)
-threading.Thread(target=dns_server,daemon=True).start()
+threading.Thread(target=dns_server,args=(PROFILE_DNS_PORT,"profile"),daemon=True).start()
+threading.Thread(target=dns_server,args=(APP_DNS_PORT,"app"),daemon=True).start()
 HTTPServer(("127.0.0.1",HTTP_PORT),Handler).serve_forever()
 '@
 [IO.File]::WriteAllText($serverPath,$serverCode,[Text.UTF8Encoding]::new($false))
-$env:STCVRC_NATIVE_HTTP_PORT=[string]$httpPort; $env:STCVRC_NATIVE_DNS_UPSTREAM_PORT=[string]$upstreamDnsPort
+$env:STCVRC_NATIVE_HTTP_PORT=[string]$httpPort
+$env:STCVRC_NATIVE_PROFILE_DNS_PORT=[string]$profileDnsPort
+$env:STCVRC_NATIVE_APP_DNS_PORT=[string]$appDnsPort
+$env:STCVRC_NATIVE_DNS_LOG=$script:dnsLogPath
 $python=(Get-Command python.exe -ErrorAction Stop).Source
 $serverArgs=@('-u', ('"' + $serverPath + '"'))
 $server=Start-Process -FilePath $python -ArgumentList $serverArgs -PassThru -WindowStyle Hidden
@@ -403,63 +549,125 @@ try {
     while ([DateTime]::UtcNow -lt $deadline) { try { $null=Invoke-CvrCommand -Command 'get_runtime_state'; $ipcReady=$true; break } catch { Start-Sleep -Milliseconds 500 } }
     if (-not $ipcReady) { throw 'Visible GUI did not expose functioning Tauri commands over WebView2.' }
 
-    try {
-        $outcome=Invoke-CvrCommand -Command 'install_service'
-        if (([string]$outcome.status).ToLowerInvariant() -ne 'installed') { throw "Tauri install_service did not report installed: $($outcome | ConvertTo-Json -Compress -Depth 10)" }
-        $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
-        while ([DateTime]::UtcNow -lt $deadline) {
-            $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-            if ($svc -and $svc.Status -eq 'Running') { break }
-            Start-Sleep -Milliseconds 500
-        }
-        if (-not $svc -or $svc.Status -ne 'Running') { throw 'Tauri install_service did not start the SCM service.' }
-        Assert-LiveServiceIdentity
-        Write-Host 'Tauri install_service created and started the verified CVR service.'
-    } catch {
-        Add-Failure "Tauri service start: $($_.Exception.Message)"
-        if (-not (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) { $output=& $helper.FullName --install-service 2>&1; if ($LASTEXITCODE -ne 0) { Add-Failure "Service helper fallback failed: $($output -join ' ')" } }
-    }
-
-    $uidA=$null; $uidB=$null
-    try { $uidA=Add-FixtureProfile -Name 'native-fixture-a' -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid' -DnsPort $dnsPort -UpstreamPort $upstreamDnsPort -ControllerPort (Get-FreeTcpPort) } catch { Add-Failure "Create fixture A: $($_.Exception.Message)" }
-    try { $uidB=Add-FixtureProfile -Name 'native-fixture-b' -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid' -DnsPort $dnsPort -UpstreamPort $upstreamDnsPort -ControllerPort (Get-FreeTcpPort) } catch { Add-Failure "Create fixture B: $($_.Exception.Message)" }
-    if ($uidA) {
+    if ($Phase -eq 'seed') {
         try {
+            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false; enable_auto_launch=$false } })
+            $uidA=Add-FixtureProfile -Name 'native-fixture-a' -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid' -DnsPort $dnsPort -ProfileDnsPort $profileDnsPort -ControllerPort (Get-FreeTcpPort) -ProxyPortA $proxyPortA -ProxyPortB $proxyPortB
+            $uidB=Add-FixtureProfile -Name 'native-fixture-b' -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid' -DnsPort $dnsPort -ProfileDnsPort $profileDnsPort -ControllerPort (Get-FreeTcpPort) -ProxyPortA $proxyPortA -ProxyPortB $proxyPortB
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+            Assert-LiveSidecarCoreIdentity
+            Select-FixtureNode -Node 'fixture-node-a' -ProfileName 'native-fixture-a'
+            Select-FixtureProfile -Uid $uidB -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid'
+            Select-FixtureNode -Node 'fixture-node-b' -ProfileName 'native-fixture-b'
+            Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 pre-update seed'
+            Write-Host '2.5.8 seeded two valid local profiles and persisted distinct GLOBAL selections before the 2.5.10 update.'
+            [void](Invoke-CvrCommand -Command 'exit_app')
+        } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
+    } elseif ($Phase -eq 'recovery') {
+        try {
+            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false; enable_auto_launch=$false } })
+            $profiles = Invoke-CvrCommand -Command 'get_profiles'
+            $profileA = Get-FixtureProfile -Name 'native-fixture-a'
+            $profileB = Get-FixtureProfile -Name 'native-fixture-b'
+            if ([string]$profiles.current -ne [string]$profileA.uid) { throw "Recovered CVR current profile is $($profiles.current), expected native-fixture-a ($($profileA.uid))." }
+            Select-FixtureProfile -Uid ([string]$profileA.uid) -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+            Assert-LiveSidecarCoreIdentity
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 recovery'
+            Select-FixtureProfile -Uid ([string]$profileB.uid) -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid'
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-b' -ExpectedNode 'fixture-node-b' -Phase '2.5.8 recovery'
+            Select-FixtureProfile -Uid ([string]$profileA.uid) -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 recovery'
+            $runtime = Get-RuntimeYaml
+            if (-not $runtime.Contains('proxy-server-nameserver:') -or -not $runtime.Contains('nameserver-policy:')) { throw 'Recovered 2.5.8 core did not load the persisted profile DNS configuration.' }
+            Write-Host '2.5.8 recovery launched the verified GUI and custom core, loaded preserved profiles/config, and restored each profile GLOBAL selector.'
+            [void](Invoke-CvrCommand -Command 'exit_app')
+        } catch { Add-Failure "2.5.8 functional recovery: $($_.Exception.Message)" }
+    } else {
+        try {
+            $outcome=Invoke-CvrCommand -Command 'install_service'
+            if (([string]$outcome.status).ToLowerInvariant() -ne 'installed') { throw "Tauri install_service did not report installed: $($outcome | ConvertTo-Json -Compress -Depth 10)" }
+            $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
+            while ([DateTime]::UtcNow -lt $deadline) {
+                $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+                if ($svc -and $svc.Status -eq 'Running') { break }
+                Start-Sleep -Milliseconds 500
+            }
+            if (-not $svc -or $svc.Status -ne 'Running') { throw 'Tauri install_service did not start the SCM service.' }
+            Assert-LiveServiceIdentity
+            Write-Host 'Tauri install_service created and started the verified CVR service.'
+        } catch {
+            Add-Failure "Tauri service start: $($_.Exception.Message)"
+        }
+
+        try {
+            $profileA=Get-FixtureProfile -Name 'native-fixture-a'
+            $profileB=Get-FixtureProfile -Name 'native-fixture-b'
+            $uidA=[string]$profileA.uid; $uidB=[string]$profileB.uid
+            $profiles=Invoke-CvrCommand -Command 'get_profiles'
+            if ([string]$profiles.current -ne $uidA) { throw "The 2.5.10 update did not preserve current profile A: $($profiles.current)." }
+            Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 to 2.5.10 update'
             [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true; enable_system_proxy=$false; enable_auto_launch=$false } })
             [void](Invoke-CvrCommand -Command 'restart_core')
-            Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'TUN fixture A'
-            Test-FixtureTraffic -FixtureName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort
-        } catch { Add-Failure "Fixture A TUN/DNS traffic: $($_.Exception.Message)" }
-    }
-    if ($uidB) {
-        try {
+            Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'native TUN service startup'
+
+            $appDns = @{ dns=@{ enable=$true; 'enhanced-mode'='fake-ip'; 'fake-ip-range'='198.18.0.1/16'; 'default-nameserver'=@('127.0.0.1'); nameserver=@("udp://127.0.0.1:$appDnsPort") } }
+            [void](Invoke-CvrCommand -Command 'save_dns_config' -Payload @{ dnsConfig=$appDns })
+            $dnsFile=[string](Invoke-CvrCommand -Command 'get_dns_config_content')
+            if (-not $dnsFile.Contains("127.0.0.1:$appDnsPort")) { throw 'CVR did not persist the synthetic app DNS configuration.' }
+
+            [void](Set-FixtureDnsOverride -Uid $uidA -Enabled $false -Confirm $false)
+            Assert-ProfileDnsState -Uid $uidA -Enabled $false -Phase 'profile A DNS off'
+            Test-FixtureTraffic -FixtureName 'dns-off.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
+
+            $sourceA=Set-FixtureDnsOverride -Uid $uidA -Enabled $true -Confirm $false
+            [void](Set-FixtureDnsOverride -Uid $uidA -Enabled $true -Confirm $true)
+            Assert-ProfileDnsState -Uid $uidA -Enabled $true -Phase 'profile A DNS on after confirmation'
+            Test-FixtureTraffic -FixtureName 'dns-on.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'
+            [void](Set-FixtureDnsOverride -Uid $uidA -Enabled $false -Confirm $false)
+            Assert-ProfileDnsState -Uid $uidA -Enabled $false -Phase 'profile A DNS disabled after enable'
+            Test-FixtureTraffic -FixtureName 'dns-off-after-on.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
+            $sourceAAfterToggle=Set-FixtureDnsOverride -Uid $uidA -Enabled $true -Confirm $false
+            if ($sourceAAfterToggle -ne $sourceA) { throw 'Profile A DNS confirmation digest changed without a source configuration change.' }
+            [void](Set-FixtureDnsOverride -Uid $uidA -Enabled $true -Confirm $true)
+            Assert-ProfileDnsState -Uid $uidA -Enabled $true -Phase 'profile A DNS re-enabled after toggle'
+            Test-FixtureTraffic -FixtureName 'dns-reenabled-after-toggle.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'
+            Write-Host "DNS override confirmation source bound to profile A: $sourceA."
+
             Select-FixtureProfile -Uid $uidB -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid'
-            Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'profile B'
-            Test-FixtureTraffic -FixtureName 'native-fixture-b.invalid' -DnsPort $dnsPort -HttpPort $httpPort
-            Test-RejectedFixture -FixtureName 'native-fixture-a.invalid' -AllowedControlName 'native-fixture-b.invalid' -DnsPort $dnsPort -HttpPort $httpPort -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'profile B'
-        } catch { Add-Failure "Fixture B profile reload: $($_.Exception.Message)" }
-    }
-    if ($uidA -and $uidB) {
-        try {
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-b' -ExpectedNode 'fixture-node-b' -Phase 'profile B restore after update'
+            [void](Set-FixtureDnsOverride -Uid $uidB -Enabled $false -Confirm $false)
+            $sourceB=Set-FixtureDnsOverride -Uid $uidB -Enabled $true -Confirm $false
+            if (-not $sourceB) { throw 'Profile B DNS override did not request its own confirmation.' }
+            if ($sourceA -eq $sourceB) { throw 'DNS confirmation source was not bound to the selected profile and source configuration.' }
+            Assert-ProfileDnsState -Uid $uidB -Enabled $false -Phase 'profile B independently remains off'
+            Test-FixtureTraffic -FixtureName 'dns-off.native-fixture-b.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
+
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
-            Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'A-to-B-to-A recovery'
-            Test-FixtureTraffic -FixtureName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort
-            Test-RejectedFixture -FixtureName 'native-fixture-b.invalid' -AllowedControlName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'profile A'
-        } catch { Add-Failure "A-to-B-to-A recovery: $($_.Exception.Message)" }
-    }
-    if ($script:cdp.State -eq [Net.WebSockets.WebSocketState]::Open) {
-        try {
-            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false } })
-            [void](Invoke-CvrCommand -Command 'uninstall_service')
-            [void](Invoke-CvrCommand -Command 'exit_app')
-        } catch { Add-Failure "Tauri runtime cleanup: $($_.Exception.Message)" }
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase 'switch back to profile A'
+            Assert-ProfileDnsState -Uid $uidA -Enabled $true -Phase 'profile A state after switching profiles'
+            Test-FixtureTraffic -FixtureName 'dns-reenabled.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'
+            Test-RejectedFixture -FixtureName 'native-fixture-b.invalid' -AllowedControlName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'profile A application reject'
+
+            [void](Invoke-CvrCommand -Command 'restart_core')
+            Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'service core restart'
+            Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase 'core restart'
+            Assert-ProfileDnsState -Uid $uidA -Enabled $true -Phase 'core restart'
+            Test-FixtureTraffic -FixtureName 'dns-restart.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'
+            Write-Host 'DNS override on/off/confirmation, per-profile separation, GLOBAL selector restore, and TUN/DNS/HTTP all passed on the fresh custom core.'
+        } catch { Add-Failure "2.5.10 DNS/profile/TUN acceptance: $($_.Exception.Message)" }
+
+        if ($script:cdp.State -eq [Net.WebSockets.WebSocketState]::Open) {
+            try {
+                [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false } })
+                [void](Invoke-CvrCommand -Command 'uninstall_service')
+                [void](Invoke-CvrCommand -Command 'exit_app')
+            } catch { Add-Failure "Tauri runtime cleanup: $($_.Exception.Message)" }
+        }
     }
 } catch {
     Add-Failure "Native setup or GUI/CDP blocker: $($_.Exception.Message)"
-    if (-not (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) {
-        try { $output=& $helper.FullName --install-service 2>&1; if ($LASTEXITCODE -ne 0) { Add-Failure "Independent service helper assertion failed: $($output -join ' ')" } } catch { Add-Failure "Independent service helper assertion failed: $($_.Exception.Message)" }
-    }
 } finally {
     if ($script:cdp) {
         try { if ($script:cdp.State -eq [Net.WebSockets.WebSocketState]::Open) { $script:cdp.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure,'complete',[Threading.CancellationToken]::None).GetAwaiter().GetResult() } }
