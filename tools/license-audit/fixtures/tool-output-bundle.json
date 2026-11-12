@@ -1,0 +1,181 @@
+{
+  "bundle_schema_version": 1,
+  "build": {
+    "version": "fixture-only-not-a-release",
+    "core_source_commit": "1111111111111111111111111111111111111111",
+    "artifacts": [
+      {
+        "name": "verge-mihomo.exe",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 123
+      }
+    ],
+    "go_version": "1.26.11",
+    "go_archive_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "easytier_source_commit": "2222222222222222222222222222222222222222",
+    "wasm_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "target": "windows/amd64",
+    "go_build_tags": [
+      "with_gvisor"
+    ],
+    "rust_target": "wasm32-wasip1",
+    "rust_features": [
+      "management-rpc",
+      "proxy-smoltcp-stack",
+      "ring-crypto",
+      "wasi-crypto-offload"
+    ]
+  },
+  "go": {
+    "core_module_path": "github.com/metacubex/mihomo",
+    "modules_json": "{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}\n{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}\n",
+    "packages_json": "{\"ImportPath\":\"github.com/metacubex/mihomo\",\"Module\":{\"Path\":\"github.com/metacubex/mihomo\",\"Version\":\"v1.19.33\"}}\n{\"ImportPath\":\"example.com/go-widget/http\",\"Module\":{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}\n",
+    "license_report": [
+      {
+        "Name": "example.com/go-widget",
+        "Version": "v1.2.3",
+        "LicensePath": "LICENSE",
+        "LicenseURL": "https://github.com/example/go-widget/blob/v1.2.3/LICENSE",
+        "LicenseName": "MIT",
+        "LicenseText": "Fixture MIT license text.\nCopyright (c) Go Fixture\n"
+      }
+    ],
+    "stdlib_license": {
+      "spdx": "BSD-3-Clause",
+      "text": "Fixture Go standard-library license text.\n",
+      "source_url": "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz"
+    }
+  },
+  "rust": {
+    "metadata": {
+      "packages": [
+        {
+          "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+          "name": "easytier-core",
+          "version": "1.0.0",
+          "source": null,
+          "license": "LGPL-3.0-or-later"
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+          "name": "example-rust-crate",
+          "version": "0.4.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "license": "MIT"
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
+          "name": "build-helper",
+          "version": "0.2.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "license": "Apache-2.0"
+        }
+      ],
+      "resolve": {
+        "root": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+        "nodes": [
+          {
+            "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+            "deps": [
+              {
+                "name": "example-rust-crate",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              },
+              {
+                "name": "build-helper",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
+                "dep_kinds": [
+                  {
+                    "kind": "build",
+                    "target": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+            "deps": []
+          },
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
+            "deps": []
+          }
+        ]
+      }
+    },
+    "about": {
+      "overview": [],
+      "licenses": [
+        {
+          "name": "GNU Lesser General Public License v3.0 or later",
+          "id": "LGPL-3.0-or-later",
+          "first_of_kind": true,
+          "text": "Fixture LGPL license text.\n",
+          "source_path": "/tmp/easytier/LICENSE",
+          "used_by": [
+            {
+              "crate": {
+                "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+                "name": "easytier-core",
+                "version": "1.0.0",
+                "source": null,
+                "license": "LGPL-3.0-or-later"
+              },
+              "path": null
+            }
+          ]
+        },
+        {
+          "name": "MIT License",
+          "id": "MIT",
+          "first_of_kind": true,
+          "text": "Fixture Rust MIT license text.\nCopyright (c) Rust Fixture\n",
+          "source_path": "/cargo/registry/src/example-rust-crate/LICENSE",
+          "used_by": [
+            {
+              "crate": {
+                "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+                "name": "example-rust-crate",
+                "version": "0.4.2",
+                "source": "registry+https://github.com/rust-lang/crates.io-index",
+                "license": "MIT"
+              },
+              "path": null
+            }
+          ]
+        }
+      ],
+      "crates": [
+        {
+          "package": {
+            "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+            "name": "easytier-core",
+            "version": "1.0.0",
+            "source": null,
+            "license": "LGPL-3.0-or-later"
+          },
+          "license": "LGPL-3.0-or-later"
+        },
+        {
+          "package": {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+            "name": "example-rust-crate",
+            "version": "0.4.2",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "license": "MIT"
+          },
+          "license": "MIT"
+        }
+      ]
+    },
+    "cargo_lock_text": "version = 4\n\n[[package]]\nname = \"example-rust-crate\"\nversion = \"0.4.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n\n[[package]]\nname = \"build-helper\"\nversion = \"0.2.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n"
+  },
+  "build_tools": []
+}
