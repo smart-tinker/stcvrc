@@ -1058,6 +1058,100 @@ jobs:
           fi
           if (( case_status != 0 || upstream_status != 0 || candidate_status != 0 )); then exit 1; fi
 
+  easytier-wasm-provenance:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      AUDIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      RUSTUP_TOOLCHAIN: 1.95.0
+      CARGO_BUILD_JOBS: 2
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact audit and EasyTier source inputs
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/easytier-provenance"
+          audit="$root/audit"
+          source="$root/source"
+          mkdir -p "$root"
+          [[ "$AUDIT_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git init --quiet "$audit"
+          git -C "$audit" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$audit" fetch --quiet --depth=1 --no-tags origin "$AUDIT_COMMIT"
+          git -C "$audit" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$audit" rev-parse HEAD)" = "$AUDIT_COMMIT"
+          candidate_commit="$(python3 - "$audit/docs/license-provenance.json" <<'PY'
+          import json, re, sys
+          manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+          candidate = next(v for v in manifest["variants"] if v["id"] == "candidate-1.19.33-mit-lzo")
+          commit = candidate["source_commit"]
+          assert re.fullmatch("[0-9a-f]{40}", commit)
+          print(commit)
+          PY
+          )"
+          candidate="$root/candidate"
+          git init --quiet "$candidate"
+          git -C "$candidate" remote add origin https://github.com/smart-tinker/stcvrc.git
+          git -C "$candidate" fetch --quiet --depth=1 --no-tags origin "$candidate_commit"
+          git -C "$candidate" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$candidate" rev-parse HEAD)" = "$candidate_commit"
+          awk '$1 == "github.com/easytier/easytier/easytier-go" { if ($2 != "v0.0.0-20260910071355-3d0c9c3ca5e2") exit 1; found++ } END { if (found != 1) exit 1 }' "$candidate/go.mod"
+
+          git init --quiet "$source"
+          git -C "$source" remote add origin https://github.com/EasyTier/EasyTier.git
+          git -C "$source" fetch --quiet --depth=1 --no-tags origin 3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253
+          git -C "$source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source" rev-parse HEAD)" = 3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253
+          grep -Fqx 'channel = "1.95"' "$source/rust-toolchain.toml"
+          grep -Fq 'Commit = "63519db2b5f2a6a1b9b7f20905f036dab54eb829"' "$source/easytier-go/internal/artifact/provenance.go"
+          grep -Fq 'SHA256 = "8b82f37d62fba2ffe8e256386096fddf448d4261d51c495d5bd97cd11bbb24a0"' "$source/easytier-go/internal/artifact/provenance.go"
+          printf '%s  %s\n' 8b82f37d62fba2ffe8e256386096fddf448d4261d51c495d5bd97cd11bbb24a0 "$source/easytier-go/internal/artifact/easytier_core.wasm" | sha256sum --check
+          printf '## EasyTier WASM source reproduction\n\nCandidate source: %s\n\nAvailable Rust source: 3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253\n\nEmbedded provenance claims: 63519db2b5f2a6a1b9b7f20905f036dab54eb829\n\nThe clean rebuild must match the embedded WASM bytes before this alternative source mapping is accepted.\n' "$candidate_commit" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rebuild WASM and compare exact embedded bytes
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/easytier-provenance"
+          source="$root/source"
+          export RUSTUP_HOME="$root/rustup"
+          export CARGO_HOME="$root/cargo"
+          export CARGO_TARGET_DIR="$root/target"
+          rustup toolchain install 1.95.0 --profile minimal --target wasm32-wasip1
+          rustc --version --verbose
+          cargo --version
+          if ! command -v protoc >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y protobuf-compiler
+          fi
+          protoc --version
+          cd "$source"
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$source=/workspace/EasyTier"
+          unset RUSTFLAGS
+          cargo fetch --locked --target wasm32-wasip1
+          export CARGO_NET_OFFLINE=true
+          bash script/build-wasi-core.sh
+          git diff --exit-code
+          rebuilt="$CARGO_TARGET_DIR/wasm32-wasip1/release/easytier_core_go_host.wasm"
+          actual="$(sha256sum "$rebuilt" | awk '{print $1}')"
+          expected=8b82f37d62fba2ffe8e256386096fddf448d4261d51c495d5bd97cd11bbb24a0
+          printf 'Fresh WASM SHA256: %s\nEmbedded WASM SHA256: %s\n' "$actual" "$expected" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$actual" != "$expected" ]]; then
+            printf 'FAIL: available EasyTier Rust source did not reproduce the embedded WASM. Source provenance remains unresolved.\n' | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          printf 'PASS: available source independently reproduced the exact embedded WASM bytes.\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove disposable Rust source and build directories
+        if: always()
+        run: |
+          rm -rf -- "$RUNNER_TEMP/easytier-provenance"
+
   license-audit:
     needs: source
     if: >-
