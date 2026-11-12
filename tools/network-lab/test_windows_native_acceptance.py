@@ -33,6 +33,33 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, source)
 
+    def test_reject_requires_fast_classified_socket_result_and_live_controls(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        reject = source.split("function Test-RejectedFixture", 1)[1].split("\n}", 1)[0]
+        for assertion in (
+            "ConnectAsync",
+            "Wait(2000)",
+            "catch [System.AggregateException]",
+            "catch [System.Net.Sockets.SocketException]",
+            "SocketErrorCode",
+            "ConnectionRefused",
+            "ConnectionReset",
+            "ConnectionAborted",
+            "NetworkReset",
+            "Assert-SelectedProfileReady",
+            "Get-NetRoute",
+            "Compare-Object",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, reject)
+        self.assertNotIn("catch {", reject)
+        controls = "Test-FixtureTraffic -FixtureName $AllowedControlName"
+        self.assertEqual(reject.count(controls), 2)
+        self.assertLess(reject.index(controls), reject.index("$connectTask ="))
+        self.assertLess(reject.index("$connectTask ="), reject.rindex(controls))
+        self.assertIn("-AllowedControlName 'native-fixture-b.invalid'", source)
+        self.assertIn("-AllowedControlName 'native-fixture-a.invalid'", source)
+
 
 if __name__ == "__main__":
     unittest.main()

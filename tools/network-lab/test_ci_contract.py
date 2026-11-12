@@ -258,6 +258,19 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("get_core_startup_error", native)
         self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
 
+    def test_source_job_parses_native_windows_powershell_before_build(self):
+        workflow = WORKFLOWS["test.yml"]
+        job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
+        step_name = "Parse native Windows acceptance PowerShell"
+        parse_step = job.split("      - name: " + step_name, 1)[1].split("      - name:", 1)[0]
+        self.assertIn("pwsh -NoLogo -NoProfile -NonInteractive", parse_step)
+        self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", parse_step)
+        self.assertIn("[ref]$parseErrors", parse_step)
+        self.assertIn("$parseErrors.Count -gt 0", parse_step)
+        self.assertLess(job.index("Read the source revision being checked"), job.index(step_name))
+        self.assertLess(job.index(step_name), job.index("Install checksum-pinned Go and workflow linter"))
+
+
     def test_native_powershell_is_parsed_before_core_setup(self):
         workflow = WORKFLOWS["test.yml"]
         job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
