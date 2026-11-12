@@ -323,5 +323,16 @@ SOFTWARE.""",
         self.assertEqual(source["binary"]["release_id"], candidate["release_id"])
         self.assertEqual(source["binary"]["manifest_sha256"], candidate["release_assets"][0]["sha256"])
 
+    def test_license_audit_checks_source_manifest_against_exact_candidate_checkout(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        for required in (
+            'candidate_source_path = root / "candidates/v1.19.33-20261022/source.json"',
+            'candidate_source = json.loads(candidate_source_path.read_text(encoding="utf-8"))',
+            'candidate_source["source"]["upstream_delta_blobs"] == mit_lzo_expected',
+            'candidate_source["binary"]["sha256"] == mit_lzo_source["asset_sha256"]',
+            'candidate_source["toolchain"]["archive_sha256"] == mit_lzo_source["go_sha256"]',
+        ):
+            self.assertIn(required, workflow)
+
 if __name__ == "__main__":
     unittest.main()
