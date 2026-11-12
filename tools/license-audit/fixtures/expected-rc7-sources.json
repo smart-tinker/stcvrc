@@ -130,5 +130,22 @@
     "archive_sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
     "archive_path": "wintun/bin/amd64/wintun.dll",
     "terms_path": "wintun/LICENSE.txt"
+  },
+  "wintun_go_bindings": {
+    "module": "github.com/metacubex/sing-tun",
+    "module_version": "v0.4.28",
+    "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+    "packages": [
+      "github.com/metacubex/sing-tun/internal/wintun",
+      "github.com/metacubex/sing-tun/internal/wintun/memmod"
+    ],
+    "name": "WireGuard Wintun Go bindings",
+    "license_spdx": "MIT",
+    "copyright": "Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.",
+    "license_text_url": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+    "license_source_url": "https://github.com/spdx/license-list-data/blob/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+    "license_source_revision": "31ba1a50e5397e00a304dbadc76531740e89ee48",
+    "license_path": "text/MIT.txt",
+    "license_git_blob": "d817195dad53ec992418c28ffca5fbd1cd86502a"
   }
 }

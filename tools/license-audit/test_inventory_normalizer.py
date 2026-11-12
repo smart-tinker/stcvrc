@@ -15,6 +15,13 @@ def load_bundle():
     for notice in bundle.get("go", {}).get("embedded_assets", []):
         text = notice.get("terms_text", "")
         notice["terms_sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    for component in bundle.get("go", {}).get("additional_components", []):
+        for license_item in component.get("licenses", []):
+            text = license_item.get("text", "")
+            license_item["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        for notice in component.get("supplemental_notices", []):
+            text = notice.get("text", "")
+            notice["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     for notice in bundle.get("rust", {}).get("standard_library", {}).get("supplemental_notices", []):
         notice["sha256"] = hashlib.sha256(notice["text"].encode("utf-8")).hexdigest()
     return bundle
@@ -27,7 +34,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
         self.assertEqual(
             names,
-            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "Rust standard library", "google.golang.org/protobuf", "github.com/easytier/easytier/easytier-go", "github.com/metacubex/chacha", "github.com/metacubex/sing-tun", "wintun.dll"},
+            {"example.com/go-widget", "easytier-core", "example-rust-crate", "Go standard library", "Rust standard library", "google.golang.org/protobuf", "github.com/easytier/easytier/easytier-go", "github.com/metacubex/chacha", "github.com/metacubex/sing-tun", "wintun.dll", "WireGuard Wintun Go bindings"},
         )
         self.assertEqual(
             set(inventory["required_components"]),
@@ -42,6 +49,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
                 "go:github.com/metacubex/chacha@v0.1.5",
                 "go:github.com/metacubex/sing-tun@v0.4.28",
                 "embedded-binary:wintun.dll@0.14.1",
+                "go-source:WireGuard Wintun Go bindings@v0.4.28",
             },
         )
         rendered = json.dumps(inventory, sort_keys=True)
@@ -65,6 +73,24 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(component["licenses"][0]["source_url"], "https://github.com/MetaCubeX/chacha/blob/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE")
         self.assertEqual(component["licenses"][0]["source_revision"], "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a")
         self.assertEqual(component["licenses"][0]["source_git_blob"], "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+
+    def test_preserves_mit_license_and_copyright_for_selected_wintun_bindings(self):
+        inventory = normalize_inventory(load_bundle())
+        component = next(item for item in inventory["components"] if item["name"] == "WireGuard Wintun Go bindings")
+
+        self.assertEqual(component["licenses"][0]["spdx"], "MIT")
+        self.assertIn("Permission is hereby granted", component["licenses"][0]["text"])
+        self.assertIn("Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.", component["copyrights"])
+        self.assertEqual(
+            {item["source_path"] for item in component["supplemental_notices"]},
+            {"internal/wintun/wintun_windows.go", "internal/wintun/memmod/memmod_windows.go"},
+        )
+
+    def test_rejects_missing_wintun_binding_license_component(self):
+        bundle = load_bundle()
+        bundle["go"]["additional_components"] = []
+        with self.assertRaises(AuditIncomplete):
+            normalize_inventory(bundle)
 
     def test_records_wintun_as_an_embedded_binary_with_distinct_archive_terms(self):
         inventory = normalize_inventory(load_bundle())
@@ -116,20 +142,24 @@ class ToolOutputNormalizationTests(unittest.TestCase):
     def test_preserves_rust_distribution_copyright_as_a_supplemental_notice(self):
         bundle = load_bundle()
         text = "<html>Fixture Rust library notice.</html>\\n"
-        bundle["rust"]["standard_library"]["supplemental_notices"] = [{
-            "name": "COPYRIGHT-library.html",
+        library_notice = next(
+            item for item in bundle["rust"]["standard_library"]["supplemental_notices"]
+            if item["name"] == "COPYRIGHT-library.html"
+        )
+        library_notice.update({
             "text": text,
-            "sha256": "66d9c3344388f00327404d6c75d147e65369c98698e5354b2716a0db9dda3320",
-            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
             "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
-            "source_path": "COPYRIGHT-library.html",
-        }]
+            "source_path": "share/doc/rust/COPYRIGHT-library.html",
+        })
 
         inventory = normalize_inventory(bundle)
         rust_std = next(item for item in inventory["components"] if item["name"] == "Rust standard library")
 
-        self.assertEqual(rust_std["supplemental_notices"][0]["name"], "COPYRIGHT-library.html")
-        self.assertEqual(rust_std["supplemental_notices"][0]["text"], text)
+        library_notice = next(item for item in rust_std["supplemental_notices"] if item["name"] == "COPYRIGHT-library.html")
+        self.assertEqual(library_notice["text"], text)
+        self.assertIn("COPYRIGHT", {item["name"] for item in rust_std["supplemental_notices"]})
 
     def test_rejects_rust_distribution_without_copyright_library_notice(self):
         bundle = load_bundle()

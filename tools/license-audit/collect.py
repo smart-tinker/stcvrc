@@ -269,6 +269,7 @@ def _go_rows(core, go, build, root, env):
         )))
 
     embedded = _wintun_record(selected_modules)
+    wintun_bindings = _wintun_binding_component(selected_modules, package_rows)
     go_root = Path(_run([go, "env", "GOROOT"], core, selected).strip())
     go_license = _read(go_root / "LICENSE", "Go toolchain LICENSE").decode("utf-8")
     go_archive = build.get("go_archive")
@@ -302,6 +303,7 @@ def _go_rows(core, go, build, root, env):
             for item in overrides
         ],
         "embedded_assets": [embedded],
+        "additional_components": [wintun_bindings],
         "stdlib_license": stdlib,
     }, tool_record
 
@@ -467,6 +469,111 @@ def _wintun_record(modules):
         "terms_sha256": _sha256(terms_bytes),
         "terms_path": pin["terms_path"],
         "copyrights": _copyright_lines([terms]),
+    }
+
+
+
+def _wintun_binding_component(modules, package_rows):
+    evidence_path = Path(__file__).resolve().parent / "fixtures" / "expected-rc7-sources.json"
+    evidence = json.loads(_read(evidence_path, "pinned license evidence").decode("utf-8"))
+    pin = evidence.get("wintun_go_bindings")
+    if not isinstance(pin, dict):
+        raise AuditIncomplete("missing Wintun Go binding license evidence")
+    module = pin["module"]
+    version = pin["module_version"]
+    selected = modules.get(module)
+    if not isinstance(selected, dict) or selected.get("Version") != version or selected.get("Replace"):
+        raise AuditIncomplete("Wintun Go binding source does not match the selected Go module")
+
+    resolved = _github_json(f"https://api.github.com/repos/MetaCubeX/sing-tun/commits/{version}")
+    revision = pin["source_revision"]
+    if resolved.get("sha") != revision:
+        raise AuditIncomplete("Wintun Go binding version does not resolve to the pinned source commit")
+    source_dir = _module_dir(selected, module)
+    expected_packages = {
+        f"{module}/internal/wintun",
+        f"{module}/internal/wintun/memmod",
+    }
+    if set(pin.get("packages", [])) != expected_packages:
+        raise AuditIncomplete("Wintun Go binding package scope differs from the reviewed evidence")
+    selected_packages = {}
+    for package in package_rows:
+        if package.get("ImportPath") in expected_packages:
+            selected_packages.setdefault(package["ImportPath"], []).append(package)
+    if set(selected_packages) != expected_packages or any(len(items) != 1 for items in selected_packages.values()):
+        raise AuditIncomplete("selected Windows build graph omits or duplicates a Wintun Go binding package")
+
+    notices = []
+    source_paths = set()
+    header_pattern = re.compile(
+        r"/\* SPDX-License-Identifier: MIT\s+\*\s+"
+        r"\* Copyright \(C\) 2017-2021 WireGuard LLC\. All Rights Reserved\.\s+\*/"
+    )
+    for package_path in sorted(expected_packages):
+        package = selected_packages[package_path][0]
+        package_module = package.get("Module")
+        if (
+            not isinstance(package_module, dict)
+            or package_module.get("Path") != module
+            or package_module.get("Version") != version
+        ):
+            raise AuditIncomplete(f"Wintun Go binding package source mismatch: {package_path}")
+        go_files = package.get("GoFiles", [])
+        cgo_files = package.get("CgoFiles", [])
+        if not isinstance(go_files, list) or not isinstance(cgo_files, list):
+            raise AuditIncomplete(f"invalid selected Go source list for {package_path}")
+        relative_package = package_path.removeprefix(module + "/")
+        for filename in sorted(set(go_files + cgo_files)):
+            if not isinstance(filename, str) or not filename or Path(filename).name != filename:
+                raise AuditIncomplete(f"invalid selected Wintun Go source filename: {filename}")
+            source_path = f"{relative_package}/{filename}"
+            if source_path in source_paths:
+                raise AuditIncomplete(f"duplicate selected Wintun Go source file: {source_path}")
+            source_paths.add(source_path)
+            source_bytes = _read(source_dir / source_path, f"Wintun Go binding source {source_path}")
+            raw_url = f"https://raw.githubusercontent.com/MetaCubeX/sing-tun/{revision}/{source_path}"
+            if _fetch(raw_url) != source_bytes:
+                raise AuditIncomplete(f"Wintun Go binding source differs from its pinned public revision: {source_path}")
+            source_text = source_bytes.decode("utf-8")
+            header = header_pattern.search(source_text)
+            if header is None or pin["copyright"] not in header.group(0):
+                raise AuditIncomplete(f"Wintun Go source lacks the reviewed MIT copyright header: {source_path}")
+            header_text = header.group(0)
+            notices.append({
+                "name": f"SPDX MIT header: {source_path}",
+                "text": header_text,
+                "sha256": _sha256(header_text.encode("utf-8")),
+                "source_url": f"https://github.com/MetaCubeX/sing-tun/blob/{revision}/{source_path}",
+                "source_revision": revision,
+                "source_path": source_path,
+                "source_git_blob": _git_blob(source_bytes),
+            })
+    if not source_paths:
+        raise AuditIncomplete("selected Wintun Go binding packages contain no source files")
+
+    license_bytes = _fetch(pin["license_text_url"])
+    if _git_blob(license_bytes) != pin["license_git_blob"]:
+        raise AuditIncomplete("canonical MIT license text differs from its pinned SPDX source blob")
+    license_text = license_bytes.decode("utf-8")
+    license_record = {
+        "spdx": pin["license_spdx"],
+        "text": license_text,
+        "sha256": _sha256(license_bytes),
+        "source_url": pin["license_source_url"],
+        "source_revision": pin["license_source_revision"],
+        "source_path": pin["license_path"],
+        "source_git_blob": _git_blob(license_bytes),
+    }
+    return {
+        "ecosystem": "go-source",
+        "role": "runtime",
+        "name": pin["name"],
+        "version": version,
+        "source_url": f"https://github.com/MetaCubeX/sing-tun/tree/{revision}/internal/wintun",
+        "source_digest": {"algorithm": "git-commit", "value": revision},
+        "licenses": [license_record],
+        "copyrights": [pin["copyright"]],
+        "supplemental_notices": notices,
     }
 
 
