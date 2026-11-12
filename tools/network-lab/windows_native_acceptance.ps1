@@ -178,6 +178,11 @@ function Get-CdpFailureSnapshot {
 function Request-CvrGuiExit {
     if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected for exit.' }
     if (-not $script:guiProcess -or $script:guiProcessId -le 0) { throw 'The exact CVR GUI process is unavailable for exit verification.' }
+    $script:guiProcess.Refresh()
+    if ($script:guiProcess.HasExited) {
+        $snapshot = Get-CdpFailureSnapshot -Command 'exit_app'
+        throw "Refusing exit_app because GUI PID $script:guiProcessId already exited; snapshot=$snapshot"
+    }
     $script:cdpId++
     $expression = "(window.__TAURI_INTERNALS__.invoke('exit_app',{}),'exit-requested')"
     $packet = @{ id=$script:cdpId; method='Runtime.evaluate'; params=@{ expression=$expression; awaitPromise=$false; returnByValue=$true; userGesture=$true } } | ConvertTo-Json -Compress -Depth 8
@@ -209,6 +214,7 @@ function Request-CvrGuiExit {
 function Invoke-CvrCommand {
     param([string]$Command, [hashtable]$Payload = @{})
     if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected.' }
+    Write-Host "Tauri command dispatched: $Command."
     $script:cdpId++
     $jsonArgs = ConvertTo-Json -InputObject $Payload -Compress -Depth 20
     $expression = "(async()=>await window.__TAURI_INTERNALS__.invoke('$Command',$jsonArgs))()"
@@ -269,7 +275,12 @@ function Invoke-DnsQuery {
         $udp.Client.ReceiveTimeout = 4000
         $endpoint = [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, $Port)
         [void]$udp.Send($query, $query.Length, $endpoint)
-        $reply = $udp.Receive([ref]$endpoint)
+        try {
+            $reply = $udp.Receive([ref]$endpoint)
+        } catch {
+            $exceptionType = $_.Exception.GetType().FullName
+            throw "Synthetic DNS Receive failed for fixture $Name on local endpoint 127.0.0.1:$Port ($exceptionType): $($_.Exception.Message)"
+        }
     } finally { $udp.Dispose() }
     if ($reply.Length -lt 17 -or (($reply[3] -band 0x0f) -ne 0)) { throw "Invoke-DnsQuery received invalid DNS response for $Name." }
     $answers = ([int]$reply[6] -shl 8) -bor [int]$reply[7]
