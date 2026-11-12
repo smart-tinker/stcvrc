@@ -149,11 +149,19 @@ class RestartCounterTests(unittest.TestCase):
                    "job_id": "/org/freedesktop/systemd1/job/52", "state": "dispatched"}
         self.assertEqual(classify_restart_transition(previous, current, receipt),
                          "requested-restart-counter-reset")
-        increased = {**current, "n_restarts": 2}
-        self.assertEqual(classify_restart_transition(previous, increased, receipt),
-                         "requested-restart-counter-increased")
         with self.assertRaises(UnknownRestartTransition):
             classify_restart_transition(previous, current)
+
+    def test_counter_increase_after_requested_reset_exposes_autoretry(self):
+        previous = {"unit": "stcvrc-ci-b.service", "invocation_id": "old", "n_restarts": 1}
+        current = {"unit": "stcvrc-ci-b.service", "invocation_id": "new", "n_restarts": 1}
+        receipt = {"unit": "stcvrc-ci-b.service", "method": "RestartUnit",
+                   "job_id": "/org/freedesktop/systemd1/job/52", "state": "dispatched"}
+        self.assertEqual(classify_restart_transition(
+            previous, current, receipt, manual_restart_resets_counter=True
+        ), "requested-restart-followed-by-automatic-retry")
+        self.assertEqual(classify_restart_transition(previous, current),
+                         "systemd-automatic-restart")
 
     def test_same_counter_across_new_invocation_requires_receipt(self):
         previous = {"unit": "stcvrc-ci-c.service", "invocation_id": "old", "n_restarts": 0}

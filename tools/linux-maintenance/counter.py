@@ -6,13 +6,13 @@ class UnknownRestartTransition(RuntimeError):
     pass
 
 
-def classify_restart_transition(previous, current, receipt=None):
-    """Classify observed values without assuming NRestarts is monotonic.
+def classify_restart_transition(previous, current, receipt=None,
+                                manual_restart_resets_counter=False):
+    """Classify one invocation transition without assuming a global counter delta.
 
-    systemd may reset NRestarts when an explicit RestartUnit begins a new
-    InvocationID. A decrease/equal count is accepted only with the durable
-    receipt for that exact unit. An increase with a new invocation is a native
-    systemd automatic restart observation.
+    A receipt identifies an explicitly requested transition. The native probe may
+    establish that this systemd version resets NRestarts for that operation; when
+    so, any nonzero count in the new invocation reveals an automatic retry.
     """
     unit = current.get("unit")
     if not isinstance(unit, str) or not unit:
@@ -30,6 +30,7 @@ def classify_restart_transition(previous, current, receipt=None):
         if old_count == new_count:
             return "unchanged"
         raise UnknownRestartTransition("counter changed without a new invocation")
+
     receipt_ok = (
         isinstance(receipt, dict)
         and receipt.get("unit") == unit
@@ -39,14 +40,18 @@ def classify_restart_transition(previous, current, receipt=None):
         and re.fullmatch(r"/org/freedesktop/systemd1/job/[0-9]+",
                          receipt["job_id"]) is not None
     )
-    if new_count > old_count and not receipt_ok:
-        return "systemd-automatic-restart"
-    if not receipt_ok:
-        raise UnknownRestartTransition(
-            "counter did not increase across invocation without a matching job receipt"
-        )
+    if receipt_ok:
+        if manual_restart_resets_counter:
+            if new_count == 0:
+                return "requested-restart-counter-reset"
+            return "requested-restart-followed-by-automatic-retry"
+        if new_count > old_count:
+            return "requested-restart-counter-increased"
+        if new_count < old_count:
+            return "requested-restart-counter-reset"
+        return "requested-restart"
     if new_count > old_count:
-        return "requested-restart-counter-increased"
-    if new_count < old_count:
-        return "requested-restart-counter-reset"
-    return "requested-restart"
+        return "systemd-automatic-restart"
+    raise UnknownRestartTransition(
+        "counter did not increase across invocation without a matching job receipt"
+    )

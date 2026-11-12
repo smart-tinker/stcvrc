@@ -134,12 +134,18 @@ def main():
         start_transient(unit, script, marker)
         recreated = wait_snapshot(unit, lambda x: x["active_state"] == "active" and x["main_pid"] > 1)
         recreated["phase"] = "after_manual_start"
+        reset_observed = (
+            auto_retry["n_restarts"] > 0
+            and manual["n_restarts"] == 0
+            and manual["invocation_id"] != auto_retry["invocation_id"]
+        )
         report.update({
             "status": "PASS",
             "observations": [before, auto_retry, {"phase": "RestartUnit_job", "job_path": job_path},
                              manual, stopped, recreated],
             "classifications": [auto_classification, manual_classification],
-            "counter_rule": "requested counter reset requires a matching durable job receipt",
+            "manual_restart_counter_resets": reset_observed,
+            "counter_rule": "a receipt distinguishes requested restart; post-reset count must remain zero",
         })
         print(json.dumps(report, sort_keys=True))
         return 0

@@ -10,6 +10,7 @@ import sys
 import time
 from pathlib import Path
 
+from counter import classify_restart_transition
 from maintenance import (
     read_linux_process_identity,
     restart_once,
@@ -176,11 +177,14 @@ def wait_http(anchor_pid, proxy_port, health_port):
 
 
 def main():
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: native_scenario.py ROOT XRAY_BASELINE XRAY_CANDIDATE")
+    if len(sys.argv) != 5:
+        raise SystemExit(
+            "usage: native_scenario.py ROOT XRAY_BASELINE XRAY_CANDIDATE COUNTER_PROFILE"
+        )
     root = Path(sys.argv[1]).resolve()
     baseline = Path(sys.argv[2]).resolve()
     candidate = Path(sys.argv[3]).resolve()
+    profile_path = Path(sys.argv[4]).resolve()
     report = {
         "status": "BLOCKED",
         "scope": "owned-temp-xray-binary-replacement-and-recovery",
@@ -207,6 +211,12 @@ def main():
         candidate_sha = checksum(candidate)
         if baseline_sha == candidate_sha:
             raise RuntimeError("pinned Xray baseline and candidate binaries are identical")
+        counter_profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        if counter_profile.get("status") != "PASS":
+            raise Blocked("native systemd counter profile is not PASS")
+        if counter_profile.get("manual_restart_counter_resets") is not True:
+            raise Blocked("native systemd probe did not confirm the manual-restart counter reset")
+        report["systemd_version"] = counter_profile.get("systemd_version")
         report["versions"] = {
             "baseline": xray_version(baseline, "26.10.21"),
             "baseline_executable_sha256": baseline_sha,
@@ -228,8 +238,8 @@ def main():
                 raise Blocked(json.dumps({
                     "command": "sudo -n unshare --net --fork ...",
                     "exit_code": anchor_launcher.returncode,
-                    "stdout": stdout.strip()[:300],
-                    "stderr": stderr.strip()[:300],
+                    "stdout": safe_text(stdout.strip())[:300],
+                    "stderr": safe_text(stderr.strip())[:300],
                 }, sort_keys=True))
             time.sleep(0.05)
         if not pid_file.exists():
@@ -278,6 +288,8 @@ def main():
             "sudo", "-n", "systemd-run", "--quiet", "--no-block",
             "--unit=" + health_unit,
             "--property=Type=simple", "--property=Restart=no",
+            "--property=User=" + str(os.getuid()),
+            "--property=Group=" + str(os.getgid()),
             "--property=NetworkNamespacePath=/proc/" + str(anchor_pid) + "/ns/net",
             sys.executable, str(server), str(health_port),
         ])
@@ -297,6 +309,8 @@ def main():
                 "sudo", "-n", "systemd-run", "--quiet", "--no-block",
                 "--unit=" + core_unit,
                 "--property=Type=simple", "--property=Restart=no",
+                "--property=User=" + str(os.getuid()),
+                "--property=Group=" + str(os.getgid()),
                 "--property=NetworkNamespacePath=/proc/" + str(anchor_pid) + "/ns/net",
                 "/bin/sh", str(wrapper), str(current_binary), "run", "-c", str(current_config),
             ])
@@ -322,17 +336,31 @@ def main():
             request(core_unit, "RestartUnit"),
             lambda value: observe_process(core_unit, candidate_sha, previous["invocation_id"]),
         )
+        restart_attribution = classify_restart_transition(
+            previous, process, receipt, manual_restart_resets_counter=True
+        )
+        if restart_attribution != "requested-restart-counter-reset":
+            raise RuntimeError("candidate restart had an unexpected attribution: " + restart_attribution)
         if process["start_ticks"] == baseline_process["start_ticks"] and process["pid"] == baseline_process["pid"]:
             raise RuntimeError("candidate did not replace the baseline process")
         if os.stat("/proc/" + str(process["pid"]) + "/ns/net").st_ino != isolated_netns:
             raise RuntimeError("candidate Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
+        after_candidate_health = read_unit(core_unit)
+        post_health_attribution = classify_restart_transition(
+            process, after_candidate_health, receipt,
+            manual_restart_resets_counter=True,
+        )
+        if post_health_attribution != "unchanged":
+            raise RuntimeError("candidate auto-restarted during health check: " + post_health_attribution)
         report["transitions"].append({
             "phase": "candidate-active",
             "version": report["versions"]["candidate"],
             "pid": process["pid"],
             "exe_sha256": candidate_sha,
             "receipt_state": receipt["state"],
+            "restart_attribution": restart_attribution,
+            "post_health_attribution": post_health_attribution,
             "loopback_http": "PASS",
         })
 
@@ -379,12 +407,17 @@ def main():
         if os.stat("/proc/" + str(recovered["pid"]) + "/ns/net").st_ino != isolated_netns:
             raise RuntimeError("recovered Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
+        after_recovery_health = read_unit(core_unit)
+        recovery_attribution = classify_restart_transition(recovered, after_recovery_health)
+        if recovery_attribution != "unchanged":
+            raise RuntimeError("baseline auto-restarted during health check: " + recovery_attribution)
         report["transitions"].append({
             "phase": "baseline-recovered",
             "version": report["versions"]["baseline"],
             "pid": recovered["pid"],
             "exe_sha256": baseline_sha,
             "receipt_state": rollback_receipt["state"],
+            "post_health_attribution": recovery_attribution,
             "loopback_http": "PASS",
         })
         report["status"] = "PASS"

@@ -19,8 +19,9 @@ python3 -m unittest discover \
   -s "$source_tree/tools/linux-maintenance" \
   -p 'test_*.py' -v || unit_status=$?
 probe_status=0
+counter_profile="$root/systemd-counter.json"
 python3 "$source_tree/tools/linux-maintenance/systemd_counter_probe.py" "$root" \
-  | tee -a "$GITHUB_STEP_SUMMARY" || probe_status=$?
+  | tee "$counter_profile" | tee -a "$GITHUB_STEP_SUMMARY" || probe_status=$?
 if (( unit_status != 0 )); then exit "$unit_status"; fi
 if (( probe_status != 0 )); then exit "$probe_status"; fi
 
@@ -42,4 +43,4 @@ candidate="$root/xray-26.10.31"
 fetch_xray 26.10.21 0eec3ed4163c273d8c8bf821f7d219e257921cf584aa3fb970715e458e631978 "$baseline"
 fetch_xray 26.10.31 e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214 "$candidate"
 python3 "$source_tree/tools/linux-maintenance/native_scenario.py" \
-  "$root" "$baseline" "$candidate" | tee -a "$GITHUB_STEP_SUMMARY"
+  "$root" "$baseline" "$candidate" "$counter_profile" | tee -a "$GITHUB_STEP_SUMMARY"
