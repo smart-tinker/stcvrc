@@ -1063,7 +1063,11 @@ jobs:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -1074,15 +1078,18 @@ jobs:
       - name: Fetch exact build recipe
         run: |
           set -euo pipefail
-          recipe="$RUNNER_TEMP/stcvrc-build-recipe"
+          task_temp="$RUNNER_TEMP"
+          if [[ "$RUNNER_OS" == Windows ]]; then task_temp="$(cygpath -u "$RUNNER_TEMP")"; fi
+          recipe="$task_temp/stcvrc-build-recipe"
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git init --quiet "$recipe"
+          git -C "$recipe" config core.autocrlf false
           git -C "$recipe" remote add origin https://github.com/smart-tinker/stcvrc.git
           git -C "$recipe" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
           git -C "$recipe" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
           bash -n "$recipe/tools/source-build/ci.sh"
-          shellcheck "$recipe/tools/source-build/ci.sh"
+          if [[ "$RUNNER_OS" == Linux ]]; then shellcheck "$recipe/tools/source-build/ci.sh"; fi
           if GITHUB_ACTIONS=false bash "$recipe/tools/source-build/ci.sh"; then
             printf 'CI-only scope guard did not reject a non-Actions invocation.\n' >&2
             exit 1
@@ -1091,14 +1098,16 @@ jobs:
             printf 'CI-only scope guard did not reject a foreign repository.\n' >&2
             exit 1
           fi
-          test ! -e "$RUNNER_TEMP/stcvrc-source-built"
+          test ! -e "$task_temp/stcvrc-source-built"
           bash "$recipe/tools/source-build/ci.sh"
       - name: Remove disposable source, compiler and build directories
         if: always()
         run: |
-          root="$RUNNER_TEMP/stcvrc-source-built"
+          task_temp="$RUNNER_TEMP"
+          if [[ "$RUNNER_OS" == Windows ]]; then task_temp="$(cygpath -u "$RUNNER_TEMP")"; fi
+          root="$task_temp/stcvrc-source-built"
           if [[ -d "$root" ]]; then chmod -R u+w -- "$root"; fi
-          rm -rf -- "$RUNNER_TEMP/stcvrc-source-built" "$RUNNER_TEMP/stcvrc-build-recipe"
+          rm -rf -- "$root" "$task_temp/stcvrc-build-recipe"
 
   license-audit:
     needs: source
