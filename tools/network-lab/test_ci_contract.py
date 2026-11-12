@@ -61,7 +61,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 20", WORKFLOW)
         self.assertIn("!github.event.repository.private", WORKFLOW)
         self.assertNotIn("!github.event.pull_request.draft", WORKFLOW, "draft PRs run all checks")
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", WORKFLOW)
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", WORKFLOW)
         self.assertIn("permissions:\n  contents: read", WORKFLOW)
 
     def test_no_privileged_or_paid_automation_paths(self):
@@ -91,7 +91,7 @@ class CIContractTests(unittest.TestCase):
             self.assertIn("permissions:\n  contents: read", workflow, name)
             self.assertIn("!github.event.repository.private", workflow, name)
             self.assertNotIn("!github.event.pull_request.draft", workflow, name)
-            self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
+            self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
             self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
         for name in ("test.yml", "stcvrc-network-lab.yml", "codeql.yml"):
             self.assertIn("push:\n    branches: [main]", WORKFLOWS[name], name)
@@ -545,6 +545,21 @@ class CIContractTests(unittest.TestCase):
                     f"{name} skips fork pull requests",
                 )
 
+    def test_fork_pull_requests_fetch_the_exact_base_repo_pr_ref(self):
+        source = WORKFLOWS["test.yml"]
+        self.assertIn("refs/pull/{0}/head", source)
+        self.assertIn("SOURCE_REF", source)
+        self.assertIn('\"$SOURCE_REF\"', source)
+        self.assertIn("refs/pull/{0}/head", WORKFLOW)
+        self.assertIn("FIXTURE_REF", WORKFLOW)
+        self.assertIn('\"$FIXTURE_REF\"', WORKFLOW)
+
+    def test_codeql_scans_fork_prs_without_uploading_fork_results(self):
+        codeql = WORKFLOWS["codeql.yml"]
+        self.assertIn("upload: ${{", codeql)
+        self.assertIn("'never'", codeql)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", codeql)
+        self.assertIn("github/codeql-action/analyze@", codeql)
 
 if __name__ == "__main__":
     unittest.main()
