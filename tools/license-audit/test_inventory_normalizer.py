@@ -83,5 +83,32 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         with self.assertRaises(AuditIncomplete):
             normalize_inventory(bundle)
 
+
+    def test_preserves_rust_distribution_copyright_as_a_supplemental_notice(self):
+        bundle = load_bundle()
+        text = "<html>Fixture Rust library notice.</html>\\n"
+        bundle["rust"]["standard_library"]["supplemental_notices"] = [{
+            "name": "COPYRIGHT-library.html",
+            "text": text,
+            "sha256": "a" * 64,
+            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+            "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+            "source_path": "COPYRIGHT-library.html",
+        }]
+
+        inventory = normalize_inventory(bundle)
+        rust_std = next(item for item in inventory["components"] if item["name"] == "Rust standard library")
+
+        self.assertEqual(rust_std["supplemental_notices"][0]["name"], "COPYRIGHT-library.html")
+        self.assertEqual(rust_std["supplemental_notices"][0]["text"], text)
+
+    def test_rejects_rust_distribution_without_copyright_library_notice(self):
+        bundle = load_bundle()
+        bundle["rust"]["standard_library"].pop("supplemental_notices", None)
+
+        with self.assertRaises(AuditIncomplete):
+            normalize_inventory(bundle)
+
+
 if __name__ == "__main__":
     unittest.main()
