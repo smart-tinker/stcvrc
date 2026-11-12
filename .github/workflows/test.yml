@@ -24,7 +24,7 @@ name: STCVRC source checks
       - candidates/cvr-2.5.10/**
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
   workflow_dispatch: {}
 
 permissions:
