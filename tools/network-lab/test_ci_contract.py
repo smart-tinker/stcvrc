@@ -252,7 +252,34 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("& $nativeScript", script)
         self.assertIn("Start-Process -FilePath $guiPath", native)
         self.assertIn("install_service", native)
+        self.assertIn("$expectedServiceExe = Join-Path $serviceData", native)
+        self.assertIn("CVR_2510_SERVICE_SHA256", native)
+        self.assertIn("$serviceHash -ne $env:CVR_2510_SERVICE_SHA256", native)
+        self.assertIn("get_core_startup_error", native)
         self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
+
+    def test_native_powershell_is_parsed_before_core_setup(self):
+        workflow = WORKFLOWS["test.yml"]
+        job = workflow.split("\\n  cvr-windows-payload:\\n", 1)[1].split("\\n  assemble-draft-rc:\\n", 1)[0]
+        fetch = job.split("      - name: Fetch the exact PR source", 1)[1].split(
+            "      - name: Fresh native Windows core build", 1
+        )[0]
+        self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", fetch)
+        self.assertIn("[ref]$parseErrors", fetch)
+        self.assertIn("$parseErrors.Count -gt 0", fetch)
+        self.assertLess(fetch.index("Parser]::ParseFile"), job.index("Fresh native Windows core build"))
+
+
+    def test_profile_selection_precedes_tun_and_readiness_checks_follow_tun(self):
+        script = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
+        select = script.split("function Select-FixtureProfile", 1)[1].split(
+            "function Assert-SelectedProfileReady", 1
+        )[0]
+        self.assertNotIn("Wait-ServiceReady", select)
+        phase = script.split("if ($uidA) {", 1)[1].split("if ($uidB) {", 1)[0]
+        self.assertLess(phase.index("Select-FixtureProfile"), phase.index("patch_verge_config"))
+        self.assertLess(phase.index("patch_verge_config"), phase.index("Assert-SelectedProfileReady"))
+
 
     def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
