@@ -161,7 +161,6 @@ function Assert-LiveCoreIdentity {
     if (-not ([string]$liveVersion.version).Contains($version)) { throw "Live controller version does not match the source-built candidate: $($liveVersion.version)" }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
 }
-}
 function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
 function Wait-RuntimeRule {
     param([string]$Rule)
