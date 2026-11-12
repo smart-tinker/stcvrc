@@ -21,6 +21,8 @@ case "${RUNNER_OS:-}" in
     protoc_archive=protoc-35.1-win64.zip
     protoc_archive_sha=5d3ff218d7d91eea95f7569bcb5a98f3030f8996d44151279d9772edcff76082
     root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
+    # GNU tar otherwise treats the native D: archive path as a remote host.
+    export TAR_OPTIONS=--force-local
     ;;
   *) printf 'Unsupported standard runner OS.\n' >&2; exit 1 ;;
 esac
