@@ -113,8 +113,20 @@ def main():
         run(["sudo", "-n", "systemctl", "stop", unit])
         observations.append(snapshot(unit, "after_stop"))
         run(["sudo", "-n", "systemctl", "reset-failed", unit], check=False)
-        observations.append({"phase": "StartUnit_job",
-                             "job_path": dbus_job(unit, "StartUnit")})
+        start = run([
+            "sudo", "-n", "systemd-run", "--quiet", "--no-block",
+            "--unit=" + unit,
+            "--property=Type=simple",
+            "--property=Restart=on-failure",
+            "--property=RestartSec=100ms",
+            "--property=StartLimitIntervalSec=10s",
+            "--property=StartLimitBurst=4",
+            "/bin/sh", "-c", script, "sh", str(marker),
+        ])
+        if start.returncode:
+            raise Blocked("recreating stopped transient unit failed: " + start.stderr.strip()[:240])
+        observations.append({"phase": "new_transient_start", "created": True})
+        observations.append(wait_active(unit, marker))
         observations.append(snapshot(unit, "after_manual_start"))
         report.update({
             "status": "PASS",
