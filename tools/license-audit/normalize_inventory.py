@@ -715,6 +715,9 @@ def _cargo_tree_runtime_ids(metadata, tree_text):
         key = (match.group("name"), match.group("version"))
         candidates = by_name_version.get(key, [])
         source = match.group("source")
+        # Cargo uses this target-kind marker instead of a package source.
+        if source == "proc-macro":
+            source = None
         if source is not None:
             candidates = [package for package in candidates if source in package_source_forms(package)]
         if len(candidates) != 1:
