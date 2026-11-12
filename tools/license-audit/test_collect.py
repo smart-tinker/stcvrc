@@ -10,6 +10,7 @@ from unittest.mock import patch
 from collect import (
     CHACHA_API,
     _github_json,
+    _run,
     _go_license_report_template,
     _has_module_build_info,
     _manual_go_overrides,
@@ -38,6 +39,31 @@ class GoLicenseToolBuildInfoTests(unittest.TestCase):
         self.assertFalse(_has_module_build_info(build_info, "github.com/google/go-licenses/v2", "v2.0.1"))
 
 
+class SubprocessCredentialScopeTests(unittest.TestCase):
+    def test_build_tools_do_not_inherit_the_api_token_or_mutate_parent_env(self):
+        env = {"GH_TOKEN": "fixture-token", "KEEP_ENV": "preserved"}
+        completed = subprocess.CompletedProcess([], 0, stdout="ok", stderr="")
+        with patch("collect.subprocess.run", return_value=completed) as run:
+            self.assertEqual(_run(["cargo", "install", "cargo-about"], Path("."), env), "ok")
+        child_env = run.call_args.kwargs["env"]
+        self.assertNotIn("GH_TOKEN", child_env)
+        self.assertEqual(child_env["KEEP_ENV"], "preserved")
+        self.assertEqual(env["GH_TOKEN"], "fixture-token")
+
+    def test_only_validated_metadata_command_can_receive_the_api_token(self):
+        url = f"{CHACHA_API}/commits/v1.2.3"
+        completed = subprocess.CompletedProcess([], 0, stdout='{"sha":"fixture"}', stderr="")
+        with patch.dict("os.environ", {"GH_TOKEN": "fixture-token"}, clear=True):
+            with patch("collect.subprocess.run", return_value=completed) as run:
+                self.assertEqual(_github_json(url), {"sha": "fixture"})
+        self.assertEqual(run.call_args.args[0][:2], ["gh", "api"])
+        self.assertEqual(run.call_args.kwargs["env"]["GH_TOKEN"], "fixture-token")
+        with patch("collect.subprocess.run") as blocked:
+            with self.assertRaises(AuditIncomplete):
+                _run(["cargo", "install", "cargo-about"], Path("."), {"GH_TOKEN": "fixture-token"}, github_api=True)
+        blocked.assert_not_called()
+
+
 class GithubApiMetadataTests(unittest.TestCase):
     def test_uses_only_pinned_github_api_commit_routes(self):
         url = f"{CHACHA_API}/commits/v1.2.3"
@@ -63,7 +89,7 @@ class GithubApiMetadataTests(unittest.TestCase):
                             _github_json(candidate)
                     blocked_run.assert_not_called()
 
-    def test_requires_the_workflow_read_token(self):
+    def test_requires_the_workflow_api_token(self):
         url = f"{CHACHA_API}/commits/v1.2.3"
         with patch.dict("os.environ", {}, clear=True):
             with patch("collect._run") as run:

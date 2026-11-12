@@ -137,11 +137,19 @@ def _read(path, label):
     return path.read_bytes()
 
 
-def _run(args, cwd, env):
+def _run(args, cwd, env, *, github_api=False):
+    child_env = dict(env)
+    child_env.pop("GH_TOKEN", None)
+    if github_api:
+        if len(args) != 5 or args[:2] != ["gh", "api"] or args[3:] != ["--hostname", "github.com"]:
+            raise AuditIncomplete("GitHub API credentials are restricted to the metadata command")
+        _github_api_endpoint("https://api.github.com/" + args[2])
+        if env.get("GH_TOKEN"):
+            child_env["GH_TOKEN"] = env["GH_TOKEN"]
     result = subprocess.run(
         [str(item) for item in args],
         cwd=str(cwd),
-        env=env,
+        env=child_env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -555,6 +563,7 @@ def _github_json(url):
         ["gh", "api", endpoint, "--hostname", "github.com"],
         Path(__file__).resolve().parents[2],
         os.environ,
+        github_api=True,
     )
     try:
         result = json.loads(raw)
