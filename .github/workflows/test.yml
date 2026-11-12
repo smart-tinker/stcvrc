@@ -770,8 +770,7 @@ jobs:
   test-module:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      github.event_name != 'workflow_dispatch'
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

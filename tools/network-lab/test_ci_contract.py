@@ -119,7 +119,9 @@ class CIContractTests(unittest.TestCase):
     def test_draft_rc_waits_for_profile_contract(self):
         release_workflow = WORKFLOWS["test.yml"]
         release_job = release_workflow.split("\n  assemble-draft-rc:\n", 1)[1]
-        self.assertIn("needs:\n      - source\n      - profile-contract\n      - cvr-2-5-10-package\n      - cvr-windows-payload", release_job)
+        needs = release_job.split("    needs:\n", 1)[1].split("    runs-on:", 1)[0]
+        for job in ("source", "profile-contract", "cvr-2-5-10-package", "cvr-windows-payload"):
+            self.assertIn("      - " + job + "\n", needs)
 
     def test_nested_module_tidy_preserves_committed_manifests(self):
         job = WORKFLOWS["test.yml"].split("\n  test-module:\n", 1)[1]
@@ -396,6 +398,8 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("Full nested test-module suite completed from clean Go caches.", job)
         self.assertNotIn("This is not a full-suite pass", job)
         self.assertIn("go mod verify", job)
+        condition = job.split("    runs-on:", 1)[0]
+        self.assertNotIn("github.event_name != 'workflow_dispatch'", condition)
 
 
 
@@ -562,13 +566,12 @@ class CIContractTests(unittest.TestCase):
 
     def test_candidate_and_rc_builds_report_embedded_go_modules(self):
         workflow = WORKFLOWS["test.yml"]
-        for job_name, next_job in (
-            ("cvr-2-5-10-package", "cvr-windows-payload"),
-            ("assemble-draft-rc", "test-module"),
-        ):
-            section = workflow.split(f"  {job_name}:", 1)[1].split(f"  {next_job}:", 1)[0]
-            with self.subTest(job=job_name):
-                self.assertIn('go version -m "$binary"', section)
+        package = workflow.split("\n  cvr-2-5-10-package:\n", 1)[1].split("\n  cvr-windows-payload:\n", 1)[0]
+        self.assertIn('go version -m "$binary"', package)
+        assembly = workflow.split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
+        builder = (ROOT / "tools/source-build/ci.sh").read_text(encoding="utf-8")
+        self.assertIn('bash "$recipe/tools/source-build/ci.sh"', assembly)
+        self.assertIn('go version -m "$root/output/verge-mihomo.exe"', builder)
 
 
     def test_current_source_binary_modules_are_recorded(self):
