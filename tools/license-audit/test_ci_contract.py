@@ -31,8 +31,8 @@ class DistributionAuditContractTests(unittest.TestCase):
             },
             "candidate-1.19.33-mit-lzo": {
                 "distribution_status": "draft-prerelease",
-                "release_id": 441941273,
-                "release_tag": "stcvrc-1.19.33-rc.6",
+                "release_id": 442680453,
+                "release_tag": "stcvrc-1.19.33-rc.7",
                 "asset_sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
                 "source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
                 "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
@@ -51,7 +51,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             self.assertEqual(item["build"]["tags"], ["with_gvisor"])
             self.assertEqual(item["build"]["cgo_enabled"], 0)
 
-    def test_draft_rc6_mit_lzo_candidate_records_two_identical_fresh_builds(self):
+    def test_mit_lzo_candidate_records_two_identical_fresh_builds(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = next(item for item in manifest["variants"] if item["id"] == "candidate-1.19.33-mit-lzo")
         self.assertEqual(
@@ -119,7 +119,7 @@ class DistributionAuditContractTests(unittest.TestCase):
 
     def test_license_audit_docs_trigger_source_checks(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json", "docs/third-party-notices.md"):
+        for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json", "docs/third-party-notices.md", "candidates/v1.19.33-20261022/**"):
             self.assertIn(
                 f"      - {path}",
                 workflow,
@@ -142,7 +142,7 @@ class DistributionAuditContractTests(unittest.TestCase):
         self.assertIn('tolower($3) == "unknown"', report_section, "unclassified license rows must require manual review")
 
 
-    def test_draft_rc6_mit_lzo_candidate_pins_exact_source_and_build(self):
+    def test_draft_rc7_mit_lzo_candidate_pins_exact_source_and_build(self):
         manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
         candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
         self.assertEqual(candidate["distribution_status"], "draft-prerelease")
@@ -162,14 +162,14 @@ class DistributionAuditContractTests(unittest.TestCase):
             "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE",
         })
         self.assertEqual(candidate["asset_sha256"], "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87")
-        self.assertEqual(candidate["release_id"], 441941273)
+        self.assertEqual(candidate["release_id"], 442680453)
         self.assertEqual(candidate["release_assets"], [
-            {"name": "RC-MANIFEST.json", "sha256": "69d678d8a40f0eb26491d6b1a731bdd077563be170e759133e9ad4e0be8235a9"},
+            {"name": "RC-MANIFEST.json", "sha256": "ef81b3f7577ecb681dca400c633d27ca5901fba21d02fdc0548c8ae0c3e22d1f"},
             {"name": "verge-mihomo.exe", "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"},
         ])
-        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.6")
+        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.7")
 
-    def test_license_ci_builds_the_exact_draft_rc6_mit_lzo_source(self):
+    def test_license_ci_builds_the_exact_draft_rc7_mit_lzo_source(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         for required in (
             "candidate-1.19.33-mit-lzo",
@@ -252,6 +252,87 @@ SOFTWARE.""",
             "Copyright (c) 2025 MetaCubex",
         ):
             self.assertIn(required, license_job)
+
+    def test_rc7_mit_lzo_manifest_maps_exact_upstream_source_delta(self):
+        manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
+        expected = {
+            "adapter/outbound/openvpn.go",
+            "adapter/outbound/openvpn_keepalive_test.go",
+            "adapter/outboundgroup/urltest.go",
+            "adapter/outboundgroup/urltest_test.go",
+            "go.mod",
+            "go.sum",
+            "transport/openvpn/client.go",
+            "transport/openvpn/control.go",
+            "transport/openvpn/keepalive.go",
+            "transport/openvpn/keepalive_lzo_test.go",
+            "transport/openvpn/keepalive_test.go",
+            "transport/openvpn/lzo.go",
+            "transport/openvpn/lzo_test.go",
+            "transport/openvpn/push.go",
+            "transport/openvpn/push_keepalive_test.go",
+            "transport/openvpn/push_retry_test.go",
+            "transport/openvpn/rekey_test.go",
+        }
+        self.assertEqual(set(candidate["upstream_delta_blobs"]), expected)
+        for path, blob_sha in candidate["upstream_delta_blobs"].items():
+            self.assertRegex(blob_sha, r"^[0-9a-f]{40}$", path)
+
+
+    def test_license_audit_receives_rc7_upstream_and_checkout_arguments(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        invocation = next(
+            line for line in workflow.splitlines()
+            if 'python3 - "$RUNNER_TEMP/audit-definition"' in line
+        )
+        self.assertIn('"$mit_lzo_upstream" "$mit_lzo_candidate"', invocation)
+        self.assertIn(
+            "patch_subject, mit_lzo_upstream, mit_lzo_candidate = sys.argv[1:]",
+            workflow,
+        )
+
+    def test_mit_lzo_provenance_tracks_current_rc7_draft_assets(self):
+        manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
+        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.7")
+        self.assertEqual(candidate["release_id"], 442680453)
+        assets = {item["name"]: item["sha256"] for item in candidate["release_assets"]}
+        self.assertEqual(
+            assets,
+            {
+                "RC-MANIFEST.json": "ef81b3f7577ecb681dca400c633d27ca5901fba21d02fdc0548c8ae0c3e22d1f",
+                "verge-mihomo.exe": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
+            },
+        )
+
+    def test_candidate_source_manifest_matches_the_pinned_binary_provenance(self):
+        provenance = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in provenance["variants"]}["candidate-1.19.33-mit-lzo"]
+        path = ROOT / "candidates" / "v1.19.33-20261022" / "source.json"
+        self.assertTrue(path.is_file(), "public candidate source manifest is missing")
+        source = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(source["source"]["commit"], candidate["source_commit"])
+        self.assertEqual(source["source"]["upstream_tag"], candidate["upstream_tag"])
+        self.assertEqual(source["source"]["upstream_commit"], candidate["upstream_commit"])
+        self.assertEqual(source["source"]["upstream_delta_blobs"], candidate["upstream_delta_blobs"])
+        self.assertEqual(source["binary"]["sha256"], candidate["asset_sha256"])
+        self.assertEqual(source["toolchain"]["go_version"], candidate["go_version"])
+        self.assertEqual(source["toolchain"]["archive_sha256"], candidate["go_sha256"])
+        self.assertEqual(source["binary"]["release_tag"], candidate["release_tag"])
+        self.assertEqual(source["binary"]["release_id"], candidate["release_id"])
+        self.assertEqual(source["binary"]["manifest_sha256"], candidate["release_assets"][0]["sha256"])
+
+    def test_license_audit_checks_source_manifest_against_exact_candidate_checkout(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        for required in (
+            'candidate_source_path = root / "candidates/v1.19.33-20261022/source.json"',
+            'candidate_source = json.loads(candidate_source_path.read_text(encoding="utf-8"))',
+            'candidate_source["source"]["upstream_delta_blobs"] == mit_lzo_expected',
+            'candidate_source["binary"]["sha256"] == mit_lzo_source["asset_sha256"]',
+            'candidate_source["toolchain"]["archive_sha256"] == mit_lzo_source["go_sha256"]',
+        ):
+            self.assertIn(required, workflow)
 
 if __name__ == "__main__":
     unittest.main()
