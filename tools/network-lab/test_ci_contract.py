@@ -79,13 +79,40 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", release_job)
         self.assertIn("permissions:\n      contents: write", release_job)
         self.assertIn("!github.event.repository.private", release_job)
-        self.assertEqual(release_job.count("GH_TOKEN: ${{ github.token }}"), 1)
-        self.assertEqual(release_workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
+        token_env = "GH_TOKEN: ${{ github.token }}"
+        self.assertEqual(release_job.count(token_env), 2)
+        authorized_steps = (
+            "Download only pinned public CVR inputs",
+            "Fresh native Windows core build",
+            "Rebuild the exact native Windows source and license package",
+            "Create and read back the draft RC release",
+            "Build exact source, test actual module graph and collect license package",
+        )
+        for step_name in authorized_steps:
+            with self.subTest(token_step=step_name):
+                marker = f"      - name: {step_name}\n"
+                self.assertEqual(release_workflow.count(marker), 1)
+                start = release_workflow.index(marker) + len(marker)
+                remainder = release_workflow[start:]
+                boundaries = [
+                    match.start()
+                    for match in (
+                        re.search(r"(?m)^      - ", remainder),
+                        re.search(r"(?m)^  [a-z0-9_-]+:", remainder),
+                    )
+                    if match is not None
+                ]
+                step_end = min(boundaries, default=len(remainder))
+                step = remainder[:step_end]
+                self.assertEqual(step.count("GH_TOKEN:"), 1)
+                self.assertEqual(step.count(token_env), 1)
+        self.assertEqual(release_workflow.count("GH_TOKEN:"), len(authorized_steps))
+        all_workflows = "\n".join(WORKFLOWS.values())
+        self.assertEqual(all_workflows.count("GH_TOKEN:"), len(authorized_steps))
         self.assertIn('gh api "repos/$repo/releases" --paginate', release_job)
         self.assertIn("releases/assets/$asset_id", release_job)
         self.assertNotIn("releases/tags/$tag", release_job)
         self.assertIn("cmp --silent", release_job)
-        self.assertNotIn("GH_TOKEN:", release_workflow.split("\n  assemble-draft-rc:\n", 1)[0])
         for name, workflow in WORKFLOWS.items():
             self.assertIn("pull_request:\n    branches: [main]", workflow, name)
             self.assertIn("permissions:\n  contents: read", workflow, name)
@@ -108,7 +135,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("actions: read", WORKFLOWS["codeql.yml"])
         self.assertNotIn("security-events: write", WORKFLOWS["dependency-review.yml"])
 
-        # GH_TOKEN remains confined to the existing gated draft-RC assembly job above.
+        # GH_TOKEN is limited to the pinned metadata, collector, and gated release steps asserted above.
         for forbidden in ("pull_request_target", "workflow_run:", "schedule:", "tags:",
                           "secrets.", "GITHUB_TOKEN", "write-all",
                           "upload-artifact", "download-artifact", "actions/cache", "sudo ",
