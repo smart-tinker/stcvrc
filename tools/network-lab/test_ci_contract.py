@@ -260,7 +260,7 @@ class CIContractTests(unittest.TestCase):
 
     def test_native_powershell_is_parsed_before_core_setup(self):
         workflow = WORKFLOWS["test.yml"]
-        job = workflow.split("\\n  cvr-windows-payload:\\n", 1)[1].split("\\n  assemble-draft-rc:\\n", 1)[0]
+        job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
         fetch = job.split("      - name: Fetch the exact PR source", 1)[1].split(
             "      - name: Fresh native Windows core build", 1
         )[0]
