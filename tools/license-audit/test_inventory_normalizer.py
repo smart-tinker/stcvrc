@@ -8,7 +8,16 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from collect import CARGO_ABOUT_ACCEPTED_LICENSES, _cargo_about_config
+from collect import (
+    CARGO_ABOUT_ACCEPTED_LICENSES,
+    EASYTIER_LICENSE_PACKAGES,
+    EASYTIER_LICENSE_SHA256,
+    EASYTIER_LICENSE_SOURCE_COMMIT,
+    EASYTIER_LICENSE_SPDX,
+    EASYTIER_LICENSE_VERSION,
+    _cargo_about_config,
+    _validate_easytier_license_scope,
+)
 from generate_notices import AuditIncomplete, generate_notices
 from normalize_inventory import main as normalize_inventory_cli, normalize_inventory
 
@@ -41,10 +50,58 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(config["targets"], ["wasm32-wasip1"])
         self.assertEqual(accepted, list(CARGO_ABOUT_ACCEPTED_LICENSES))
         self.assertEqual(len(accepted), len(set(accepted)))
-        self.assertTrue({"MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "LGPL-3.0-or-later"}.issubset(accepted))
+        self.assertTrue({"MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "LGPL-3.0-only", "LGPL-3.0-or-later", "CDLA-Permissive-2.0"}.issubset(accepted))
         self.assertNotIn("NOASSERTION", accepted)
         self.assertTrue(config["ignore-build-dependencies"])
         self.assertTrue(config["ignore-dev-dependencies"])
+
+    def test_cargo_about_clarifies_exact_easytier_license_sources(self):
+        config = tomllib.loads(_cargo_about_config("wasm32-wasip1"))
+        expected = {
+            "license": EASYTIER_LICENSE_SPDX,
+            "files": [{
+                "path": "../LICENSE",
+                "checksum": EASYTIER_LICENSE_SHA256,
+            }],
+        }
+
+        self.assertEqual(
+            {name: config[name]["clarify"] for name in EASYTIER_LICENSE_PACKAGES},
+            {name: expected for name in EASYTIER_LICENSE_PACKAGES},
+        )
+        self.assertNotIn("clarify", config)
+
+    def test_easytier_license_clarification_is_bound_to_source_version_and_manifests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            easytier = Path(temp)
+            packages = []
+            for name in EASYTIER_LICENSE_PACKAGES:
+                manifest = easytier / name / "Cargo.toml"
+                manifest.parent.mkdir()
+                manifest.write_text("[package]\n", encoding="utf-8")
+                packages.append({
+                    "name": name,
+                    "version": EASYTIER_LICENSE_VERSION,
+                    "manifest_path": str(manifest.resolve()),
+                })
+            metadata = {"packages": packages}
+            build = {"easytier_source_commit": EASYTIER_LICENSE_SOURCE_COMMIT}
+
+            _validate_easytier_license_scope(easytier, build, metadata)
+
+            wrong_version = json.loads(json.dumps(metadata))
+            wrong_version["packages"][0]["version"] = "2.7.1"
+            with self.assertRaises(AuditIncomplete):
+                _validate_easytier_license_scope(easytier, build, wrong_version)
+
+            wrong_manifest = json.loads(json.dumps(metadata))
+            wrong_manifest["packages"][0]["manifest_path"] = str((easytier / "other/Cargo.toml").resolve())
+            with self.assertRaises(AuditIncomplete):
+                _validate_easytier_license_scope(easytier, build, wrong_manifest)
+
+            wrong_commit = {"easytier_source_commit": "0" * 40}
+            with self.assertRaises(AuditIncomplete):
+                _validate_easytier_license_scope(easytier, wrong_commit, metadata)
 
     def test_cli_writes_mixed_newlines_byte_exact_and_reports_matching_sha256(self):
         bundle = load_bundle()

@@ -24,6 +24,12 @@ from normalize_inventory import _copyright_lines, _json_stream, normalize_invent
 
 GO_LICENSES_VERSION = "v2.0.1"
 CARGO_ABOUT_VERSION = "0.9.2"
+
+EASYTIER_LICENSE_SOURCE_COMMIT = "3463190838eb642ba8324c6a4011acdea52495a8"
+EASYTIER_LICENSE_VERSION = "2.7.0"
+EASYTIER_LICENSE_SPDX = "LGPL-3.0-only"
+EASYTIER_LICENSE_SHA256 = "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+EASYTIER_LICENSE_PACKAGES = ("easytier-core", "easytier-proto")
 GO_LICENSES_MODULE = "github.com/google/go-licenses/v2"
 GO_LICENSES_URL = f"https://proxy.golang.org/{GO_LICENSES_MODULE}/@v/{GO_LICENSES_VERSION}.zip"
 GPL_TEXT_URL = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-or-later.txt"
@@ -48,6 +54,7 @@ CARGO_ABOUT_ACCEPTED_LICENSES = (
     "0BSD",
     "BSL-1.0",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",
     "Unlicense",
     "Unicode-3.0",
     "MPL-2.0",
@@ -61,12 +68,50 @@ CARGO_ABOUT_ACCEPTED_LICENSES = (
 def _cargo_about_config(target):
     accepted = json.dumps(list(CARGO_ABOUT_ACCEPTED_LICENSES))
     targets = json.dumps([target])
-    return (
+    config = (
         f"targets = {targets}\n"
         f"accepted = {accepted}\n"
         "ignore-build-dependencies = true\n"
         "ignore-dev-dependencies = true\n"
     )
+    clarifications = []
+    for crate in EASYTIER_LICENSE_PACKAGES:
+        clarifications.append(
+            f"[{crate}.clarify]\n"
+            f'license = "{EASYTIER_LICENSE_SPDX}"\n\n'
+            f"[[{crate}.clarify.files]]\n"
+            'path = "../LICENSE"\n'
+            f'checksum = "{EASYTIER_LICENSE_SHA256}"\n'
+        )
+    return config + "\n" + "\n".join(clarifications)
+
+
+def _validate_easytier_license_scope(easytier, build, metadata_json):
+    if build.get("easytier_source_commit") != EASYTIER_LICENSE_SOURCE_COMMIT:
+        raise AuditIncomplete("EasyTier license clarification does not match the pinned source commit")
+    if not isinstance(metadata_json, dict):
+        raise AuditIncomplete("invalid selected EasyTier package metadata")
+    packages = metadata_json.get("packages")
+    if not isinstance(packages, list):
+        raise AuditIncomplete("missing selected EasyTier package metadata")
+    matches = {name: [] for name in EASYTIER_LICENSE_PACKAGES}
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        name = package.get("name")
+        if isinstance(name, str) and name in matches:
+            matches[name].append(package)
+    if any(len(matches[name]) != 1 for name in EASYTIER_LICENSE_PACKAGES):
+        raise AuditIncomplete("EasyTier license clarification package scope is ambiguous")
+    for name in EASYTIER_LICENSE_PACKAGES:
+        package = matches[name][0]
+        if package.get("version") != EASYTIER_LICENSE_VERSION:
+            raise AuditIncomplete(f"EasyTier license clarification version mismatch for {name}")
+        manifest_path = package.get("manifest_path")
+        expected_manifest = (Path(easytier) / name / "Cargo.toml").resolve()
+        if not isinstance(manifest_path, str) or Path(manifest_path).resolve() != expected_manifest:
+            raise AuditIncomplete(f"EasyTier license clarification source mismatch for {name}")
+
 
 def _sha256(data):
     return hashlib.sha256(data).hexdigest()
@@ -717,6 +762,7 @@ def _rust_rows(easytier, build, root, env, output_dir):
         env,
     )
     metadata_json = json.loads(metadata)
+    _validate_easytier_license_scope(easytier, build, metadata_json)
     about_config = Path(output_dir) / "cargo-about.toml"
     about_config.write_text(_cargo_about_config(target), encoding="utf-8")
     about_binary, cargo_about_record = _cargo_tool(cargo, root, env)
