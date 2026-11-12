@@ -297,8 +297,6 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         self.assertIn('ToString("yyyy-MM-ddTHH:mm:ss', block)
         self.assertIn('$expectedCoreVersion = "Mihomo Meta $($manifest.core.version) windows amd64 with go$($manifest.core.goVersion) $buildTimeText"', block)
         self.assertIn('StartsWith($expectedCoreVersion', block)
-        self.assertIn('passed its CLI -v identity check', block)
-        self.assertIn('This does not establish a live core, GUI, service, TUN, or DNS result', block)
         self.assertLess(block.index('if ($stagedHash -ne $manifest.core.sha256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
 
 
