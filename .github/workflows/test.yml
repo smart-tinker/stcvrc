@@ -1120,7 +1120,7 @@ jobs:
           source="$root/source"
           export RUSTUP_HOME="$root/rustup"
           export CARGO_HOME="$root/cargo"
-          export CARGO_TARGET_DIR="$root/target"
+          export CARGO_TARGET_DIR="$source/target"
           rustup toolchain install 1.95.0 --profile minimal --target wasm32-wasip1
           rustc --version --verbose
           cargo --version
