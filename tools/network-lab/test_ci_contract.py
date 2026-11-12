@@ -92,7 +92,17 @@ class CIContractTests(unittest.TestCase):
             self.assertIn("!github.event.repository.private", workflow, name)
             self.assertNotIn("!github.event.pull_request.draft", workflow, name)
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
-            self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
+            runners = set(re.findall(r"runs-on: (.+)", workflow))
+            if "${{ matrix.runner }}" in runners:
+                self.assertEqual(workflow.count("runs-on: ${{ matrix.runner }}"), 1)
+                self.assertIn(
+                    "    strategy:\n      fail-fast: false\n      matrix:\n"
+                    "        runner: [ubuntu-24.04, windows-2022]\n"
+                    "    runs-on: ${{ matrix.runner }}",
+                    workflow,
+                )
+                runners.remove("${{ matrix.runner }}")
+            self.assertTrue(runners <= {"ubuntu-24.04", "windows-2022"})
         for name in ("test.yml", "stcvrc-network-lab.yml", "codeql.yml"):
             self.assertIn("push:\n    branches: [main]", WORKFLOWS[name], name)
 

@@ -48,7 +48,11 @@ fetch_source "$core" https://github.com/smart-tinker/stcvrc.git 086a62c3ce9a77f6
 fetch_source "$easytier" https://github.com/EasyTier/EasyTier.git 3463190838eb642ba8324c6a4011acdea52495a8
 awk '$1 == "github.com/easytier/easytier/easytier-go" { if ($2 != "v0.0.0-20260910071355-3d0c9c3ca5e2") exit 1; found++ } END { if (found != 1) exit 1 }' "$core/go.mod"
 grep -Fqx 'channel = "1.95"' "$easytier/rust-toolchain.toml"
-grep -Fqx 'readonly core_features="management-rpc,proxy-smoltcp-stack,ring-crypto,wasi-crypto-offload"' "$easytier/script/build-wasi-core.sh"
+if ! grep -Fqx 'readonly core_features="management,proxy-smoltcp-stack,wasi-crypto-offload,aes-gcm,tcp-hole-punch"' "$easytier/script/build-wasi-core.sh"; then
+  printf 'Unexpected upstream WASM feature profile.\n' >&2
+  exit 1
+fi
+grep -Fq -- '--no-default-features' "$easytier/script/build-wasi-core.sh"
 
 curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 180 --silent --show-error \
   "$STCVRC_GO_ARCHIVE_URL" -o "$root/$go_archive"
@@ -175,7 +179,8 @@ report = {
     "go_build_flags": ["-tags=with_gvisor", "-trimpath", "-buildvcs=false"],
     "go_linker_flags": os.environ["STCVRC_BUILD_LDFLAGS"],
     "rust_target": "wasm32-wasip1",
-    "rust_features": ["management-rpc", "proxy-smoltcp-stack", "ring-crypto", "wasi-crypto-offload"],
+    "rust_features": ["management", "proxy-smoltcp-stack", "wasi-crypto-offload", "aes-gcm", "tcp-hole-punch"],
+    "rust_no_default_features": True,
     "cargo_lock_sha256": digest(easytier/"Cargo.lock"),
     "wasm_sha256": digest(wasm),
     "modfile_sha256": digest(modfile),
