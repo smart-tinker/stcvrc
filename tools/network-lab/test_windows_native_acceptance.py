@@ -33,7 +33,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, source)
 
-    def test_reject_requires_fast_classified_socket_result_and_live_controls(self):
+    def test_reject_requires_quick_application_close_and_live_controls(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         reject = source.split("function Test-RejectedFixture", 1)[1].split("\n}", 1)[0]
         for assertion in (
@@ -44,7 +44,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$stream.Write($request",
             "$stream.Read($responseBuffer",
             "Host: $FixtureName",
-            "$responseBytes -gt 0",
+            "$responseBytes -ne 0",
             "catch [System.AggregateException]",
             "catch [System.IO.IOException]",
             "catch [System.Net.Sockets.SocketException]",
@@ -57,7 +57,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "Get-NetRoute",
             "Compare-Object",
             "$probeFailure = $_.Exception.Message",
-            "if ($probeFailure) { throw",
+            "if ($probeFailure) { $phaseFailures.Add(",
+            "if ($phaseFailures.Count) { throw",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, reject)
