@@ -7,7 +7,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from collect import _go_license_report_template, _has_module_build_info, _manual_go_overrides, _parse_go_license_report, verify_artifact
+from collect import (
+    CHACHA_API,
+    _github_json,
+    _go_license_report_template,
+    _has_module_build_info,
+    _manual_go_overrides,
+    _parse_go_license_report,
+    verify_artifact,
+)
 from generate_notices import AuditIncomplete
 
 
@@ -28,6 +36,40 @@ class GoLicenseToolBuildInfoTests(unittest.TestCase):
         )
 
         self.assertFalse(_has_module_build_info(build_info, "github.com/google/go-licenses/v2", "v2.0.1"))
+
+
+class GithubApiMetadataTests(unittest.TestCase):
+    def test_uses_only_pinned_github_api_commit_routes(self):
+        url = f"{CHACHA_API}/commits/v1.2.3"
+        with patch.dict("os.environ", {"GH_TOKEN": "fixture-token"}):
+            with patch("collect._run", return_value='{"sha":"fixture"}') as run:
+                self.assertEqual(_github_json(url), {"sha": "fixture"})
+            args = run.call_args.args[0]
+            self.assertEqual(args[:2], ["gh", "api"])
+            self.assertEqual(args[2], url.split("://", 1)[1].split("/", 1)[1])
+            self.assertEqual(args[3:], ["--hostname", "github.com"])
+            self.assertNotIn("fixture-token", args)
+
+            rejected = (
+                url.replace("api.github.com", "raw.githubusercontent.com"),
+                url.replace("api.github.com", "api.github.com.example.invalid"),
+                url.replace("/commits/", "/releases/download/"),
+                url + "?redirect=https://example.invalid",
+            )
+            for candidate in rejected:
+                with self.subTest(candidate=candidate):
+                    with patch("collect._run") as blocked_run:
+                        with self.assertRaises(AuditIncomplete):
+                            _github_json(candidate)
+                    blocked_run.assert_not_called()
+
+    def test_requires_the_workflow_read_token(self):
+        url = f"{CHACHA_API}/commits/v1.2.3"
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("collect._run") as run:
+                with self.assertRaises(AuditIncomplete):
+                    _github_json(url)
+        run.assert_not_called()
 
 
 class ManualGoOverrideRuntimeScopeTests(unittest.TestCase):

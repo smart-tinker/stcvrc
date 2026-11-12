@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -530,8 +531,31 @@ def _go_rows(core, go, build, root, env):
     }, tool_record
 
 
+def _github_api_endpoint(url):
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "api.github.com"
+        or parsed.query
+        or parsed.fragment
+        or not re.fullmatch(
+            r"/repos/MetaCubeX/(?:chacha|sing-tun)/commits/[A-Za-z0-9][A-Za-z0-9._+-]{0,127}",
+            parsed.path,
+        )
+    ):
+        raise AuditIncomplete("refusing GitHub API URL outside pinned commit metadata")
+    return parsed.path.lstrip("/")
+
+
 def _github_json(url):
-    raw = _fetch(url, maximum=4 * 1024 * 1024, github_api=True)
+    endpoint = _github_api_endpoint(url)
+    if not os.environ.get("GH_TOKEN"):
+        raise AuditIncomplete("GitHub API metadata requires the workflow read token")
+    raw = _run(
+        ["gh", "api", endpoint, "--hostname", "github.com"],
+        Path(__file__).resolve().parents[2],
+        os.environ,
+    )
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as error:
