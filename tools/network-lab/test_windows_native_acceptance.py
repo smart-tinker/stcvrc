@@ -84,9 +84,17 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         readiness = source.split("function Wait-ServiceReady", 1)[1].split("function Assert-LiveServiceIdentity", 1)[0]
         self.assertIn("([string]$lastState.mode).ToLowerInvariant() -eq 'service'", readiness)
         identity = source.split("function Assert-LiveServiceIdentity", 1)[1].split("function Get-RuntimeYaml", 1)[0]
-        self.assertIn("Get-CimInstance Win32_Service", identity)
-        self.assertIn("$serviceRecord.ProcessId", identity)
-        self.assertIn("$processes[0].ParentProcessId", identity)
+        for assertion in (
+            "Get-CimInstance Win32_Service",
+            "$serviceRecord.ProcessId",
+            "$processes[0].ParentProcessId",
+            "$processes[0].ExecutablePath",
+            "$serviceCore",
+            "Get-FileHash",
+            "$coreSha",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, identity)
 
 
 

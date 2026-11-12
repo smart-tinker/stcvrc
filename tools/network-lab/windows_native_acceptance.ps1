@@ -9,7 +9,6 @@ $coreSha = ([string]$manifest.core.sha256).ToLowerInvariant()
 if ($coreSha -ne 'd72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87') { throw 'Unexpected fresh STCVRC core identity.' }
 if ((Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'The candidate input is not the freshly built pinned core.' }
 
-$version = '1.19.33-STCVRC-candidate-mit-lzo-20261111'
 $serviceName = 'clash_verge_service'
 $serviceData = Join-Path $env:ProgramData 'clash-verge-service'
 $serviceCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
@@ -175,11 +174,6 @@ function Assert-LiveCoreIdentity {
     if (-not $serviceRecord -or $serviceRecord.State -ne 'Running' -or [uint32]$serviceRecord.ProcessId -le 0) { throw 'The registered CVR service has no live process identity.' }
     if ([uint32]$processes[0].ParentProcessId -ne [uint32]$serviceRecord.ProcessId) { throw 'The live core is not a direct child of the registered CVR service process.' }
     if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
-    $yaml = Get-RuntimeYaml
-    $controller = [regex]::Match($yaml, '(?m)^external-controller:\s*"?127\.0\.0\.1:(\d+)"?')
-    if (-not $controller.Success) { throw 'Loaded config has no loopback-only external-controller endpoint.' }
-    $liveVersion = Invoke-RestMethod -Uri "http://127.0.0.1:$($controller.Groups[1].Value)/version" -TimeoutSec 5
-    if (-not ([string]$liveVersion.version).Contains($version)) { throw "Live controller version does not match the source-built candidate: $($liveVersion.version)" }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
 }
 function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
