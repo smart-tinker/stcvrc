@@ -96,6 +96,6 @@ loopback DNS/TUN traffic, core identity and recovery on one hosted Windows
 image. It does not establish every GUI interaction, external VPN reachability,
 OpenVPN, arbitrary Windows drivers, user profiles or production deployment.
 The workflow uses standard public runners, without secrets, paid runners,
-Actions cache or artifacts. It has no canary, observation-window, or named-person
-acceptance gate. Stable publication still requires a separate explicit owner
-decision and reviewed source/license provenance.
+Actions cache or artifacts. Scenarios are generic and synthetic; no person-specific fixtures are used.
+Stable publication still requires a separate explicit owner decision and
+reviewed source/license provenance.
