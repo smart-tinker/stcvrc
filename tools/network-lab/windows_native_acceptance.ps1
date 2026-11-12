@@ -143,7 +143,10 @@ function Assert-LiveServiceIdentity {
     if ($service.Status -ne 'Running') { throw 'SCM does not report the CVR service running.' }
     $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if (-not $serviceRecord -or $serviceRecord.State -ne 'Running') { throw 'CVR SCM service is not running.' }
-    $serviceExe = [IO.Path]::GetFullPath(([string]$serviceRecord.PathName).Trim('"').Split(' ')[0])
+    $imageMatch = [regex]::Match([string]$serviceRecord.PathName, '^"([^"]+)"|^(\S+)')
+    if (-not $imageMatch.Success) { throw "Could not parse the registered service image path: $($serviceRecord.PathName)" }
+    $imagePath = if ($imageMatch.Groups[1].Success) { $imageMatch.Groups[1].Value } else { $imageMatch.Groups[2].Value }
+    $serviceExe = [IO.Path]::GetFullPath($imagePath)
     if (-not $serviceExe.StartsWith([IO.Path]::GetFullPath($installRoot), [StringComparison]::OrdinalIgnoreCase)) { throw "Service image is outside verified install: $serviceExe" }
 }
 function Assert-LiveCoreIdentity {
