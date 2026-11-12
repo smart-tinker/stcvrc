@@ -308,7 +308,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
         packages, runtime_ids = _cargo_tree_runtime_ids(
             metadata,
-            "root v1.0.0 (/tmp/root)\\nzeroize_derive v1.5.0 (proc-macro)",
+            "root v1.0.0 (/tmp/root)\nzeroize_derive v1.5.0 (proc-macro)",
         )
 
         self.assertEqual(set(packages), {root, derive})
