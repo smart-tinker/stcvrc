@@ -75,6 +75,15 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("-AllowedControlName 'native-fixture-b.invalid'", source)
         self.assertIn("-AllowedControlName 'native-fixture-a.invalid'", source)
 
+    def test_fake_ip_resolver_marker_follows_application_and_recovery_traffic(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        fixture = source.split("function Test-FixtureTraffic", 1)[1].split("function Test-RejectedFixture", 1)[0]
+        self.assertLess(fixture.index("Invoke-TunHttp"), fixture.index("Assert-DnsResolver"))
+        self.assertIn("Get-DnsReceiveDiagnostics", source)
+        recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split("\n    } else {", 1)[0]
+        self.assertIn("Assert-SelectedSidecarProfileReady", recovery)
+        self.assertIn("Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid'", recovery)
+
     def test_native_phase_uses_real_service_and_recovery_paths(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         service = source.index("Invoke-CvrCommand -Command 'install_service'")
