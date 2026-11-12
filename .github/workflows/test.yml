@@ -24,26 +24,7 @@ name: STCVRC source checks
       - candidates/cvr-2.5.10/**
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - '**.go'
-      - go.mod
-      - go.sum
-      - component/ca/ca-certificates.crt
-      - .github/workflows/**
-      - .github/dependabot.yml
-      - .github/ISSUE_TEMPLATE/**
-      - .github/PULL_REQUEST_TEMPLATE.md
-      - README.md
-      - docs/license-audit.md
-      - docs/license-provenance.json
-      - docs/third-party-notices.md
-      - tools/license-audit/**
-      - docs/openvpn-profile-contract.md
-      - docs/openvpn-profile-examples/**
-      - tools/network-lab/**
-      - test/**
-      - candidates/cvr-2.5.10/**
+    types: [opened, reopened, synchronize, ready_for_review, edited]
   workflow_dispatch: {}
 
 permissions:
@@ -57,10 +38,7 @@ jobs:
   vulnerability-scan:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -73,6 +51,7 @@ jobs:
       - name: Fetch exact sources without credentials
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
           CANDIDATE_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
         run: |
@@ -83,9 +62,14 @@ jobs:
           for pair in "source:$SOURCE_SHA" "baseline:$BASE_SHA" "candidate:$CANDIDATE_SOURCE_SHA"; do
             name="${pair%%:*}"
             sha="${pair#*:}"
+            if [[ "$name" == source ]]; then
+              ref="$SOURCE_REF"
+            else
+              ref="$sha"
+            fi
             git init --quiet "$GITHUB_WORKSPACE/$name"
             git -C "$GITHUB_WORKSPACE/$name" fetch --quiet --depth=1 \
-              https://github.com/smart-tinker/stcvrc.git "$sha"
+              https://github.com/smart-tinker/stcvrc.git "$ref"
             git -C "$GITHUB_WORKSPACE/$name" checkout --quiet --detach FETCH_HEAD
             test "$(git -C "$GITHUB_WORKSPACE/$name" rev-parse HEAD)" = "$sha"
           done
@@ -155,10 +139,7 @@ jobs:
     needs: vulnerability-scan
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -174,12 +155,13 @@ jobs:
       - name: Read the source revision being checked
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git init --quiet "$GITHUB_WORKSPACE/source"
           git -C "$GITHUB_WORKSPACE/source" fetch --quiet --depth=1 \
-            https://github.com/smart-tinker/stcvrc.git "$SOURCE_SHA"
+            https://github.com/smart-tinker/stcvrc.git "$SOURCE_REF"
           git -C "$GITHUB_WORKSPACE/source" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$GITHUB_WORKSPACE/source" rev-parse HEAD)" = "$SOURCE_SHA"
           printf 'Source commit: %s\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
@@ -228,10 +210,7 @@ jobs:
   profile-contract:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     defaults:
@@ -258,6 +237,7 @@ jobs:
       - name: Build exact source revisions and parse synthetic profiles
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
           V29_SOURCE_SHA: 7b93ba0e1439e7f27629743bed550d99e7f9c9a4
           V33_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
         run: |
@@ -266,7 +246,7 @@ jobs:
           docs_source="$RUNNER_TEMP/profile-docs"
           git init --quiet "$docs_source"
           git -C "$docs_source" remote add origin https://github.com/smart-tinker/stcvrc.git
-          git -C "$docs_source" fetch --quiet --depth=1 origin "$SOURCE_SHA"
+          git -C "$docs_source" fetch --quiet --depth=1 origin "$SOURCE_REF"
           git -C "$docs_source" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$docs_source" rev-parse HEAD)" = "$SOURCE_SHA"
 
@@ -322,10 +302,7 @@ jobs:
   cvr-2-5-10-package:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -335,13 +312,14 @@ jobs:
       - name: Fetch the exact pull request source
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           pr_source="$RUNNER_TEMP/pr-source"
           git init --quiet "$pr_source"
           git -C "$pr_source" remote add origin https://github.com/smart-tinker/stcvrc.git
-          git -C "$pr_source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
+          git -C "$pr_source" fetch --quiet --depth=1 --no-tags origin "$SOURCE_REF"
           git -C "$pr_source" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$pr_source" rev-parse HEAD)" = "$SOURCE_SHA"
           echo "PR source: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
@@ -475,10 +453,7 @@ jobs:
   cvr-windows-payload:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      !github.event.repository.private
     needs: cvr-2-5-10-package
     runs-on: windows-2022
     timeout-minutes: 30
@@ -898,10 +873,7 @@ jobs:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
-      github.event_name != 'workflow_dispatch' &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1084,10 +1056,7 @@ jobs:
     needs: source
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
-      !github.event.repository.private &&
-      (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:

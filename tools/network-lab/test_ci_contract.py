@@ -20,6 +20,38 @@ DEPENDABOT = DEPENDABOT_PATH.read_text() if DEPENDABOT_PATH.is_file() else ""
 
 
 class CIContractTests(unittest.TestCase):
+    def test_every_pull_request_runs_all_workflows_without_path_filters(self):
+        for name, workflow in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                in_pull_request = False
+                for line in workflow.splitlines():
+                    if line == "  pull_request:":
+                        in_pull_request = True
+                        continue
+                    if in_pull_request and line.startswith("  ") and not line.startswith("    ") and line.strip():
+                        break
+                    if in_pull_request and line.strip() == "paths:":
+                        self.fail(f"{name} filters pull_request events by changed paths")
+
+    def test_every_workflow_reruns_when_pull_request_is_edited(self):
+        for name, workflow in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                pull_request_lines = []
+                in_pull_request = False
+                for line in workflow.splitlines():
+                    if line == "  pull_request:":
+                        in_pull_request = True
+                        continue
+                    if in_pull_request and line.startswith("  ") and not line.startswith("    ") and line.strip():
+                        break
+                    if in_pull_request:
+                        pull_request_lines.append(line)
+                types_line = next(
+                    (line.strip() for line in pull_request_lines if line.strip().startswith("types:")),
+                    "",
+                )
+                self.assertIn("edited", types_line, f"{name} must rerun when a PR is retargeted")
+
     def test_codeql_caching_is_disabled(self):
         self.assertIn("CODEQL_OVERLAY_DATABASE_MODE: none", WORKFLOWS["codeql.yml"])
         self.assertIn("dependency-caching: false", WORKFLOWS["codeql.yml"])
@@ -28,8 +60,8 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04"])
         self.assertIn("timeout-minutes: 20", WORKFLOW)
         self.assertIn("!github.event.repository.private", WORKFLOW)
-        self.assertIn("!github.event.pull_request.draft", WORKFLOW)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", WORKFLOW)
+        self.assertNotIn("!github.event.pull_request.draft", WORKFLOW, "draft PRs run all checks")
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", WORKFLOW)
         self.assertIn("permissions:\n  contents: read", WORKFLOW)
 
     def test_no_privileged_or_paid_automation_paths(self):
@@ -58,8 +90,8 @@ class CIContractTests(unittest.TestCase):
             self.assertIn("pull_request:\n    branches: [main]", workflow, name)
             self.assertIn("permissions:\n  contents: read", workflow, name)
             self.assertIn("!github.event.repository.private", workflow, name)
-            self.assertIn("!github.event.pull_request.draft", workflow, name)
-            self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
+            self.assertNotIn("!github.event.pull_request.draft", workflow, name)
+            self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
             self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
         for name in ("test.yml", "stcvrc-network-lab.yml", "codeql.yml"):
             self.assertIn("push:\n    branches: [main]", WORKFLOWS[name], name)
@@ -107,7 +139,8 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(DEPENDABOT.count("update-types:"), 3)
 
     def test_dependabot_changes_run_the_contract_check(self):
-        self.assertEqual(WORKFLOWS["test.yml"].count(".github/dependabot.yml"), 2)
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/dependabot.yml"), 1,
+                         "Dependabot must remain in push paths; every pull request runs")
 
     def test_templates_capture_downstream_evidence_and_privacy(self):
         bug = (ROOT / ".github/ISSUE_TEMPLATE/bug_report.yml").read_text()
@@ -133,8 +166,10 @@ class CIContractTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, pr)
 
-        self.assertEqual(WORKFLOWS["test.yml"].count(".github/ISSUE_TEMPLATE/**"), 2)
-        self.assertEqual(WORKFLOWS["test.yml"].count(".github/PULL_REQUEST_TEMPLATE.md"), 2)
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/ISSUE_TEMPLATE/**"), 1,
+                         "issue templates must remain in push paths; every pull request runs")
+        self.assertEqual(WORKFLOWS["test.yml"].count(".github/PULL_REQUEST_TEMPLATE.md"), 1,
+                         "PR template must remain in push paths; every pull request runs")
 
     def test_exact_inputs_and_separate_candidate_checkout(self):
         pins = dict(re.findall(r"readonly (\w+)=([0-9a-f]+)\n", SCRIPT))
@@ -305,8 +340,8 @@ class CIContractTests(unittest.TestCase):
 
     def test_test_module_dependency_changes_run_protocol_suite(self):
         workflow = WORKFLOWS["test.yml"]
-        self.assertEqual(workflow.count("      - test/**"), 2,
-                         "test module changes must trigger on both push and pull_request")
+        self.assertEqual(workflow.count("      - test/**"), 1,
+                         "test module changes must remain in push filters; all pull requests run")
         self.assertIn("  test-module:" + chr(10), workflow,
                       "the test module needs its own fresh hosted-runner job")
         job = workflow.split(chr(10) + "  test-module:" + chr(10), 1)[1]
@@ -500,6 +535,31 @@ class CIContractTests(unittest.TestCase):
         self.assertIn('go version -m "$RUNNER_TEMP/core-linux" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
         self.assertIn('go version -m "$RUNNER_TEMP/core-windows.exe" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
 
+
+    def test_all_pull_request_sources_run_without_a_same_repository_guard(self):
+        for name, workflow in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                self.assertNotIn(
+                    "github.event.pull_request.head.repo.full_name == github.repository",
+                    workflow,
+                    f"{name} skips fork pull requests",
+                )
+
+    def test_fork_pull_requests_fetch_the_exact_base_repo_pr_ref(self):
+        source = WORKFLOWS["test.yml"]
+        self.assertIn("refs/pull/{0}/head", source)
+        self.assertIn("SOURCE_REF", source)
+        self.assertIn('\"$SOURCE_REF\"', source)
+        self.assertIn("refs/pull/{0}/head", WORKFLOW)
+        self.assertIn("FIXTURE_REF", WORKFLOW)
+        self.assertIn('\"$FIXTURE_REF\"', WORKFLOW)
+
+    def test_codeql_scans_fork_prs_without_uploading_fork_results(self):
+        codeql = WORKFLOWS["codeql.yml"]
+        self.assertIn("upload: ${{", codeql)
+        self.assertIn("'never'", codeql)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", codeql)
+        self.assertIn("github/codeql-action/analyze@", codeql)
 
 if __name__ == "__main__":
     unittest.main()
