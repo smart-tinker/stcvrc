@@ -18,7 +18,8 @@
       "proxy-smoltcp-stack",
       "ring-crypto",
       "wasi-crypto-offload"
-    ]
+    ],
+    "rust_no_default_features": true
   },
   "components": [
     {
@@ -60,6 +61,30 @@
       "copyrights": [
         "Copyright (c) Example Rust Authors"
       ]
+    },
+    {
+      "ecosystem": "rust-toolchain-runtime",
+      "role": "runtime",
+      "name": "Rust standard library",
+      "version": "1.95.0",
+      "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860",
+      "source_digest": {
+        "algorithm": "git-commit",
+        "value": "59807616e1fa2540724bfbac14d7976d7e4a3860"
+      },
+      "licenses": [
+        {
+          "spdx": "MIT",
+          "text": "Fixture Rust standard library MIT license text.\n",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-MIT"
+        },
+        {
+          "spdx": "Apache-2.0",
+          "text": "Fixture Rust standard library Apache license text.\n",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-APACHE"
+        }
+      ],
+      "copyrights": []
     }
   ],
   "build_tools": [
@@ -84,6 +109,7 @@
   ],
   "required_components": [
     "go:example.invalid/go-widget@v1.2.3",
-    "rust:example-rust-crate@0.4.2"
+    "rust:example-rust-crate@0.4.2",
+    "rust-toolchain-runtime:Rust standard library@1.95.0"
   ]
 }

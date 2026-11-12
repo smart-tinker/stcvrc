@@ -28,11 +28,15 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
 
         self.assertIn("Fixture-only MIT license text.", notices)
         self.assertIn("Fixture-only Apache license text.", notices)
+        self.assertIn("Fixture Rust standard library MIT license text.", notices)
+        self.assertIn("Fixture Rust standard library Apache license text.", notices)
+        self.assertIn("Rust default features: disabled", notices)
         self.assertIn("Build-time tools (not included in the runtime dependency graph)", notices)
         self.assertEqual(
             {item["name"] for item in sources["components"]},
-            {"example.invalid/go-widget", "example-rust-crate"},
+            {"example.invalid/go-widget", "example-rust-crate", "Rust standard library"},
         )
+        self.assertTrue(sources["scope"]["rust_no_default_features"])
         self.assertEqual(
             {item["name"] for item in sources["build_tools"]},
             {"cargo-about"},
