@@ -369,6 +369,7 @@ function Assert-LiveCoreIdentity {
     if ([uint32]$processes[0].ParentProcessId -ne [uint32]$serviceRecord.ProcessId) { throw 'The live core is not a direct child of the registered CVR service process.' }
     if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
+    $script:verifiedCorePid = [int]$processes[0].ProcessId
 }
 function Assert-LiveSidecarCoreIdentity {
     $state = Invoke-CvrCommand -Command 'get_runtime_state'
@@ -492,16 +493,38 @@ function Get-DnsReceiveDiagnostics {
     }
     return (ConvertTo-Json -InputObject $diagnostics -Compress -Depth 10)
 }
+function Assert-VerifiedRuntimeDnsListener {
+    param([string]$Address, [int]$Port, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    Assert-LiveCoreIdentity
+    $expectedPid = [int]$script:verifiedCorePid
+    if ($expectedPid -le 0) { throw 'The verified service core has no process ID for DNS listener ownership.' }
+    $allowedAddresses = if ($Address.Contains(':')) { @($Address, '::') } else { @($Address, '0.0.0.0') }
+    $endpointText = '{0}:{1}' -f $Address, $Port
+    try {
+        $listeners = @(Get-NetUDPEndpoint -LocalPort $Port -ErrorAction Stop | Where-Object { $allowedAddresses -contains [string]$_.LocalAddress })
+    } catch {
+        $diagnostics = Get-DnsReceiveDiagnostics -FixtureName $FixtureName -TargetAddress $Address -TargetPort $Port -ExpectedResolver $ExpectedResolver
+        throw "Could not inspect the live runtime DNS UDP listener at endpoint $endpointText; error=$($_.Exception.Message); diagnostics=$diagnostics"
+    }
+    $ownerPids = @($listeners | ForEach-Object { [int]$_.OwningProcess } | Sort-Object -Unique)
+    if (-not $listeners.Count -or $ownerPids.Count -ne 1 -or $ownerPids[0] -ne $expectedPid) {
+        $diagnostics = Get-DnsReceiveDiagnostics -FixtureName $FixtureName -TargetAddress $Address -TargetPort $Port -ExpectedResolver $ExpectedResolver
+        throw "Runtime DNS endpoint $endpointText is not owned by the verified service core PID $expectedPid; diagnostics=$diagnostics"
+    }
+    Write-Host "Verified runtime DNS UDP endpoint $endpointText is owned by source-matched service core PID $expectedPid."
+}
 function Get-VerifiedRuntimeDnsEndpoint {
-    param([int]$FixtureExpectedPort)
+    param([int]$FixtureExpectedPort, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
     $null = Get-RuntimeYaml
     $listen = [string]$script:lastRuntimeDnsListen
     $match = [regex]::Match($listen, '^(?<address>127\.0\.0\.1|\[::1\]):(?<port>[1-9][0-9]{0,4})$')
     if (-not $match.Success) { throw "Live core DNS listen is missing or not loopback-scoped: [$listen]." }
     $port = [int]$match.Groups['port'].Value
     if ($port -gt 65535) { throw "Live core DNS listen has an invalid port: [$listen]." }
+    $address = $match.Groups['address'].Value.Trim('[',']')
+    Assert-VerifiedRuntimeDnsListener -Address $address -Port $port -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     Write-Host "Live core DNS listener $listen; fixture profile expected port $FixtureExpectedPort."
-    return [PSCustomObject]@{ address = $match.Groups['address'].Value.Trim('[',']'); port = $port; listen = $listen }
+    return [PSCustomObject]@{ address = $address; port = $port; listen = $listen }
 }
 
 function Get-NativeStateSnapshot {
@@ -766,7 +789,7 @@ function Assert-SelectedProfileReady {
 }
 function Test-FixtureTraffic {
     param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app')][string]$ExpectedResolver)
-    $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort
+    $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Resolver $ExpectedResolver }
     [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
@@ -795,7 +818,7 @@ function Test-RejectedFixture {
         [System.Net.Sockets.SocketError]::ConnectionAborted,
         [System.Net.Sockets.SocketError]::NetworkReset
     )
-    $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort
+    $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake = Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     $client = [Net.Sockets.TcpClient]::new()
     $watch = [Diagnostics.Stopwatch]::StartNew()
