@@ -194,6 +194,36 @@ function Invoke-NativePhase {
         $script:phaseBoundaries.Add([PSCustomObject]@{ phase="native-$Phase"; startUtc=$started; endUtc=$ended })
     }
 }
+function Get-CoreStartDecision {
+    param([string]$ProcessName, [DateTime]$CreatedUtc, [object[]]$Intervals)
+    if ($ProcessName -ieq 'verge-mihomo-alpha.exe') {
+        return [PSCustomObject]@{ allowed=$false; phase=$null; reason='alpha-forbidden' }
+    }
+    foreach ($interval in $Intervals) {
+        if ($CreatedUtc -ge $interval.startUtc -and $CreatedUtc -le $interval.endUtc) {
+            return [PSCustomObject]@{ allowed=$true; phase=$interval.phase; reason='native-interval' }
+        }
+    }
+    return [PSCustomObject]@{ allowed=$false; phase=$null; reason='outside-native-interval' }
+}
+function Assert-CoreStartDecisionVectors {
+    $now = [DateTime]::UtcNow
+    $inside = @([PSCustomObject]@{ phase='fixture'; startUtc=$now.AddSeconds(-1); endUtc=$now.AddSeconds(1) })
+    $outside = @([PSCustomObject]@{ phase='fixture'; startUtc=$now.AddSeconds(-3); endUtc=$now.AddSeconds(-2) })
+    $vectors = @(
+        [PSCustomObject]@{ processName='verge-mihomo.exe'; createdUtc=$now; intervals=$inside; expected=$true; reason='native core inside interval' },
+        [PSCustomObject]@{ processName='verge-mihomo.exe'; createdUtc=$now; intervals=$outside; expected=$false; reason='core outside interval' },
+        [PSCustomObject]@{ processName='verge-mihomo-alpha.exe'; createdUtc=$now; intervals=$inside; expected=$false; reason='Alpha inside interval' }
+    )
+    foreach ($vector in $vectors) {
+        $decision = Get-CoreStartDecision -ProcessName $vector.processName -CreatedUtc $vector.createdUtc -Intervals $vector.intervals
+        if ([bool]$decision.allowed -ne [bool]$vector.expected) {
+            throw "Core-start policy self-check failed: $($vector.reason)."
+        }
+    }
+}
+Assert-CoreStartDecisionVectors
+
 $processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
 Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
@@ -253,15 +283,10 @@ foreach ($event in $processEvents) {
     }
     try { $created = [DateTime]::FromFileTimeUtc([Int64]$rawTime) }
     catch { $script:nativeFailures.Add("Could not decode process start time for ${processName}: ${rawTime}"); continue }
-    $phase = $null
-    foreach ($interval in $script:nativeIntervals) {
-        if ($created -ge $interval.startUtc -and $created -le $interval.endUtc) { $phase=$interval.phase; break }
-    }
-    $coreEvents.Add([PSCustomObject]@{ name=$processName; pid=$newEvent.ProcessID; timeUtc=$created; allowedPhase=$phase })
-    if ($processName -ieq 'verge-mihomo-alpha.exe') {
-        $script:nativeFailures.Add("Forbidden Alpha core process started at $($created.ToString('o')).")
-    } elseif (-not $phase) {
-        $script:nativeFailures.Add("Core process started outside an exact native acceptance interval: $processName pid=$($newEvent.ProcessID) at $($created.ToString('o')).")
+    $decision = Get-CoreStartDecision -ProcessName $processName -CreatedUtc $created -Intervals $script:nativeIntervals
+    $coreEvents.Add([PSCustomObject]@{ name=$processName; pid=$newEvent.ProcessID; timeUtc=$created; allowedPhase=$decision.phase; decision=$decision.reason })
+    if (-not $decision.allowed) {
+        $script:nativeFailures.Add("Rejected core process start ($($decision.reason)): $processName pid=$($newEvent.ProcessID) at $($created.ToString('o')).")
     }
 }
 foreach ($interval in $script:nativeIntervals) {

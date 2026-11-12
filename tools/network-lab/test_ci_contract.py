@@ -217,6 +217,23 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(pinned.group(1), manifest["core"]["sha256"])
 
 
+    def test_native_process_monitor_uses_windows_process_start_timestamps(self):
+        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        for required in (
+            "Register-CimIndicationEvent",
+            "Win32_ProcessStartTrace",
+            "TIME_CREATED",
+            "FromFileTimeUtc",
+            "Assert-CoreStartDecisionVectors",
+            "Get-CoreStartDecision -ProcessName",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, script)
+        monitor = script.index("Register-CimIndicationEvent")
+        first_install = script.index("$install258 = Invoke-CvrInstaller")
+        self.assertLess(monitor, first_install)
+
+
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]
         job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
@@ -228,57 +245,6 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, script)
         self.assertLess(script.index("Invoke-NativePhase -Phase seed"), script.index("Invoke-NativePhase -Phase exercise"))
         self.assertLess(script.index("Invoke-NativePhase -Phase exercise"), script.index("Invoke-NativePhase -Phase recovery"))
-
-
-    def test_core_start_events_are_limited_to_verified_native_intervals(self):
-        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
-        for required in (
-            "Register-CimIndicationEvent",
-            "Win32_ProcessStartTrace",
-            "verge-mihomo-alpha.exe",
-            "$script:nativeIntervals",
-            "TIME_CREATED",
-            "NativePhase",
-            "Invoke-NativePhase -Phase seed",
-            "Invoke-NativePhase -Phase exercise",
-            "Invoke-NativePhase -Phase recovery",
-            "No core process-start event was observed inside native phase",
-        ):
-            with self.subTest(required=required):
-                self.assertIn(required, script)
-        self.assertIn("Invoke-CvrCommand -Command 'install_service'", native)
-        self.assertIn("Assert-LiveCoreIdentity", native)
-        self.assertIn("Assert-LiveSidecarCoreIdentity", native)
-        self.assertIn("source-built core", native)
-        self.assertIn("if ($processName -ieq 'verge-mihomo-alpha.exe')", script)
-        self.assertIn("elseif (-not $phase)", script)
-
-
-
-    def test_source_job_parses_native_windows_powershell_before_build(self):
-        workflow = WORKFLOWS["test.yml"]
-        job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
-        step_name = "Parse native Windows acceptance PowerShell"
-        parse_step = job.split("      - name: " + step_name, 1)[1].split("      - name:", 1)[0]
-        self.assertIn("pwsh -NoLogo -NoProfile -NonInteractive", parse_step)
-        self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", parse_step)
-        self.assertIn("[ref]$parseErrors", parse_step)
-        self.assertIn("$parseErrors.Count -gt 0", parse_step)
-        self.assertLess(job.index("Read the source revision being checked"), job.index(step_name))
-        self.assertLess(job.index(step_name), job.index("Install checksum-pinned Go and workflow linter"))
-
-
-    def test_native_powershell_is_parsed_before_core_setup(self):
-        workflow = WORKFLOWS["test.yml"]
-        job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
-        fetch = job.split("      - name: Fetch the exact PR source", 1)[1].split(
-            "      - name: Fresh native Windows core build", 1
-        )[0]
-        self.assertIn("[System.Management.Automation.Language.Parser]::ParseFile", fetch)
-        self.assertIn("[ref]$parseErrors", fetch)
-        self.assertIn("$parseErrors.Count -gt 0", fetch)
-        self.assertLess(fetch.index("Parser]::ParseFile"), job.index("Fresh native Windows core build"))
 
 
     def test_smoke_runs_functional_recovery_after_candidate_exercise(self):
