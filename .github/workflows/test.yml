@@ -40,8 +40,7 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -138,8 +137,7 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -211,8 +209,7 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     defaults:
@@ -305,8 +302,7 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -458,8 +454,7 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     needs: cvr-2-5-10-package
     runs-on: windows-2022
     timeout-minutes: 30
@@ -881,8 +876,7 @@ jobs:
       !github.event.repository.private &&
       github.event_name != 'workflow_dispatch' &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1067,8 +1061,7 @@ jobs:
       github.repository == 'smart-tinker/stcvrc' &&
       !github.event.repository.private &&
       (github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft))
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:

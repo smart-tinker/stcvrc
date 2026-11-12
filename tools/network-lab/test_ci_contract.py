@@ -41,7 +41,7 @@ class CIContractTests(unittest.TestCase):
         self.assertEqual(re.findall(r"runs-on: (.+)", WORKFLOW), ["ubuntu-24.04"])
         self.assertIn("timeout-minutes: 20", WORKFLOW)
         self.assertIn("!github.event.repository.private", WORKFLOW)
-        self.assertIn("!github.event.pull_request.draft", WORKFLOW)
+        self.assertNotIn("!github.event.pull_request.draft", WORKFLOW, "draft PRs run all checks")
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", WORKFLOW)
         self.assertIn("permissions:\n  contents: read", WORKFLOW)
 
@@ -71,7 +71,7 @@ class CIContractTests(unittest.TestCase):
             self.assertIn("pull_request:\n    branches: [main]", workflow, name)
             self.assertIn("permissions:\n  contents: read", workflow, name)
             self.assertIn("!github.event.repository.private", workflow, name)
-            self.assertIn("!github.event.pull_request.draft", workflow, name)
+            self.assertNotIn("!github.event.pull_request.draft", workflow, name)
             self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow, name)
             self.assertTrue(set(re.findall(r"runs-on: (.+)", workflow)) <= {"ubuntu-24.04", "windows-2022"})
         for name in ("test.yml", "stcvrc-network-lab.yml", "codeql.yml"):
