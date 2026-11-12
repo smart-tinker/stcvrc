@@ -80,8 +80,12 @@ def restart_once(receipt_path, operation_id, unit, method, invoke, observe):
         receipt = {**identity, "state": "intent"}
         _atomic_json(path, receipt)
         job_id = invoke()
-        if not isinstance(job_id, str) or not job_id:
-            raise RuntimeError("systemd returned no job receipt")
+        if not isinstance(job_id, str) or not re.fullmatch(
+            r"/org/freedesktop/systemd1/job/[0-9]+", job_id
+        ):
+            raise AmbiguousOperation(
+                "systemd returned no valid DBus job receipt; refusing replay"
+            )
         receipt = {**identity, "job_id": job_id, "state": "dispatched"}
         _atomic_json(path, receipt)
 

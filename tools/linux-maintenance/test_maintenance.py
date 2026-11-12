@@ -149,6 +149,9 @@ class RestartCounterTests(unittest.TestCase):
                    "job_id": "/org/freedesktop/systemd1/job/52", "state": "dispatched"}
         self.assertEqual(classify_restart_transition(previous, current, receipt),
                          "requested-restart-counter-reset")
+        increased = {**current, "n_restarts": 2}
+        self.assertEqual(classify_restart_transition(previous, increased, receipt),
+                         "requested-restart-counter-increased")
         with self.assertRaises(UnknownRestartTransition):
             classify_restart_transition(previous, current)
 

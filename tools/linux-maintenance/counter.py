@@ -30,8 +30,6 @@ def classify_restart_transition(previous, current, receipt=None):
         if old_count == new_count:
             return "unchanged"
         raise UnknownRestartTransition("counter changed without a new invocation")
-    if new_count > old_count:
-        return "systemd-automatic-restart"
     receipt_ok = (
         isinstance(receipt, dict)
         and receipt.get("unit") == unit
@@ -41,10 +39,14 @@ def classify_restart_transition(previous, current, receipt=None):
         and re.fullmatch(r"/org/freedesktop/systemd1/job/[0-9]+",
                          receipt["job_id"]) is not None
     )
+    if new_count > old_count and not receipt_ok:
+        return "systemd-automatic-restart"
     if not receipt_ok:
         raise UnknownRestartTransition(
             "counter did not increase across invocation without a matching job receipt"
         )
+    if new_count > old_count:
+        return "requested-restart-counter-increased"
     if new_count < old_count:
         return "requested-restart-counter-reset"
     return "requested-restart"

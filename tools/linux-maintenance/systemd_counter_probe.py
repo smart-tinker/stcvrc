@@ -46,14 +46,16 @@ def snapshot(unit, phase):
     }
 
 
-def wait_snapshot(unit, predicate, timeout=15):
+def wait_snapshot(unit, predicate, timeout=15, description="requested state"):
     deadline = time.monotonic() + timeout
+    last = None
     while time.monotonic() < deadline:
-        current = snapshot(unit, "wait")
-        if predicate(current):
-            return current
+        last = snapshot(unit, "wait")
+        if predicate(last):
+            return last
         time.sleep(0.1)
-    raise Blocked("transient unit did not reach the expected state")
+    raise Blocked(description + " timed out; last snapshot=" +
+                  json.dumps(last, sort_keys=True))
 
 
 def dbus_job(unit, method):
@@ -101,11 +103,18 @@ def main():
     marker = root / "restart-once.marker"
     try:
         report["systemd_version"] = require_systemd()
-        script = 'if [ ! -e "$1" ]; then : > "$1"; exit 73; fi; exec sleep 45'
+        script = 'if [ ! -e "$1" ]; then : > "$1"; sleep 2; exit 73; fi; exec sleep 45'
         start_transient(unit, script, marker)
-        before = wait_snapshot(unit, lambda x: x["active_state"] == "active" and x["main_pid"] > 1)
+        before = wait_snapshot(
+            unit,
+            lambda x: x["active_state"] == "active" and x["main_pid"] > 1
+            and x["n_restarts"] == 0,
+            description="initial pre-retry invocation",
+        )
         auto_retry = wait_snapshot(
-            unit, lambda x: x["n_restarts"] >= 1 and x["invocation_id"] != before["invocation_id"]
+            unit,
+            lambda x: x["n_restarts"] >= 1 and x["invocation_id"] != before["invocation_id"],
+            description="automatic retry invocation",
         )
         auto_retry["phase"] = "after_auto_retry"
         auto_classification = classify_restart_transition(before, auto_retry)
