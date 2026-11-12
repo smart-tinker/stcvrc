@@ -479,6 +479,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
+          $nativeScript = Join-Path $source 'tools\network-lab\windows_native_acceptance.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($nativeScript, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseDetails = @($parseErrors | ForEach-Object { "$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber) $($_.Message)" }) -join '; '
+            throw "Native acceptance PowerShell parse errors: $parseDetails"
+          }
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
 
       - name: Fresh native Windows core build
@@ -607,7 +615,7 @@ jobs:
             if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_GUI_SHA256=$guiHash" }
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n### CVR $($release.version)`n- Installer SHA256: $installerHash`n- Authenticode: $authenticode`n- Extracted files: $($files.Count)"
             if ($release.version -eq '2.5.10') {
-              foreach ($name in @('clash-verge.exe','clash-verge-service-install.exe','verge-mihomo.exe','verge-mihomo-alpha.exe')) {
+              foreach ($name in @('clash-verge.exe','clash-verge-service-install.exe','clash-verge-service.exe','verge-mihomo.exe','verge-mihomo-alpha.exe')) {
                 $matches = @($files | Where-Object { $_.Name -ieq $name })
                 if ($matches.Count -ne 1) { throw "CVR 2.5.10 payload expected one $name, found $($matches.Count)" }
                 $file = $matches[0]
@@ -615,6 +623,7 @@ jobs:
                 $fileAuth = (Get-AuthenticodeSignature -LiteralPath $file.FullName).Status
                 $relative = $file.FullName.Substring($extract.Length).TrimStart('\','/')
                 Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- ``$relative`` — SHA256 ``$fileHash``; Authenticode ``$fileAuth``."
+                if ($name -eq 'clash-verge-service.exe') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_SHA256=$fileHash" }
                 if ($name -eq 'verge-mihomo.exe') { $stockCore = $file.FullName }
               }
               Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $stockCore -Force
