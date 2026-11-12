@@ -104,7 +104,7 @@ class ProcessTransitionTests(unittest.TestCase):
     def test_proc_start_ticks_handles_parenthesized_comm(self):
         # After the final ')', fields begin at Linux stat field 3; starttime is 22.
         stat_text = "91 (worker name ) with parens) S " + " ".join(str(i) for i in range(4, 24))
-        self.assertEqual(_proc_start_ticks(stat_text), 23)
+        self.assertEqual(_proc_start_ticks(stat_text), 22)
 
     def test_disappearing_pid_is_reacquired_as_a_stable_new_process(self):
         expected = "a" * 64
