@@ -95,15 +95,17 @@ timeout 90s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha2
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/failover.json"
 timeout 45s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha256" \
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" --check-tls-rejection | tee "$work/tls.json"
+timeout 120s python3 "$HERE/mptcp_probe.py" --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/mptcp.json"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     printf '## STCVRC Linux loopback pilot\n\n'
     printf 'Source: %s\n\nFresh Linux/amd64 SHA256: %s\n\n' "$SOURCE_COMMIT" "$core_sha256"
     printf 'Xray 26.10.31 SHA256: %s\n\n' "$XRAY_SHA256"
-    printf '```json\n'
-    cat "$work/failover.json" "$work/tls.json"
-    printf '```\n\n'
-    printf 'HTTP/TCP only. Not Windows, OpenVPN/rekey, UDP/DNS, OS TUN or production acceptance.\n'
+    printf '### Failover and MPTCP observations\n\n```json\n'
+    cat "$work/failover.json" "$work/tls.json" "$work/mptcp.json"
+    printf '\n```\n\n'
+    printf 'MPTCP uses negotiated loopback socket state; the probe fails if this runner cannot negotiate MPTCP. No sysctl, route, TUN, firewall or service changes.\n\n'
+    printf 'Failover: HTTP/TCP only. Not Windows, OpenVPN/rekey, UDP/DNS, OS TUN or production acceptance.\n'
   } >> "$GITHUB_STEP_SUMMARY"
 fi
