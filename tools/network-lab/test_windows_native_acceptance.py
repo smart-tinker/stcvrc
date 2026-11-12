@@ -39,7 +39,14 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             "ConnectAsync",
             "Wait(2000)",
+            "$stream.ReadTimeout = 2000",
+            "$stream.WriteTimeout = 2000",
+            "$stream.Write($request",
+            "$stream.Read($responseBuffer",
+            "Host: $FixtureName",
+            "$responseBytes -gt 0",
             "catch [System.AggregateException]",
+            "catch [System.IO.IOException]",
             "catch [System.Net.Sockets.SocketException]",
             "SocketErrorCode",
             "ConnectionRefused",
@@ -49,14 +56,17 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "Assert-SelectedProfileReady",
             "Get-NetRoute",
             "Compare-Object",
+            "$probeFailure = $_.Exception.Message",
+            "if ($probeFailure) { throw",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, reject)
-        self.assertNotIn("catch {", reject)
         controls = "Test-FixtureTraffic -FixtureName $AllowedControlName"
         self.assertEqual(reject.count(controls), 2)
         self.assertLess(reject.index(controls), reject.index("$connectTask ="))
-        self.assertLess(reject.index("$connectTask ="), reject.rindex(controls))
+        self.assertLess(reject.index("$connectTask ="), reject.index("$stream.Write($request"))
+        self.assertLess(reject.index("$stream.Write($request"), reject.index("$stream.Read($responseBuffer"))
+        self.assertLess(reject.index("$stream.Read($responseBuffer"), reject.rindex(controls))
         self.assertIn("-AllowedControlName 'native-fixture-b.invalid'", source)
         self.assertIn("-AllowedControlName 'native-fixture-a.invalid'", source)
 

@@ -254,47 +254,83 @@ function Test-RejectedFixture {
         ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
     if (-not $routeBefore.Count) { throw "No synthetic route before $Phase reject probe." }
 
-    $fake = Invoke-DnsQuery -Name $FixtureName -Port $DnsPort
-    $client = [Net.Sockets.TcpClient]::new()
-    $watch = [Diagnostics.Stopwatch]::StartNew()
-    $rejection = $null
-    try {
-        $connectTask = $client.ConnectAsync([Net.IPAddress]::Parse($fake), $HttpPort)
-        if (-not $connectTask.Wait(2000)) { throw "$Phase reject probe timed out; timeout is not a REJECT result." }
-        throw "$Phase rejected destination unexpectedly accepted a TCP connection."
-    } catch [System.AggregateException] {
-        $socketException = $_.Exception.GetBaseException()
-        if ($socketException -isnot [System.Net.Sockets.SocketException]) { throw "Unexpected $Phase reject failure: $($socketException.GetType().FullName)" }
-        $rejection = [System.Net.Sockets.SocketError]$socketException.SocketErrorCode
-    } catch [System.Net.Sockets.SocketException] {
-        $rejection = [System.Net.Sockets.SocketError]$_.Exception.SocketErrorCode
-    } finally {
-        $watch.Stop()
-        $client.Dispose()
-    }
     $expectedRejections = @(
         [System.Net.Sockets.SocketError]::ConnectionRefused,
         [System.Net.Sockets.SocketError]::ConnectionReset,
         [System.Net.Sockets.SocketError]::ConnectionAborted,
         [System.Net.Sockets.SocketError]::NetworkReset
     )
-    if ($expectedRejections -notcontains $rejection) { throw "$Phase returned an unclassified socket result: $rejection" }
-    if ($watch.ElapsedMilliseconds -ge 2000) { throw "$Phase REJECT response was not quick: $($watch.ElapsedMilliseconds) ms." }
+    $fake = Invoke-DnsQuery -Name $FixtureName -Port $DnsPort
+    $client = [Net.Sockets.TcpClient]::new()
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $rejection = $null
+    $probeFailure = $null
+    $responseBytes = 0
+    try {
+        $connectTask = $client.ConnectAsync([Net.IPAddress]::Parse($fake), $HttpPort)
+        if (-not $connectTask.Wait(2000)) { throw "$Phase reject probe timed out during TCP setup." }
+        $stream = $client.GetStream()
+        $stream.ReadTimeout = 2000
+        $stream.WriteTimeout = 2000
+        $crlf = [string][char]13 + [char]10
+        $request = [Text.Encoding]::ASCII.GetBytes('GET / HTTP/1.1' + $crlf + "Host: $FixtureName" + $crlf + 'Connection: close' + $crlf + $crlf)
+        $stream.Write($request, 0, $request.Length)
+        $responseBuffer = New-Object byte[] 1
+        $responseBytes = $stream.Read($responseBuffer, 0, $responseBuffer.Length)
+        if ($responseBytes -eq 0) { $rejection = 'EOF' }
+        else { $probeFailure = "$Phase REJECT probe received application response data." }
+    } catch [System.AggregateException] {
+        $socketException = $_.Exception.GetBaseException()
+        if ($socketException -is [System.Net.Sockets.SocketException]) {
+            $socketError = [System.Net.Sockets.SocketError]$socketException.SocketErrorCode
+            if ($expectedRejections -contains $socketError) { $rejection = $socketError }
+            else { $probeFailure = "$Phase REJECT probe returned unclassified socket result: $socketError" }
+        } else { $probeFailure = "$Phase REJECT probe failed: $($socketException.GetType().FullName)" }
+    } catch [System.IO.IOException] {
+        $socketException = $_.Exception.GetBaseException()
+        if ($socketException -is [System.Net.Sockets.SocketException]) {
+            $socketError = [System.Net.Sockets.SocketError]$socketException.SocketErrorCode
+            if ($expectedRejections -contains $socketError) { $rejection = $socketError }
+            else { $probeFailure = "$Phase REJECT probe returned unclassified socket result: $socketError" }
+        } else { $probeFailure = "$Phase REJECT probe failed: $($socketException.GetType().FullName)" }
+    } catch [System.Net.Sockets.SocketException] {
+        $socketError = [System.Net.Sockets.SocketError]$_.Exception.SocketErrorCode
+        if ($expectedRejections -contains $socketError) { $rejection = $socketError }
+        else { $probeFailure = "$Phase REJECT probe returned unclassified socket result: $socketError" }
+    } catch {
+        $probeFailure = $_.Exception.Message
+    } finally {
+        $watch.Stop()
+        $client.Dispose()
+    }
+    if (-not $probeFailure -and -not $rejection) { $probeFailure = "$Phase REJECT probe had no classified result." }
+    if (-not $probeFailure -and $expectedRejections -notcontains $rejection -and $rejection -ne 'EOF') {
+        $probeFailure = "$Phase returned an unclassified REJECT result: $rejection"
+    }
+    if (-not $probeFailure -and $responseBytes -ne 0) { $probeFailure = "$Phase REJECT probe returned $responseBytes application response bytes." }
+    if ($watch.ElapsedMilliseconds -ge 2000) { $probeFailure = "$Phase REJECT response was not quick: $($watch.ElapsedMilliseconds) ms." }
 
-    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase after reject"
-    $routeAfter = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
-        ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
-    if (@(Compare-Object -ReferenceObject $routeBefore -DifferenceObject $routeAfter).Count) {
-        throw "$Phase reject probe changed the synthetic route."
-    }
-    Test-FixtureTraffic -FixtureName $AllowedControlName -DnsPort $DnsPort -HttpPort $HttpPort
-    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase positive control after reject"
-    $routeAfterControl = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
-        ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
-    if (@(Compare-Object -ReferenceObject $routeBefore -DifferenceObject $routeAfterControl).Count) {
-        throw "$Phase positive control changed the synthetic route."
-    }
-    Write-Host "$Phase reject probe returned $rejection in $($watch.ElapsedMilliseconds) ms with service/core identity, route, and positive control intact."
+    $phaseFailures = [Collections.Generic.List[string]]::new()
+    if ($probeFailure) { $phaseFailures.Add("negative application probe: $probeFailure") }
+    try {
+        Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase after reject"
+        $routeAfter = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
+            ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
+        if (@(Compare-Object -ReferenceObject $routeBefore -DifferenceObject $routeAfter).Count) {
+            $phaseFailures.Add("$Phase reject probe changed the synthetic route.")
+        }
+    } catch { $phaseFailures.Add("post-reject service/route check: $($_.Exception.Message)") }
+    try {
+        Test-FixtureTraffic -FixtureName $AllowedControlName -DnsPort $DnsPort -HttpPort $HttpPort
+        Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase positive control after reject"
+        $routeAfterControl = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
+            ForEach-Object { "$($_.DestinationPrefix)|$($_.InterfaceIndex)|$($_.NextHop)|$($_.RouteMetric)" } | Sort-Object)
+        if (@(Compare-Object -ReferenceObject $routeBefore -DifferenceObject $routeAfterControl).Count) {
+            $phaseFailures.Add("$Phase positive control changed the synthetic route.")
+        }
+    } catch { $phaseFailures.Add("post-reject positive control: $($_.Exception.Message)") }
+    if ($phaseFailures.Count) { throw "$Phase REJECT acceptance failed: $($phaseFailures -join ' | ')" }
+    Write-Host "$Phase application REJECT returned $rejection with $responseBytes response bytes in $($watch.ElapsedMilliseconds) ms; service/core identity, route and positive control remained valid."
 }
 
 $baselineDefaults = @(Get-DefaultRouteSnapshot)
