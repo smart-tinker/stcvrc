@@ -297,7 +297,7 @@ def _render_component(record, licenses, supplemental):
         )
         if license_record.get("source_url"):
             lines.append(f"License source: {license_record['source_url']}")
-        lines.extend(["", license_text.rstrip(), ""])
+        lines.extend(["", license_text, ""])
     if supplemental:
         lines.extend(["", "Additional required terms and notices (not SPDX license text):", ""])
         for notice_record, notice_text in supplemental:
@@ -313,7 +313,7 @@ def _render_component(record, licenses, supplemental):
                 lines.append(f"Notice source archive SHA256: {notice_record['source_archive_sha256']}")
             if notice_record.get("source_git_blob"):
                 lines.append(f"Notice source Git blob: {notice_record['source_git_blob']}")
-            lines.extend(["", notice_text.rstrip(), ""])
+            lines.extend(["", notice_text, ""])
     return lines
 
 
@@ -421,7 +421,7 @@ def generate_notices(inventory):
     )
     for _, record, licenses, supplemental in normalized_build_tools:
         lines.extend(_render_component(record, licenses, supplemental))
-    notices = "\n".join(lines).rstrip() + "\n"
+    notices = "\n".join(lines) + "\n"
     return notices, source_manifest
 
 
