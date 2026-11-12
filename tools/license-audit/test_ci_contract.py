@@ -32,7 +32,7 @@ class DistributionAuditContractTests(unittest.TestCase):
             "candidate-1.19.33-mit-lzo": {
                 "distribution_status": "draft-prerelease",
                 "release_id": 442680453,
-                "release_tag": "stcvrc-1.19.33-rc.6",
+                "release_tag": "stcvrc-1.19.33-rc.7",
                 "asset_sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
                 "source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
                 "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
