@@ -1,60 +1,56 @@
-# STCVRC source and network CI
+# STCVRC CI and network labs
 
-Refs [issue #6](https://github.com/smart-tinker/stcvrc/issues/6). This is a narrow test pilot, not completion of CI/release hardening or permission to publish a release. Inherited release/dispatch workflows are removed. The accepted main/1.19.29 Windows release build contract is unchanged.
+The current workflow topology, required checks and draft-RC gate are documented in [RELEASING.md](../../docs/RELEASING.md). Work is tracked through [issue #6](https://github.com/smart-tinker/stcvrc/issues/6), Windows compatibility [#3](https://github.com/smart-tinker/stcvrc/issues/3), Linux maintenance [#4](https://github.com/smart-tinker/stcvrc/issues/4), license/source evidence [#7](https://github.com/smart-tinker/stcvrc/issues/7) and protocol integration [#25](https://github.com/smart-tinker/stcvrc/issues/25).
 
-## Current source checks
+All pull requests against main, including drafts and fork PRs, run all required checks without path filters. The exact PR head is fetched through the base repository's PR ref and verified before use. Main pushes and manual dispatch follow the triggers in each workflow; a skipped job is not PASS.
 
-`test.yml` checks the exact PR head or main commit separately from the pinned candidate below. On one standard Ubuntu runner it runs actionlint, fixture tests, OpenVPN/outbound/config/HTTP Go tests and Linux/Windows cross-compilation. Go 1.26.10 and actionlint 1.7.7 are checksum-pinned. The 20-minute job has read-only permissions; outputs stay on the disposable runner. These builds are not releases or proof of Windows runtime behavior.
+Only standard public GitHub-hosted `ubuntu-24.04` and `windows-2022` runners are used. New jobs do not create Actions artifacts or persistent cache. The built-in `github.token` is scoped to the steps that need GitHub API metadata or the explicitly gated draft writer; downloads of public source and binary assets do not receive it. No private profiles or custom secrets are required.
 
-Both workflows run for relevant same-repository, non-draft PRs against main, relevant main pushes, or manual dispatch. Fork/private jobs are skipped. No scheduled runs, persistent cache, artifacts, paid runners or release writes are configured.
+## Fresh builds and acceptance
 
-## What runs
+Tests do not download previous STCVRC release executables. Production source revisions, toolchains, flags and dependency inputs are pinned in the scripts. Each job builds its required core in temporary directories with fresh compiler/module caches.
 
-Standard `ubuntu-24.04` and `windows-2022` runners, with `contents: read` and 20/10-minute job limits. No external actions execute: public fixture code is fetched at the exact PR head SHA (or selected manual-run SHA), validated before use. The Linux candidate source is fetched into a **different checkout** at fixed commit [d888dfad](https://github.com/smart-tinker/stcvrc/tree/d888dfad5e785217778bb7515c931840d5307dd4).
+There are two distinct build paths:
 
-The Windows job downloads the published [RC1 EXE](https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/verge-mihomo.exe), SHA256 `6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7`, and [official Xray Windows ZIP](https://github.com/XTLS/Xray-core/releases/download/v26.10.31/Xray-windows-64.zip), SHA256 `2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a`. Both pins match the release API asset digests checked during preparation. It runs the same HTTP/TCP and negative-TLS fixture natively, without installing CVR or touching its service. Only `xray.exe` is read from the verified archive; the contained executable digest is also reported. The published EXE passed the hosted baseline linked below.
+- [The Linux loopback helper](ci.sh) builds the pinned MIT-LZO comparison source and checks its expected digest. This is a narrow regression reference; it is not acceptance of a newer RC core or regenerated WASM.
+- [The RC source builder](../source-build/ci.sh) builds the selected current core, regenerates EasyTier Rust/WASM and Go bindings from exact public source, tests the actual dependency graph, and records source/input/output hashes in `build.json`. The Windows native job tests the EXE built in that same job. The manual assembler must rebuild matching native EXE/WASM bytes before it may create a draft.
 
-The helper verifies fixed checksums for official Go 1.26.10, official Xray 26.10.31, and the resulting Linux STCVRC binary. It then runs fixture tests, real VLESS/TLS HTTP traffic through two native Xray processes, A→B→A, three actual HTTP 502 responses with both endpoints down, and an explicit wrong-TLS-hostname rejection. Core liveness is checked before and after every both-down request. The ten-second negative-request timeout accounts for the core's five-second retry budget; socket errors do not count as a pass.
+Official pinned CVR installers, Xray and toolchains are test dependencies. Their verification does not establish that an STCVRC core works; the functional checks below do that.
 
-All application addresses are IPv4 loopback. There is no TUN, Docker, admin elevation, host routing/firewall/DNS/trust-store change, production profile or stored credential. A same-host DIRECT sentinel detects bypass; this is not a security sandbox for hostile binaries. Test CA/certificate/UUID and logs exist only in temporary directories and are cleaned after normal completion or exceptions. Abrupt job termination relies on the disposable runner's lifetime.
+## What the Linux loopback job proves
 
-Each CLI invocation selects four distinct ephemeral loopback ports to avoid TIME_WAIT from preceding runs, including on Windows. Port preflight still rejects a live listener and never terminates a pre-existing process. Use a dedicated runner; the short bind/start race is not a cross-process reservation guarantee.
+[stcvrc-network-lab.yml](../../.github/workflows/stcvrc-network-lab.yml) runs one Ubuntu job with read-only contents permission and a 20-minute limit:
 
-No Actions cache or artifacts are used. Go's temporary compiler/module directories are deleted at the end; they are not persisted between jobs. There are no repository writes, releases, deployments or external service credentials. Only compact results and checksums enter the job log/summary. Standard public-repository hosted compute is [free](https://docs.github.com/en/billing/concepts/product-billing/github-actions); this does not guarantee a zero bill for unrelated account usage/storage.
+1. Validate fixture contracts and build the pinned comparison core.
+2. Run real VLESS/TLS HTTP traffic through two native loopback Xray processes.
+3. Stop A, require new connections through B, restore A and require return to A.
+4. Stop both endpoints, require three HTTP 502 responses from the still-running core, and reject a DIRECT bypass.
+5. Require explicit TLS hostname rejection and a live core.
+6. Verify negotiated loopback MPTCP socket state.
+7. Run the isolated Linux maintenance transaction and recovery.
 
-## Review and activation
+Socket errors, a dead core, a missing baseline or a DIRECT result cannot satisfy the negative tests. The ten-second negative-request timeout includes the core's retry budget; failing scenarios are not silently retried.
 
-On Windows, fixture stderr streams to the job log. A fixture timeout invokes `taskkill.exe /PID <owned-parent> /T /F` before waiting for the parent, so its core/Xray descendants are included. Termination errors fail the job. A Windows-only regression forces a timeout with a live child and checks its termination and release of an open temporary file; Linux skips that native check.
+The loopback fixture uses distinct ephemeral ports, test-only certificates and a DIRECT sentinel. It does not change host routes, DNS, firewall, trust store or TUN. The small bind/start race is not a cross-process port reservation, so the fixture requires a disposable runner.
 
-The workflow is limited to this public repository. Fork PRs and draft PRs skip the job. Publish a **draft PR**, review its exact diff and checksums, then mark it ready for review to trigger the first eligible run. Subsequent relevant commits to a non-draft PR also run it. A draft publication can create a skipped workflow record, not a protocol test result.
+## Other checks use separate isolation
 
-`workflow_dispatch` is provided for later manual runs. GitHub only exposes a new manual workflow after it exists on the default branch. PR runs validate the change before integration; merging merely to obtain a run is unnecessary. Relevant pushes to `main` also run checks. Release publication is not automated; license and source-distribution checks remain separate.
+The protocol module runs real pinned server fixtures, including the individual issue-25 comparisons. OpenVPN comparison and patch-ablation evidence remain linked from [issue #12](https://github.com/smart-tinker/stcvrc/issues/12); a Linux comparison does not establish Windows behavior.
 
-The owner requested this limited free-runner pilot after the earlier Actions prohibition. That does not enable unrelated workflows, paid runners or repository-setting changes. Kayla remains responsible for STCVRC development/integration; the pilot diff needs review before its first enabled job.
+The Windows job installs the verified stock CVR pair on its disposable runner and exercises GUI/service startup, core identity, generic profile/routing variants, DNS override, TUN traffic, application REJECT with positive controls, and recovery. The harness must identify the actual runtime DNS listener and verify the intended resolver path. Fixture checks or cross-compilation cannot replace a successful native run on the final source-built core.
 
-## Run and reproduce
+The Linux maintenance helper uses runner-owned processes and an isolated namespace without default routes. Its intent/receipt and process-identity checks are described in [the helper source](../linux-maintenance/). It does not maintain an installed user machine.
 
-On a disposable Linux x86-64 machine with Bash, Python 3, OpenSSL, Git, curl, tar, timeout and at least 6 GiB free on the build filesystem:
+## Failure handling and evidence
 
-```sh
-bash tools/network-lab/ci.sh
-```
+Each observation belongs to its exact harness SHA, tested source SHA, executable digest, toolchain and platform. Preserve FAIL, INVALID, UNRUN and skipped outcomes separately.
 
-This downloads only the fixed public inputs and uses temporary build files under `RUNNER_TEMP`, or this fixture folder when run locally. Go build temporaries stay on that same filesystem; the helper does not assume `/tmp` has enough disk space. Go's own cleanup command removes its read-only module cache before the temporary folder is deleted. No binaries or logs are committed. Hash mismatch stops the run; do not update a pin merely to make a failing build pass.
+The Windows driver streams stderr. On timeout it terminates its owned process tree before waiting for the parent; a native regression checks child termination and file release. Cleanup failure fails the job. Abrupt termination and remaining temporary files rely on disposal of the runner.
 
-For an already verified binary pair, run `python3 lab.py --help` from this folder. The CLI requires explicit binary SHA256 values. `--check-tls-rejection` performs the separate hostname negative test. The first fixture experiment had a one-second timeout bug; its later correction did not change core source or allow socket errors to pass.
+Outputs stay in temporary directories and job logs/summaries. The separately gated manual draft assembler writes the core, manifest, source-build report, full notices, source inventory, checksums and root license to a new draft release, then reads every asset back. It cannot overwrite an existing mismatching release asset. Draft assembly is separate from publication and deployment.
 
-## Pinned evidence and limits
+## Limits
 
-- [Exact candidate source](https://github.com/smart-tinker/stcvrc/tree/d888dfad5e785217778bb7515c931840d5307dd4).
-- [Official Go archive](https://go.dev/dl/go1.26.10.linux-amd64.tar.gz), SHA256 `ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5`.
-- [Official Xray ZIP](https://github.com/XTLS/Xray-core/releases/download/v26.10.31/Xray-linux-64.zip), SHA256 `e4bd9119f50ae7c41658b1abd0679ae06f98bd864a2907ff33f2f2cf7081b214`; contained executable `cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1`.
-- Reproduced Linux binary SHA256 `5c811c83dc2f8fae6dcb5933fde988f5d34bb3f87e6dbab6d130aeb30146809a`. This is a test build, not the [Windows EXE](https://github.com/smart-tinker/stcvrc/releases/download/stcvrc-1.19.33-rc.1/verge-mihomo.exe).
+The suites use generic synthetic scenarios rather than named-user sign-off. A canary or 24-hour observation window is not an RC gate.
 
-Two earlier local Linux protocol runs passed: A→B 1.156/1.131 seconds and B→A 2.852/3.397 seconds. These observations are not latency guarantees or GitHub-hosted results. Every hosted result applies only to its recorded commit.
-
-Confirmed hosted Linux baseline: [run 42459899876](https://github.com/smart-tinker/stcvrc/actions/runs/42459899876), fixture commit `cd9a6b7b243d3cbc9181b612e4d2cc50e1fc83b1`, A→B 1.108 seconds, B→A 2.905 seconds, three both-down HTTP 502 responses, explicit TLS hostname rejection, 21 fixture tests, successful pinned build/module verification and zero artifacts. This predates the Windows job and ephemeral-port change; it does not validate either addition.
-
-[Linux and Windows baseline run 42461850841](https://github.com/smart-tinker/stcvrc/actions/runs/42461850841) passed at `91218cadb5aac630b2cc4bdfe8608e599a151836`, including the native Windows timeout cleanup test, with zero artifacts. This baseline predates the source-check workflow.
-
-Not covered: OpenVPN/rekey, UDP/DNS, OS TUN, blackhole/latency failures, existing connection migration, sustained operation, CVR GUI/service/recovery, Home/Work or user acceptance. License/source distribution work remains [issue #7](https://github.com/smart-tinker/stcvrc/issues/7).
+A passing short synthetic run does not establish corporate authentication/token refresh, prolonged real sessions, every upstream feature or deployment safety. Source/license evidence and unresolved historical binary mappings remain in issue #7. No workflow result by itself authorizes stable publication or production rollout.
