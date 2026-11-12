@@ -322,6 +322,11 @@ class DraftRCAssemblyGateTests(unittest.TestCase):
         self.assertIn('tag=stcvrc-1.19.33-rc.7', assembly)
         self.assertIn('--title "STCVRC 1.19.33 RC7 — CVR 2.5.10 candidate"', assembly)
         self.assertIn('if [[ -z "$release_id" ]]; then', assembly)
+        lookup = assembly.index('gh api "repos/$repo/git/matching-refs/tags/$tag"')
+        create = assembly.index('gh release create')
+        self.assertLess(lookup, create)
+        self.assertIn('grep -Fxq "refs/tags/$tag"', assembly)
+        self.assertIn('Protected tag already exists without a release', assembly)
         self.assertNotIn('--clobber', assembly)
 
 if __name__ == '__main__':
