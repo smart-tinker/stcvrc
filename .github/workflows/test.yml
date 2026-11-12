@@ -1081,6 +1081,17 @@ jobs:
           git -C "$recipe" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
           git -C "$recipe" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
+          bash -n "$recipe/tools/source-build/ci.sh"
+          shellcheck "$recipe/tools/source-build/ci.sh"
+          if GITHUB_ACTIONS=false bash "$recipe/tools/source-build/ci.sh"; then
+            printf 'CI-only scope guard did not reject a non-Actions invocation.\n' >&2
+            exit 1
+          fi
+          if GITHUB_REPOSITORY=example/untrusted bash "$recipe/tools/source-build/ci.sh"; then
+            printf 'CI-only scope guard did not reject a foreign repository.\n' >&2
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/stcvrc-source-built"
           bash "$recipe/tools/source-build/ci.sh"
       - name: Remove disposable source, compiler and build directories
         if: always()

@@ -103,11 +103,13 @@ timeout 90s python3 "$recipe/tools/network-lab/lab.py" --core "$root/output/core
 timeout 45s python3 "$recipe/tools/network-lab/lab.py" --core "$root/output/core-linux" --core-sha256 "$linux_sha" \
   --xray "$root/xray/xray" --xray-sha256 cc4b84d3069569f297a61f04b914f2bb37e9d202fd7b84cb50def1fc30fd40e1 --check-tls-rejection | tee "$root/output/tls.json"
 
-python3 - "$recipe" "$root/output" "$wasm" "$core/.ci-build.mod" <<'PY'
+python3 - "$recipe" "$root/output" "$wasm" "$core/.ci-build.mod" "$easytier" <<'PY'
 import hashlib, json, subprocess, sys
 from pathlib import Path
-recipe, output, wasm, modfile = map(Path, sys.argv[1:])
+recipe, output, wasm, modfile, easytier = map(Path, sys.argv[1:])
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+changed = subprocess.check_output(["git", "-C", str(easytier), "diff", "--name-only"], text=True).splitlines()
+assert all(path.startswith(("easytier-go/internal/artifact/", "easytier-go/proto/")) for path in changed), changed
 report = {
     "schema_version": 1,
     "status": "fresh-source-candidate-experiment; no release",
@@ -116,6 +118,7 @@ report = {
     "easytier_source_commit": "3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253",
     "wasm_sha256": digest(wasm),
     "modfile_sha256": digest(modfile),
+    "generated_easytier_files": {path: digest(easytier/path) for path in sorted(changed)},
     "go_version": "1.26.11",
     "rust_version": "1.95.0",
     "protoc_version": "35.1",
