@@ -288,7 +288,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
         packages, runtime_ids = _cargo_tree_runtime_ids(
             metadata,
-            "root v1.0.0 (/tmp/root)\\nduplicate v1.0.0 (git+https://github.com/example/duplicate?rev=deadbeef#deadbeef)",
+            "root v1.0.0 (/tmp/root)\nduplicate v1.0.0 (git+https://github.com/example/duplicate?rev=deadbeef#deadbeef)",
         )
 
         self.assertEqual(set(packages), {root, registry + "#duplicate@1.0.0", git_source + "#duplicate@1.0.0"})
@@ -308,7 +308,7 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         }
 
         with self.assertRaises(AuditIncomplete):
-            _cargo_tree_runtime_ids(metadata, "root v1.0.0 (/tmp/root)\\nduplicate v1.0.0")
+            _cargo_tree_runtime_ids(metadata, "root v1.0.0 (/tmp/root)\nduplicate v1.0.0")
 
     def test_rust_inventory_uses_observed_build_graph_not_feature_unified_metadata_edges(self):
         bundle = load_bundle()
