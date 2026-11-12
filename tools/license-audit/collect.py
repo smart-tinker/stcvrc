@@ -24,6 +24,12 @@ from normalize_inventory import _copyright_lines, _json_stream, normalize_invent
 
 GO_LICENSES_VERSION = "v2.0.1"
 CARGO_ABOUT_VERSION = "0.9.2"
+
+EASYTIER_LICENSE_SOURCE_COMMIT = "3463190838eb642ba8324c6a4011acdea52495a8"
+EASYTIER_LICENSE_VERSION = "2.7.0"
+EASYTIER_LICENSE_SPDX = "LGPL-3.0-only"
+EASYTIER_LICENSE_SHA256 = "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+EASYTIER_LICENSE_PACKAGES = ("easytier-core", "easytier-proto")
 GO_LICENSES_MODULE = "github.com/google/go-licenses/v2"
 GO_LICENSES_URL = f"https://proxy.golang.org/{GO_LICENSES_MODULE}/@v/{GO_LICENSES_VERSION}.zip"
 GPL_TEXT_URL = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-or-later.txt"
@@ -33,6 +39,13 @@ WINTUN_SOURCE_PATH = "internal/wintun/amd64/wintun.dll"
 WINTUN_ARCHIVE_PATH = "wintun/bin/amd64/wintun.dll"
 WINTUN_TERMS_PATH = "wintun/LICENSE.txt"
 CHACHA_API = "https://api.github.com/repos/MetaCubeX/chacha"
+_CORE_MODULE_PATH = "github.com/metacubex/mihomo"
+_CORE_LICENSE_IDS = {
+    "LICENSE": {"GPL-3.0"},
+    "transport/kcptun/LICENSE.md": {"MIT"},
+}
+_CORE_ATTRIBUTION_PATH = "transport/hysteria/conns/faketcp/LICENSE"
+_CORE_ATTRIBUTION_TEXT = "Grabbed from https://github.com/xtaci/tcpraw with modifications"
 
 
 # cargo-about calls this list "accepted": it selects a license from SPDX OR expressions;
@@ -48,6 +61,7 @@ CARGO_ABOUT_ACCEPTED_LICENSES = (
     "0BSD",
     "BSL-1.0",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",
     "Unlicense",
     "Unicode-3.0",
     "MPL-2.0",
@@ -61,12 +75,51 @@ CARGO_ABOUT_ACCEPTED_LICENSES = (
 def _cargo_about_config(target):
     accepted = json.dumps(list(CARGO_ABOUT_ACCEPTED_LICENSES))
     targets = json.dumps([target])
-    return (
+    config = (
         f"targets = {targets}\n"
         f"accepted = {accepted}\n"
         "ignore-build-dependencies = true\n"
         "ignore-dev-dependencies = true\n"
     )
+    clarifications = []
+    for crate in EASYTIER_LICENSE_PACKAGES:
+        clarifications.append(
+            f"[{crate}.clarify]\n"
+            f'license = "{EASYTIER_LICENSE_SPDX}"\n\n'
+            f"[[{crate}.clarify.files]]\n"
+            'path = "../LICENSE"\n'
+            f'checksum = "{EASYTIER_LICENSE_SHA256}"\n'
+        )
+    return config + "\n" + "\n".join(clarifications)
+
+
+
+def _validate_easytier_license_scope(easytier, build, metadata_json):
+    if build.get("easytier_source_commit") != EASYTIER_LICENSE_SOURCE_COMMIT:
+        raise AuditIncomplete("EasyTier license clarification does not match the pinned source commit")
+    if not isinstance(metadata_json, dict):
+        raise AuditIncomplete("invalid selected EasyTier package metadata")
+    packages = metadata_json.get("packages")
+    if not isinstance(packages, list):
+        raise AuditIncomplete("missing selected EasyTier package metadata")
+    matches = {name: [] for name in EASYTIER_LICENSE_PACKAGES}
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        name = package.get("name")
+        if isinstance(name, str) and name in matches:
+            matches[name].append(package)
+    if any(len(matches[name]) != 1 for name in EASYTIER_LICENSE_PACKAGES):
+        raise AuditIncomplete("EasyTier license clarification package scope is ambiguous")
+    for name in EASYTIER_LICENSE_PACKAGES:
+        package = matches[name][0]
+        if package.get("version") != EASYTIER_LICENSE_VERSION:
+            raise AuditIncomplete(f"EasyTier license clarification version mismatch for {name}")
+        manifest_path = package.get("manifest_path")
+        expected_manifest = (Path(easytier) / name / "Cargo.toml").resolve()
+        if not isinstance(manifest_path, str) or Path(manifest_path).resolve() != expected_manifest:
+            raise AuditIncomplete(f"EasyTier license clarification source mismatch for {name}")
+
 
 def _sha256(data):
     return hashlib.sha256(data).hexdigest()
@@ -224,6 +277,120 @@ def _parse_go_license_report(report):
     return rows
 
 
+def _core_report_path(core, value):
+    if not isinstance(value, str) or not value or value == "Unknown":
+        return None
+    root = Path(core).resolve()
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    try:
+        resolved = candidate.resolve(strict=True)
+        relative = resolved.relative_to(root)
+    except (OSError, ValueError) as error:
+        raise AuditIncomplete("core license report path is outside the exact source checkout") from error
+    if not resolved.is_file():
+        raise AuditIncomplete("core license report path is not a regular source file")
+    return relative.as_posix()
+
+
+def _committed_source_blob(core, commit, path, data):
+    expected = _run(["git", "rev-parse", f"{commit}:{path}"], core, os.environ).strip()
+    actual = _git_blob(data)
+    if expected != actual:
+        raise AuditIncomplete(f"source bytes do not match the selected Git commit: {path}")
+    return expected
+
+
+def _core_source_notices(core, build, modules, rows):
+    commit = build.get("core_source_commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise AuditIncomplete("missing exact core source commit for Go license rows")
+    _validate_checkout(core, commit, "core source")
+    module = modules.get(_CORE_MODULE_PATH)
+    if not isinstance(module, dict):
+        raise AuditIncomplete("main Mihomo module is missing from go list -m")
+    expected_version = module.get("Version") or "Unknown"
+
+    tree_paths = _run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        core,
+        os.environ,
+    ).splitlines()
+    license_like = {
+        path for path in tree_paths
+        if Path(path).name.upper().startswith(("LICENSE", "COPYING", "NOTICE"))
+    }
+    expected_paths = set(_CORE_LICENSE_IDS) | {_CORE_ATTRIBUTION_PATH}
+    if license_like != expected_paths:
+        raise AuditIncomplete("core source license/notice file set changed and needs review")
+
+    core_rows = []
+    fake_name = _CORE_MODULE_PATH + "/transport/hysteria/conns/faketcp"
+    for row in rows:
+        name = row.get("Name")
+        if not isinstance(name, str) or not (name == _CORE_MODULE_PATH or name.startswith(_CORE_MODULE_PATH + "/")):
+            continue
+        if row.get("Version") != expected_version:
+            raise AuditIncomplete("go-licenses main-module version differs from the selected source")
+        path = _core_report_path(core, row.get("LicensePath"))
+        if path in _CORE_LICENSE_IDS:
+            source_bytes = _read(Path(core) / path, f"core license file {path}")
+            source_text = source_bytes.decode("utf-8")
+            if row.get("LicenseName") not in _CORE_LICENSE_IDS[path] or row.get("LicenseText") != source_text:
+                raise AuditIncomplete(f"go-licenses row does not match exact core license source: {path}")
+            row["SourcePath"] = path
+            row["SourceRevision"] = commit
+            row["SourceGitBlob"] = _committed_source_blob(core, commit, path, source_bytes)
+            core_rows.append(row)
+        elif path == _CORE_ATTRIBUTION_PATH:
+            source_bytes = _read(Path(core) / path, "faketcp attribution")
+            source_text = source_bytes.decode("utf-8")
+            if source_text.strip() != _CORE_ATTRIBUTION_TEXT:
+                raise AuditIncomplete("faketcp attribution text changed and needs review")
+            if not isinstance(row.get("LicenseName"), str) or row["LicenseName"].lower() not in {"unknown", "noassertion", "unlicensed"}:
+                raise AuditIncomplete("faketcp attribution was unexpectedly classified as a license")
+            if row.get("LicenseText") not in {"", source_text}:
+                raise AuditIncomplete("faketcp unknown-license row has unexpected text")
+            row["SourcePath"] = path
+            row["SourceRevision"] = commit
+            row["SourceGitBlob"] = _committed_source_blob(core, commit, path, source_bytes)
+        elif (
+            path is None
+            and name == fake_name
+            and isinstance(row.get("LicenseName"), str)
+            and row["LicenseName"].lower() in {"unknown", "noassertion", "unlicensed"}
+            and row.get("LicenseText") == ""
+        ):
+            # go-licenses represents a package with no recognized license using Unknown;
+            # the exact package's attribution file is independently included below.
+            pass
+        else:
+            raise AuditIncomplete(f"unmapped go-licenses row for main Mihomo module: {name}")
+
+    for path, allowed_spdx in _CORE_LICENSE_IDS.items():
+        matches = [row for row in core_rows if row.get("SourcePath") == path]
+        if len(matches) != 1 or matches[0].get("LicenseName") not in allowed_spdx:
+            raise AuditIncomplete(f"missing or ambiguous go-licenses coverage for core source file: {path}")
+
+    attribution_path = Path(core) / _CORE_ATTRIBUTION_PATH
+    attribution_bytes = _read(attribution_path, "faketcp attribution")
+    attribution_text = attribution_bytes.decode("utf-8")
+    if attribution_text.strip() != _CORE_ATTRIBUTION_TEXT:
+        raise AuditIncomplete("faketcp attribution text changed and needs review")
+    attribution_blob = _committed_source_blob(
+        core, commit, _CORE_ATTRIBUTION_PATH, attribution_bytes
+    )
+    return [{
+        "name": "faketcp attribution; go-licenses reported Unknown (not a license)",
+        "text": attribution_text,
+        "sha256": _sha256(attribution_bytes),
+        "source_path": _CORE_ATTRIBUTION_PATH,
+        "source_revision": commit,
+        "source_git_blob": attribution_blob,
+    }]
+
+
 def _download_go_license_tool(go, root, env, output_dir):
     host_goos = "windows" if os.name == "nt" else "linux"
     host_arch = "arm64" if platform.machine().lower() in {"aarch64", "arm64"} else "amd64"
@@ -308,6 +475,19 @@ def _go_rows(core, go, build, root, env):
         selected,
     )
     rows = _parse_go_license_report(report)
+    print(
+        "go-licenses rows: "
+        + json.dumps([
+            {
+                "Name": row.get("Name"),
+                "Version": row.get("Version"),
+                "LicenseName": row.get("LicenseName"),
+            }
+            for row in sorted(rows, key=lambda item: (item.get("Name", ""), item.get("LicenseName", "")))
+        ], sort_keys=True),
+        file=sys.stderr,
+    )
+    core_notices = _core_source_notices(core, build, selected_modules, rows)
 
     embedded = _wintun_record(selected_modules)
     wintun_bindings = _wintun_binding_component(selected_modules, package_rows)
@@ -338,6 +518,7 @@ def _go_rows(core, go, build, root, env):
         "modules_json": modules,
         "packages_json": packages,
         "license_report": rows,
+        "core_source_notices": core_notices,
         "manual_overrides": overrides,
         "required_manual_overrides": [
             {"module": item["module"], "version": item["version"]}
@@ -717,6 +898,7 @@ def _rust_rows(easytier, build, root, env, output_dir):
         env,
     )
     metadata_json = json.loads(metadata)
+    _validate_easytier_license_scope(easytier, build, metadata_json)
     about_config = Path(output_dir) / "cargo-about.toml"
     about_config.write_text(_cargo_about_config(target), encoding="utf-8")
     about_binary, cargo_about_record = _cargo_tool(cargo, root, env)

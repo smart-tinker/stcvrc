@@ -1,8 +1,34 @@
 # STCVRC dependency licenses and source provenance
 
-This record covers the STCVRC core executable distributed in the accepted 1.19.29 release, published 1.19.33 RC2, and the current draft RC7 MIT-LZO candidate. The stock Clash Verge Rev UI/installer is not redistributed here. Profiles, credentials, certificates, and runtime/deployment state are out of scope.
+This record distinguishes the historical 1.19.29, 1.19.33 RC1/RC2 and RC7 core records from the fresh-source RC8 package contract. The stock Clash Verge Rev UI/installer is not redistributed here. Profiles, credentials, certificates, and runtime/deployment state are out of scope.
 
 The machine-readable pins, reference asset hashes, source commits, toolchains and build flags are in [license-provenance.json](license-provenance.json).
+
+## Fresh RC8 inputs and review packet
+
+The current recipe is [tools/source-build/ci.sh](../tools/source-build/ci.sh). It rebuilds
+[the selected STCVRC source](https://github.com/smart-tinker/stcvrc/tree/a884ad53a3999dd35acab979e0bb040c47f6dbc9)
+against Mihomo v1.19.33 and regenerates EasyTier Go bindings and WASM from
+[EasyTier 3463190](https://github.com/EasyTier/EasyTier/tree/3463190838eb642ba8324c6a4011acdea52495a8).
+The actual core graph is tested with that local module replacement. No previous
+STCVRC executable or embedded WASM is a build input.
+
+The manual main-branch assembler targets a new `stcvrc-1.19.33-rc.8` draft only.
+Its review packet contains the fresh Windows EXE, `RC-MANIFEST.json`,
+`SOURCE-BUILD.json`, `THIRD-PARTY-NOTICES.txt`,
+`THIRD-PARTY-SOURCES.json`, `LICENSE` and `SHA256SUMS`.
+The manifest records measured bytes, exact sources, changed source blobs,
+toolchains, flags and the successful native-job identity. A second fresh native
+Windows build must match that EXE/WASM before assembly. The tag metadata and
+actual Git tag ref are checked separately. See [the CI layout and assembly
+contract](RELEASING.md).
+
+The MIT decoder and CVR 2.5.10 choices were already approved. Human acceptance of
+the resulting exact notice/source packet is separate from those implementation
+choices. Historical GPL-2.0-only LZO and unavailable RC7 WASM-source evidence are
+recorded limitations, not facts retroactively cleared by a fresh RC8 build.
+The actual successful run and draft-asset readback are linked from
+[issue #7](https://github.com/smart-tinker/stcvrc/issues/7) when available.
 
 ## Source and build mapping
 
@@ -10,7 +36,7 @@ The machine-readable pins, reference asset hashes, source commits, toolchains an
 | --- | --- | --- | --- | --- |
 | Accepted 1.19.29 | [release](https://github.com/smart-tinker/stcvrc/releases/tag/v1.19.29-stcvrc.1); core SHA256 71195c943be67017c5646ea2021734bc122fa83c58a408ab6713a2b25cb6b62b | [release source commit](https://github.com/smart-tinker/stcvrc/tree/7b93ba0e1439e7f27629743bed550d99e7f9c9a4); code delta [9e235082](https://github.com/smart-tinker/stcvrc/commit/9e23508270fed96e346fd4f68447e90401669131) | Mihomo [v1.19.29](https://github.com/MetaCubeX/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb) | Go 1.26.5; Windows/amd64; with_gvisor |
 | Candidate 1.19.33 RC2 | [release](https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.2); core SHA256 6a35ab8e2db4c0171f74563aded55949d10a3dcc5ad9c1c1b5e155ab2a2986c7 | [source commit](https://github.com/smart-tinker/stcvrc/tree/d888dfad5e785217778bb7515c931840d5307dd4) | Mihomo [v1.19.33](https://github.com/MetaCubeX/mihomo/tree/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8) | Go 1.26.10; Windows/amd64; with_gvisor |
-| Candidate 1.19.33 RC7 draft (MIT-LZO) | Draft release 441941273; core SHA256 d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87 | [source commit](https://github.com/smart-tinker/stcvrc/tree/086a62c3ce9a77f650786ae2eae92b68909d49e1) | Mihomo [v1.19.33](https://github.com/MetaCubeX/mihomo/tree/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8) | Go 1.26.11; Windows/amd64; with_gvisor; anchore/go-lzo v0.1.1 (MIT) |
+| Candidate 1.19.33 RC7 draft (MIT-LZO) | Draft release 442680453; core SHA256 d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87 | [source commit](https://github.com/smart-tinker/stcvrc/tree/086a62c3ce9a77f650786ae2eae92b68909d49e1) | Mihomo [v1.19.33](https://github.com/MetaCubeX/mihomo/tree/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8) | Go 1.26.11; Windows/amd64; with_gvisor; anchore/go-lzo v0.1.1 (MIT) |
 
 The accepted .29 code delta changes the OpenVPN adapter/configuration/executor and OpenVPN transport paths, plus the PassRule API-compatibility adapter and focused tests. Exact changed paths are pinned in the JSON and compared with upstream in CI. The .33 source manifest lists its patch files and hashes; CI verifies each file and checks that these are exactly the source-code differences from upstream.
 
@@ -30,15 +56,15 @@ For the generated package the collector uses the exact Go build graph and pinned
 
 The generator does not decide legal compliance. The human review still needs to assess redistribution and source-offer obligations before issue #7 can close. Full generated files are intended for the new candidate's release package; CI logs report only counts and file hashes.
 
-## Current RC7 candidate evidence — 2026-11-12
+## Historical RC7 evidence — 2026-11-12
 
-The existing draft release is [RC7](https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.7), GitHub Release ID 442680453. It targets source commit `086a62c3ce9a77f650786ae2eae92b68909d49e1` and contains the core asset with SHA256 `d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87`. Its canonical source, build, and asset records are in [license-provenance.json](license-provenance.json). The RC7 draft predates the notice/source package work in this PR; it does not contain `THIRD-PARTY-NOTICES.txt` or `THIRD-PARTY-SOURCES.json`.
+The existing draft release is [RC7](https://github.com/smart-tinker/stcvrc/releases/tag/stcvrc-1.19.33-rc.7), GitHub Release ID 442680453. Its release metadata targets `9436a80b8805a6706931ea2fbb8c5311c7767a72`; its core records source commit `086a62c3ce9a77f650786ae2eae92b68909d49e1` and has the core asset with SHA256 `d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87`. Its canonical source, build, and asset records are in [license-provenance.json](license-provenance.json). The RC7 draft predates the notice/source package work in this PR; it does not contain `THIRD-PARTY-NOTICES.txt` or `THIRD-PARTY-SOURCES.json`.
 
 The recorded RC7 EasyTier Go module points to public source commit `3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253`, while its embedded WASM provenance names Rust source commit `63519db2b5f2a6a1b9b7f20905f036dab54eb829` and WASM SHA256 `8b82f37d62fba2ffe8e256386096fddf448d4261d51c495d5bd97cd11bbb24a0`. The named Rust commit is not available from the public EasyTier repository. Clean rebuilds from the available artifact-introduction source and the later Go-module source produced different WASM hashes; those results do not prove the source of the RC7 embedded WASM. This evidence is recorded in [issue #7](https://github.com/smart-tinker/stcvrc/issues/7#issuecomment-6823998078). The old RC7 mapping remains unproven.
 
 The old RC7 mapping cannot be repaired by changing its declared digest: available-source rebuilds did not reproduce its embedded WASM bytes. A subsequent candidate must instead use the freshly generated WASM from an exact public EasyTier source commit, replace the module with that source-built tree, and rebuild/test the core from scratch. The collector binds notices to that new build report; no old binary or WASM is reused.
 
-This PR adds the source-build collector and deterministic renderer. The workflow still needs to invoke it after the fresh source build and pass a successful run before the generated package is verified for a candidate. RC7 remains outside this generated package.
+The required source-built license and native Windows jobs invoke the collector after a fresh build. Draft assembly requires their successful results and reads back every new asset. A passing collector, matching native-tested bytes, and the actual draft readback are separate evidence; the implementation alone proves none of them. RC7 remains outside this generated package.
 
 Issue #7 remains open. The GPL-2.0-only `go-lzo` dependency is recorded as a historical dependency risk for the accepted .29 build and RC2, without a finding of infringement. The RC7 candidate uses the separately pinned MIT decoder. No overall legal-compliance conclusion is asserted.
 

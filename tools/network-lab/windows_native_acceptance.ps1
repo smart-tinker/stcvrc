@@ -77,6 +77,142 @@ function Receive-CdpMessage {
     } while (-not $result.EndOfMessage)
     return ($builder.ToString() | ConvertFrom-Json)
 }
+function Get-CdpEvaluationError {
+    param($Result)
+    if ($null -eq $Result) { return $null }
+    $detailsProperty = $Result.PSObject.Properties['exceptionDetails']
+    if (-not $detailsProperty -or $null -eq $detailsProperty.Value) { return $null }
+    $details = $detailsProperty.Value
+    $exception = $details.exception
+    $exceptionMessage = $null
+    if ($exception) {
+        $descriptionProperty = $exception.PSObject.Properties['description']
+        if ($descriptionProperty -and -not [string]::IsNullOrWhiteSpace([string]$descriptionProperty.Value)) {
+            $exceptionMessage = [string]$descriptionProperty.Value
+        } else {
+            $valueProperty = $exception.PSObject.Properties['value']
+            if ($valueProperty) {
+                if ($null -eq $valueProperty.Value) {
+                    $exceptionMessage = 'null'
+                } elseif ($valueProperty.Value -is [string]) {
+                    $exceptionMessage = [string]$valueProperty.Value
+                } else {
+                    $exceptionMessage = ConvertTo-Json -InputObject $valueProperty.Value -Compress -Depth 12
+                }
+            } else {
+                $exceptionMessage = ConvertTo-Json -InputObject $exception -Compress -Depth 12
+            }
+        }
+    } else {
+        $exceptionMessage = 'no exception object'
+    }
+    return "$($details.text); exception=$exceptionMessage"
+}
+function Test-CdpEvaluationErrorFormatting {
+    $primitive = [pscustomobject]@{
+        exceptionDetails = [pscustomobject]@{
+            text = 'Uncaught (in promise)'
+            exception = [pscustomobject]@{ type = 'string'; value = 'primitive fixture rejection' }
+        }
+    }
+    if ((Get-CdpEvaluationError -Result $primitive) -ne 'Uncaught (in promise); exception=primitive fixture rejection') {
+        throw 'CDP exception formatting did not preserve a primitive exception.value.'
+    }
+    $described = [pscustomobject]@{
+        exceptionDetails = [pscustomobject]@{
+            text = 'Uncaught'
+            exception = [pscustomobject]@{ type = 'object'; description = 'Error: fixture rejection' }
+        }
+    }
+    if ((Get-CdpEvaluationError -Result $described) -ne 'Uncaught; exception=Error: fixture rejection') {
+        throw 'CDP exception formatting did not preserve an exception.description.'
+    }
+    if ($null -ne (Get-CdpEvaluationError -Result ([pscustomobject]@{ result = [pscustomobject]@{ value = $true } }))) {
+        throw 'CDP exception formatting treated a successful evaluation as an exception.'
+    }
+}
+Test-CdpEvaluationErrorFormatting
+
+function Get-CdpFailureSnapshot {
+    param([string]$Command)
+    $snapshot = [ordered]@{
+        command = $Command
+        websocketState = if ($script:cdp) { [string]$script:cdp.State } else { 'missing' }
+        gui = $null
+        devtools = $null
+    }
+    try {
+        if ($script:guiProcess) {
+            $script:guiProcess.Refresh()
+            $gui = [ordered]@{
+                pid = [int]$script:guiProcess.Id
+                alive = (-not [bool]$script:guiProcess.HasExited)
+                windowTitle = [string]$script:guiProcess.MainWindowTitle
+                windowHandle = [string]$script:guiProcess.MainWindowHandle
+            }
+            if ($script:guiProcess.HasExited) { $gui.exitCode = [int]$script:guiProcess.ExitCode }
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($script:guiProcessId)" -ErrorAction Stop
+            if ($process) {
+                $gui.path = [string]$process.ExecutablePath
+                $gui.parentPid = [int]$process.ParentProcessId
+                if ($gui.path -and (Test-Path -LiteralPath $gui.path -PathType Leaf)) {
+                    $gui.sha256 = (Get-FileHash -LiteralPath $gui.path -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+            }
+            $snapshot.gui = $gui
+        }
+    } catch {
+        $snapshot.guiReadError = $_.Exception.Message
+    }
+    try {
+        if ($script:devtoolsPort -gt 0) {
+            $pages = @(Invoke-RestMethod -Uri "http://127.0.0.1:$($script:devtoolsPort)/json/list" -TimeoutSec 2)
+            $pageTargets = @($pages | Where-Object { $_.type -eq 'page' })
+            $snapshot.devtools = [ordered]@{
+                available = $true
+                pageCount = $pageTargets.Count
+                pages = @($pageTargets | ForEach-Object { [ordered]@{ title = [string]$_.title; type = [string]$_.type } })
+            }
+        }
+    } catch {
+        $snapshot.devtools = [ordered]@{ available = $false; error = $_.Exception.Message }
+    }
+    return (ConvertTo-Json -InputObject $snapshot -Compress -Depth 8)
+}
+
+function Request-CvrGuiExit {
+    if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected for exit.' }
+    if (-not $script:guiProcess -or $script:guiProcessId -le 0) { throw 'The exact CVR GUI process is unavailable for exit verification.' }
+    $script:guiProcess.Refresh()
+    if ($script:guiProcess.HasExited) { throw 'The verified GUI exited before the exit_app request.' }
+    $script:cdpId++
+    $expression = "(window.__TAURI_INTERNALS__.invoke('exit_app',{}),'exit-requested')"
+    $packet = @{ id=$script:cdpId; method='Runtime.evaluate'; params=@{ expression=$expression; awaitPromise=$false; returnByValue=$true; userGesture=$true } } | ConvertTo-Json -Compress -Depth 8
+    $bytes = [Text.Encoding]::UTF8.GetBytes($packet)
+    try {
+        $null = $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+    } catch {
+        $snapshot = Get-CdpFailureSnapshot -Command 'exit_app'
+        throw "Could not send CVR exit_app request: $($_.Exception.Message); snapshot=$snapshot"
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $script:guiProcess.Refresh()
+        if ($script:guiProcess.HasExited) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    $script:guiProcess.Refresh()
+    if (-not $script:guiProcess.HasExited) {
+        $snapshot = Get-CdpFailureSnapshot -Command 'exit_app'
+        throw "CVR exit_app did not terminate GUI PID $script:guiProcessId within 45 seconds; snapshot=$snapshot"
+    }
+    $exitCode = [int]$script:guiProcess.ExitCode
+    if ($exitCode -ne 0) { throw "CVR exit_app terminated GUI PID $script:guiProcessId with exit code $exitCode." }
+    Write-Host "CVR exit_app completed; GUI PID $script:guiProcessId exited with code 0."
+    $script:cdp.Dispose()
+    $script:cdp = $null
+}
+
 function Invoke-CvrCommand {
     param([string]$Command, [hashtable]$Payload = @{})
     if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected.' }
@@ -85,14 +221,20 @@ function Invoke-CvrCommand {
     $expression = "(async()=>await window.__TAURI_INTERNALS__.invoke('$Command',$jsonArgs))()"
     $packet = @{ id=$script:cdpId; method='Runtime.evaluate'; params=@{ expression=$expression; awaitPromise=$true; returnByValue=$true; userGesture=$true } } | ConvertTo-Json -Compress -Depth 20
     $bytes = [Text.Encoding]::UTF8.GetBytes($packet)
-    $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+    $null = $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
     while ($true) {
-        $reply = Receive-CdpMessage
+        try {
+            $reply = Receive-CdpMessage
+        } catch {
+            $exceptionType = $_.Exception.GetType().FullName
+            $snapshot = Get-CdpFailureSnapshot -Command $Command
+            throw "CDP receive failed while awaiting Tauri command '$Command' ($exceptionType): $($_.Exception.Message); snapshot=$snapshot"
+        }
         if ($reply.id -ne $script:cdpId) { continue }
-        if ($reply.result.exceptionDetails) {
-            $details = $reply.result.exceptionDetails
-            $detailsJson = ConvertTo-Json -InputObject $details -Compress -Depth 12
-            throw "CVR Tauri command $Command failed: $($details.text); exception=$($details.exception.description); details=$detailsJson"
+        $evaluationError = Get-CdpEvaluationError -Result $reply.result
+        if ($null -ne $evaluationError) {
+            $detailsJson = ConvertTo-Json -InputObject $reply.result.exceptionDetails -Compress -Depth 12
+            throw "CVR Tauri command $Command failed: $evaluationError; details=$detailsJson"
         }
         if ($reply.result.result.PSObject.Properties.Name -contains 'value') { return $reply.result.result.value }
         return $null
@@ -224,14 +366,82 @@ function Assert-LiveCoreIdentity {
 }
 function Assert-LiveSidecarCoreIdentity {
     $state = Invoke-CvrCommand -Command 'get_runtime_state'
-    if (([string]$state.mode).ToLowerInvariant() -ne 'sidecar') { throw "Expected the explicitly isolated sidecar mode, got $($state.mode)." }
+    if (([string]$state.mode).ToLowerInvariant() -ne 'sidecar') { throw "Expected the explicitly isolated sidecar mode, got $($state.mode); snapshot=$(Get-NativeStateSnapshot -Phase 'core identity')." }
     $allCores = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'")
     if ($allCores.Count -ne 1) { throw "Expected exactly one live sidecar core process; found $($allCores.Count)." }
     $path = [IO.Path]::GetFullPath([string]$allCores[0].ExecutablePath)
     if (-not [StringComparer]::OrdinalIgnoreCase.Equals($path,[IO.Path]::GetFullPath($installedCore))) { throw "Recovered/seeded core path differs from the installed custom core: $path" }
     if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live sidecar core SHA256 mismatch.' }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
-}function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
+}
+function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
+function Get-NativeStateSnapshot {
+    param([string]$Phase)
+    $snapshot = [ordered]@{
+        phase = $Phase
+        currentProfileUid = $null
+        fixtureProfiles = @()
+        runtimeMode = $null
+        runtimeRuleLines = @()
+        service = $null
+        coreProcesses = @()
+    }
+    try {
+        $profiles = Invoke-CvrCommand -Command 'get_profiles'
+        $snapshot.currentProfileUid = [string]$profiles.current
+        foreach ($name in @('native-fixture-a','native-fixture-b')) {
+            foreach ($item in @($profiles.items | Where-Object { $_.name -eq $name })) {
+                $snapshot.fixtureProfiles += [ordered]@{
+                    name = [string]$item.name
+                    uid = [string]$item.uid
+                    selected = @($item.selected | ForEach-Object {
+                        [ordered]@{ group = [string]$_.name; now = [string]$_.now }
+                    })
+                }
+            }
+        }
+    } catch { $snapshot.profilesError = $_.Exception.Message }
+    try {
+        $state = Invoke-CvrCommand -Command 'get_runtime_state'
+        $snapshot.runtimeMode = [string]$state.mode
+        if ($state.PSObject.Properties.Name -contains 'status') { $snapshot.runtimeStatus = [string]$state.status }
+    } catch { $snapshot.runtimeStateError = $_.Exception.Message }
+    try {
+        $yaml = Get-RuntimeYaml
+        $snapshot.runtimeRuleLines = @($yaml -split '\r?\n' | Where-Object { $_ -match '(^\s*rules:|native-fixture-[ab]\.invalid|native-fixture-[ab])' } | Select-Object -First 20)
+    } catch { $snapshot.runtimeYamlError = $_.Exception.Message }
+    try {
+        $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+        if ($svc -or $serviceRecord) {
+            $serviceNameValue = if ($serviceRecord) { [string]$serviceRecord.Name } else { [string]$svc.Name }
+            $serviceStatus = if ($svc) { [string]$svc.Status } else { $null }
+            $serviceState = if ($serviceRecord) { [string]$serviceRecord.State } else { $null }
+            $servicePid = if ($serviceRecord) { [int]$serviceRecord.ProcessId } else { 0 }
+            $snapshot.service = [ordered]@{
+                name = $serviceNameValue
+                status = $serviceStatus
+                state = $serviceState
+                processId = $servicePid
+            }
+        }
+    } catch { $snapshot.serviceError = $_.Exception.Message }
+    try {
+        foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe' OR Name='verge-mihomo-alpha.exe'" -ErrorAction Stop)) {
+            $hash = $null
+            if ($process.ExecutablePath -and (Test-Path -LiteralPath $process.ExecutablePath -PathType Leaf)) {
+                $hash = (Get-FileHash -LiteralPath $process.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $snapshot.coreProcesses += [ordered]@{
+                name = [string]$process.Name
+                pid = [int]$process.ProcessId
+                path = [string]$process.ExecutablePath
+                sha256 = $hash
+            }
+        }
+    } catch { $snapshot.coreProcessError = $_.Exception.Message }
+    return (ConvertTo-Json -InputObject $snapshot -Compress -Depth 8)
+}
 function Wait-RuntimeRule {
     param([string]$Rule)
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -364,16 +574,22 @@ function Assert-FixtureNodeSelection {
         if ($actual -eq $ExpectedNode) { break }
         Start-Sleep -Milliseconds 300
     }
-    if ($actual -ne $ExpectedNode) { throw "$Phase core selected GLOBAL=$actual, expected $ExpectedNode for $ProfileName." }
+    if ($actual -ne $ExpectedNode) { throw "$Phase core selected GLOBAL=$actual, expected $ExpectedNode for $ProfileName; snapshot=$(Get-NativeStateSnapshot -Phase $Phase)." }
     $profile = Get-FixtureProfile -Name $ProfileName
     $matches = @($profile.selected | Where-Object { $_.name -eq 'GLOBAL' })
     if ($matches.Count -ne 1 -or [string]$matches[0].now -ne $ExpectedNode) {
-        throw "$Phase profiles.yaml did not retain GLOBAL=$ExpectedNode for $ProfileName."
+        $persisted = @($profile.selected | ForEach-Object { [ordered]@{ group=[string]$_.name; now=[string]$_.now } } | ConvertTo-Json -Compress -Depth 4)
+        throw "$Phase live core selected GLOBAL=$actual but profiles.yaml selected state was $persisted; snapshot=$(Get-NativeStateSnapshot -Phase $Phase)."
     }
 }
 function Select-FixtureNode {
     param([string]$Node, [string]$ProfileName)
-    [void](Invoke-CvrCommand -Command 'switch_proxy_node' -Payload @{ groupName='GLOBAL'; proxyName=$Node; unfix=$false })
+    $selectionResult = Invoke-CvrCommand -Command 'plugin:mihomo|select_node_for_group' -Payload @{ groupName='GLOBAL'; node=$Node }
+    $selectionJson = if ($null -eq $selectionResult) { 'null' } else { ConvertTo-Json -InputObject $selectionResult -Compress -Depth 8 }
+    Write-Host "select_node_for_group GLOBAL=$Node result=$selectionJson."
+    $recordResult = Invoke-CvrCommand -Command 'record_selected_node' -Payload @{ groupName='GLOBAL'; node=$Node }
+    $recordJson = if ($null -eq $recordResult) { 'null' } else { ConvertTo-Json -InputObject $recordResult -Compress -Depth 8 }
+    Write-Host "record_selected_node GLOBAL=$Node result=$recordJson."
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ((Get-GlobalNodeSelection) -eq $Node) { break }
@@ -383,9 +599,33 @@ function Select-FixtureNode {
 }
 function Select-FixtureProfile {
     param([string]$Uid, [string]$AllowName, [string]$RejectName)
-    [void](Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } })
-    $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
-    if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $attempt = 0
+    $outcome = $null
+    $status = $null
+    while ($true) {
+        $attempt++
+        $outcome = Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } }
+        if ($null -eq $outcome -or $outcome -is [array] -or -not ($outcome.PSObject.Properties.Name -contains 'status')) {
+            throw "patch_profiles_config uid=$Uid returned an unexpected result shape on attempt $attempt; snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+        }
+        $status = ([string]$outcome.status).ToLowerInvariant()
+        Write-Host "patch_profiles_config uid=$Uid attempt=$attempt status=$status."
+        if ($status -eq 'valid') { break }
+        if ($status -ne 'busy') {
+            throw "patch_profiles_config uid=$Uid returned non-retryable status=$status on attempt $attempt; snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+        }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            throw "patch_profiles_config uid=$Uid remained busy for 30 seconds after $attempt attempts; snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    try {
+        $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
+        if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
+    } catch {
+        throw "Profile selection validated (uid=$Uid, attempts=$attempt), but loaded runtime rules were not confirmed: $($_.Exception.Message) snapshot=$(Get-NativeStateSnapshot -Phase 'runtime rule wait')."
+    }
 }
 function Assert-SelectedProfileReady {
     param([string[]]$OriginalDefaults, [string[]]$OriginalDns, [string]$Phase)
@@ -500,8 +740,8 @@ function Test-RejectedFixture {
 $baselineDefaults = @(Get-DefaultRouteSnapshot)
 $baselineDns = @(Get-PhysicalDnsSnapshot)
 if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw 'Clean-runner precondition failed: synthetic route already exists.' }
-$script:cdp=$null; $script:cdpId=0; $gui=$null; $server=$null
-$devtoolsPort=Get-FreeTcpPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort
+$script:cdp=$null; $script:cdpId=0; $script:guiProcess=$null; $script:guiProcessId=0; $script:devtoolsPort=0; $gui=$null; $server=$null
+$devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort
 $profileDnsPort=Get-FreeTcpPort; $appDnsPort=Get-FreeTcpPort
 $proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
 $script:dnsLogPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-dns-$Phase.log"
@@ -562,6 +802,7 @@ try {
     if (-not $serverReady) { throw 'Synthetic HTTP/DNS server did not become ready.' }
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$devtoolsPort"
     $gui=Start-Process -FilePath $guiPath -PassThru -WindowStyle Normal
+    $script:guiProcess=$gui; $script:guiProcessId=[int]$gui.Id
     $deadline=[DateTime]::UtcNow.AddSeconds(40); $windowReady=$false
     while ([DateTime]::UtcNow -lt $deadline) {
         $gui.Refresh()
@@ -578,7 +819,7 @@ try {
     }
     if (-not $target) { throw 'GUI WebView2 DevTools page was unavailable; real Tauri commands cannot be asserted.' }
     $script:cdp=[Net.WebSockets.ClientWebSocket]::new()
-    $script:cdp.ConnectAsync([Uri]$target.webSocketDebuggerUrl,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
+    $null = $script:cdp.ConnectAsync([Uri]$target.webSocketDebuggerUrl,[Threading.CancellationToken]::None).GetAwaiter().GetResult()
     $deadline=[DateTime]::UtcNow.AddSeconds(15); $ipcReady=$false
     while ([DateTime]::UtcNow -lt $deadline) { try { $null=Invoke-CvrCommand -Command 'get_runtime_state'; $ipcReady=$true; break } catch { Start-Sleep -Milliseconds 500 } }
     if (-not $ipcReady) { throw 'Visible GUI did not expose functioning Tauri commands over WebView2.' }
@@ -596,7 +837,7 @@ try {
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 pre-update seed'
             Write-Host '2.5.8 seeded two valid local profiles and persisted distinct GLOBAL selections before the 2.5.10 update.'
-            [void](Invoke-CvrCommand -Command 'exit_app')
+            Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
     } elseif ($Phase -eq 'recovery') {
         try {
@@ -615,7 +856,7 @@ try {
             $runtime = Get-RuntimeYaml
             if (-not $runtime.Contains('proxy-server-nameserver:') -or -not $runtime.Contains('nameserver-policy:')) { throw 'Recovered 2.5.8 core did not load the persisted profile DNS configuration.' }
             Write-Host '2.5.8 recovery launched the verified GUI and custom core, loaded preserved profiles/config, and restored each profile GLOBAL selector.'
-            [void](Invoke-CvrCommand -Command 'exit_app')
+            Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 functional recovery: $($_.Exception.Message)" }
     } else {
         try {
@@ -698,7 +939,7 @@ try {
             try {
                 [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
                 [void](Invoke-CvrCommand -Command 'uninstall_service')
-                [void](Invoke-CvrCommand -Command 'exit_app')
+                Request-CvrGuiExit
             } catch { Add-Failure "Tauri runtime cleanup: $($_.Exception.Message)" }
         }
     }

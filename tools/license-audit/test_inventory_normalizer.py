@@ -8,16 +8,48 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from collect import CARGO_ABOUT_ACCEPTED_LICENSES, _cargo_about_config
+from collect import (
+    CARGO_ABOUT_ACCEPTED_LICENSES,
+    _cargo_about_config,
+    EASYTIER_LICENSE_PACKAGES,
+    EASYTIER_LICENSE_SHA256,
+    EASYTIER_LICENSE_SOURCE_COMMIT,
+    EASYTIER_LICENSE_SPDX,
+    EASYTIER_LICENSE_VERSION,
+    _validate_easytier_license_scope,
+)
 from generate_notices import AuditIncomplete, generate_notices
 from normalize_inventory import main as normalize_inventory_cli, normalize_inventory
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "tool-output-bundle.json"
+EASYTIER_SOURCE_FIXTURE = FIXTURE.parent / "easytier-source"
+
+
+def git_blob(text):
+    data = text.encode("utf-8")
+    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data).hexdigest()
 
 
 def load_bundle():
     bundle = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    bundle["rust"]["source_root"] = str(EASYTIER_SOURCE_FIXTURE)
+    for package in bundle["rust"]["metadata"]["packages"]:
+        if package.get("source") is None:
+            package["manifest_path"] = str(EASYTIER_SOURCE_FIXTURE / "easytier-core" / "Cargo.toml")
+            if package.get("license_file") is not None:
+                package["license_file"] = str(EASYTIER_SOURCE_FIXTURE / "LICENSE")
+    local_metadata = next(
+        package for package in bundle["rust"]["metadata"]["packages"]
+        if package.get("source") is None
+    )
+    local_metadata.pop("license", None)
+    local_metadata["license_file"] = str(EASYTIER_SOURCE_FIXTURE / "LICENSE")
+    bundle["rust"]["about"]["licenses"][0]["source_path"] = "../LICENSE"
+    for crate in bundle["rust"]["about"]["crates"]:
+        if crate["package"].get("source") is None:
+            crate["package"]["manifest_path"] = str(EASYTIER_SOURCE_FIXTURE / "easytier-core" / "Cargo.toml")
+            crate["package"].pop("license", None)
     for notice in bundle.get("go", {}).get("embedded_assets", []):
         text = notice.get("terms_text", "")
         notice["terms_sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -39,17 +71,20 @@ def add_core_source_license_rows(bundle):
     root_text = "Fixture GPL terms.\\nCopyright (c) Mihomo Fixture\\n"
     kcptun_text = "Fixture MIT terms.\\nCopyright (c) kcptun Fixture\\n"
     attribution = "Grabbed from https://github.com/xtaci/tcpraw with modifications\\n"
+    root_blob = git_blob(root_text)
+    kcptun_blob = git_blob(kcptun_text)
+    attribution_blob = git_blob(attribution)
     bundle["go"]["license_report"].extend([
         {
             "Name": core,
             "Version": "Unknown",
             "LicensePath": "LICENSE",
             "LicenseURL": "UNKNOWN",
-            "LicenseName": "GPL-3.0-or-later",
+            "LicenseName": "GPL-3.0",
             "LicenseText": root_text,
             "SourcePath": "LICENSE",
             "SourceRevision": commit,
-            "SourceGitBlob": "a" * 40,
+            "SourceGitBlob": root_blob,
         },
         {
             "Name": core + "/transport/kcptun",
@@ -60,7 +95,7 @@ def add_core_source_license_rows(bundle):
             "LicenseText": kcptun_text,
             "SourcePath": "transport/kcptun/LICENSE.md",
             "SourceRevision": commit,
-            "SourceGitBlob": "b" * 40,
+            "SourceGitBlob": kcptun_blob,
         },
         {
             "Name": core + "/transport/hysteria/conns/faketcp",
@@ -71,23 +106,48 @@ def add_core_source_license_rows(bundle):
             "LicenseText": "",
             "SourcePath": "transport/hysteria/conns/faketcp/LICENSE",
             "SourceRevision": commit,
-            "SourceGitBlob": "c" * 40,
+            "SourceGitBlob": attribution_blob,
         },
     ])
     bundle["go"]["core_source_notices"] = [
         {
-            "name": "faketcp upstream attribution (not a license)",
+            "name": "faketcp attribution; go-licenses reported Unknown (not a license)",
             "text": attribution,
             "sha256": hashlib.sha256(attribution.encode("utf-8")).hexdigest(),
             "source_path": "transport/hysteria/conns/faketcp/LICENSE",
             "source_revision": commit,
-            "source_git_blob": "c" * 40,
+            "source_git_blob": attribution_blob,
         }
     ]
     return bundle
 
 
 class ToolOutputNormalizationTests(unittest.TestCase):
+    def test_local_rust_license_file_maps_to_exact_easy_tier_source_and_omits_declared_license(self):
+        bundle = load_bundle()
+        inventory = normalize_inventory(bundle)
+        component = next(item for item in inventory["components"] if item["name"] == "easytier-core")
+        license_record = component["licenses"][0]
+        commit = bundle["build"]["easytier_source_commit"]
+
+        self.assertNotIn("declared_license", component)
+        self.assertEqual(license_record["source_url"], f"https://github.com/EasyTier/EasyTier/blob/{commit}/LICENSE")
+        self.assertEqual(license_record["source_revision"], commit)
+        self.assertEqual(license_record["source_path"], "LICENSE")
+        self.assertEqual(
+            license_record["source_git_blob"],
+            git_blob("Fixture LGPL license text.\n"),
+        )
+
+    def test_rejects_local_rust_license_path_outside_pinned_source_tree(self):
+        bundle = load_bundle()
+        with tempfile.TemporaryDirectory() as outside:
+            outside_license = Path(outside) / "LICENSE"
+            outside_license.write_text("Fixture LGPL license text.\n", encoding="utf-8")
+            bundle["rust"]["about"]["licenses"][0]["source_path"] = str(outside_license)
+            with self.assertRaises(AuditIncomplete):
+                normalize_inventory(bundle)
+
     def test_cargo_about_config_has_bounded_license_resolution_priority(self):
         config = tomllib.loads(_cargo_about_config("wasm32-wasip1"))
         accepted = config["accepted"]
@@ -95,10 +155,78 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(config["targets"], ["wasm32-wasip1"])
         self.assertEqual(accepted, list(CARGO_ABOUT_ACCEPTED_LICENSES))
         self.assertEqual(len(accepted), len(set(accepted)))
-        self.assertTrue({"MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "LGPL-3.0-or-later"}.issubset(accepted))
+        self.assertTrue({"MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "LGPL-3.0-only", "LGPL-3.0-or-later", "CDLA-Permissive-2.0"}.issubset(accepted))
         self.assertNotIn("NOASSERTION", accepted)
         self.assertTrue(config["ignore-build-dependencies"])
         self.assertTrue(config["ignore-dev-dependencies"])
+
+    def test_cargo_about_clarifies_exact_easytier_license_sources(self):
+        config = tomllib.loads(_cargo_about_config("wasm32-wasip1"))
+        expected = {
+            "license": EASYTIER_LICENSE_SPDX,
+            "files": [{
+                "path": "../LICENSE",
+                "checksum": EASYTIER_LICENSE_SHA256,
+            }],
+        }
+
+        self.assertEqual(
+            {name: config[name]["clarify"] for name in EASYTIER_LICENSE_PACKAGES},
+            {name: expected for name in EASYTIER_LICENSE_PACKAGES},
+        )
+        self.assertNotIn("clarify", config)
+
+    def test_easytier_license_clarification_is_bound_to_source_version_and_manifests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            easytier = Path(temp)
+            packages = []
+            for name in EASYTIER_LICENSE_PACKAGES:
+                manifest = easytier / name / "Cargo.toml"
+                manifest.parent.mkdir()
+                manifest.write_text("[package]\n", encoding="utf-8")
+                packages.append({
+                    "name": name,
+                    "version": EASYTIER_LICENSE_VERSION,
+                    "manifest_path": str(manifest.resolve()),
+                })
+            metadata = {"packages": packages}
+            build = {"easytier_source_commit": EASYTIER_LICENSE_SOURCE_COMMIT}
+
+            _validate_easytier_license_scope(easytier, build, metadata)
+
+            wrong_version = json.loads(json.dumps(metadata))
+            wrong_version["packages"][0]["version"] = "2.7.1"
+            with self.assertRaises(AuditIncomplete):
+                _validate_easytier_license_scope(easytier, build, wrong_version)
+
+            wrong_manifest = json.loads(json.dumps(metadata))
+            wrong_manifest["packages"][0]["manifest_path"] = str((easytier / "other/Cargo.toml").resolve())
+            with self.assertRaises(AuditIncomplete):
+                _validate_easytier_license_scope(easytier, build, wrong_manifest)
+
+            wrong_commit = {"easytier_source_commit": "0" * 40}
+            with self.assertRaises(AuditIncomplete):
+                _validate_easytier_license_scope(easytier, wrong_commit, metadata)
+
+    def test_external_git_crate_keeps_its_own_source_mapping(self):
+        bundle = load_bundle()
+        package = next(item for item in bundle["rust"]["metadata"]["packages"] if item["name"] == "example-rust-crate")
+        commit = "3" * 40
+        source = f"git+https://example.invalid/rust-crate#{commit}"
+        package["source"] = source
+        package["manifest_path"] = "/outside/easytier/example-rust-crate/Cargo.toml"
+        bundle["rust"]["cargo_lock_text"] = (
+            'version = 4\n\n[[package]]\n'
+            f'name = "{package["name"]}"\nversion = "{package["version"]}"\nsource = "{source}"\n'
+        )
+
+        inventory = normalize_inventory(bundle)
+        component = next(item for item in inventory["components"] if item["name"] == package["name"])
+
+        self.assertEqual(component["source_digest"], {"algorithm": "git-commit", "value": commit})
+        self.assertEqual(component["licenses"][0]["source_url"], f"https://example.invalid/rust-crate/tree/{commit}")
+        self.assertEqual(component["licenses"][0]["source_revision"], commit)
+        self.assertNotIn("source_path", component["licenses"][0])
 
     def test_cli_writes_mixed_newlines_byte_exact_and_reports_matching_sha256(self):
         bundle = load_bundle()
@@ -179,12 +307,23 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         commit = bundle["build"]["core_source_commit"]
         self.assertEqual(component["ecosystem"], "go-source")
         self.assertEqual(component["source_digest"], {"algorithm": "git-commit", "value": commit})
-        self.assertEqual(component["source_url"], f"https://github.com/MetaCubeX/mihomo/tree/{commit}")
+        self.assertEqual(component["source_url"], f"https://github.com/smart-tinker/stcvrc/tree/{commit}")
         licenses = {item["spdx"]: item for item in component["licenses"]}
-        self.assertEqual(set(licenses), {"GPL-3.0-or-later", "MIT"})
-        self.assertEqual(licenses["GPL-3.0-or-later"]["source_path"], "LICENSE")
-        self.assertEqual(licenses["GPL-3.0-or-later"]["source_revision"], commit)
-        self.assertEqual(licenses["GPL-3.0-or-later"]["source_git_blob"], "a" * 40)
+        self.assertEqual(set(licenses), {"GPL-3.0", "MIT"})
+        self.assertEqual(licenses["GPL-3.0"]["source_path"], "LICENSE")
+        self.assertEqual(licenses["GPL-3.0"]["source_revision"], commit)
+        self.assertEqual(licenses["GPL-3.0"]["source_url"], f"https://github.com/smart-tinker/stcvrc/blob/{commit}/LICENSE")
+        self.assertEqual(licenses["GPL-3.0"]["source_git_blob"], git_blob("Fixture GPL terms.\\nCopyright (c) Mihomo Fixture\\n"))
+        attribution_notice = component["supplemental_notices"][0]
+        self.assertIn("go-licenses reported Unknown", attribution_notice["name"])
+        self.assertEqual(
+            attribution_notice["source_url"],
+            f"https://github.com/smart-tinker/stcvrc/blob/{commit}/transport/hysteria/conns/faketcp/LICENSE",
+        )
+        self.assertEqual(
+            attribution_notice["source_git_blob"],
+            git_blob("Grabbed from https://github.com/xtaci/tcpraw with modifications\\n"),
+        )
         self.assertEqual(licenses["MIT"]["source_path"], "transport/kcptun/LICENSE.md")
         self.assertEqual(
             component["supplemental_notices"][0]["source_path"],
