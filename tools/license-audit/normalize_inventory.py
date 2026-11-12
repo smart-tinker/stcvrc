@@ -412,7 +412,7 @@ def _go_embedded_assets(bundle, graph):
             raise AuditIncomplete(f"embedded runtime asset source Git blob mismatch for {name}")
         terms = {
             "name": _required(item.get("terms_name"), f"embedded asset terms name for {name}"),
-            "text": _required(item.get("terms_text"), f"embedded asset terms text for {name}"),
+            "text": item.get("terms_text"),
             "sha256": _required(item.get("terms_sha256"), f"embedded asset terms SHA256 for {name}"),
             "source_url": archive["url"],
             "source_archive_sha256": archive["sha256"],

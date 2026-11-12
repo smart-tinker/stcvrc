@@ -122,7 +122,7 @@
         "archive_path": "wintun/bin/amd64/wintun.dll",
         "terms_name": "Wintun fixture terms",
         "terms_text": "Fixture Wintun terms.\n",
-        "terms_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "terms_sha256": "23a991e8e4f0874a85f6857dde676a20fd1216d306b612ff03ebf75c8e63360b",
         "terms_path": "wintun/LICENSE.txt",
         "copyrights": []
       }
