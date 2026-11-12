@@ -643,6 +643,7 @@ try {
             if ($sourceA -eq $sourceB) { throw 'DNS confirmation source was not bound to the selected profile and source configuration.' }
             Assert-ProfileDnsState -Uid $uidB -Enabled $false -Phase 'profile B independently remains off'
             Test-FixtureTraffic -FixtureName 'dns-off.native-fixture-b.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
+            Test-RejectedFixture -FixtureName 'native-fixture-a.invalid' -AllowedControlName 'native-fixture-b.invalid' -DnsPort $dnsPort -HttpPort $httpPort -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'profile B application reject'
 
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase 'switch back to profile A'

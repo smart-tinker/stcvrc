@@ -252,7 +252,7 @@ foreach ($event in $processEvents) {
         continue
     }
     try { $created = [DateTime]::FromFileTimeUtc([Int64]$rawTime) }
-    catch { $script:nativeFailures.Add("Could not decode process start time for $processName: $rawTime"); continue }
+    catch { $script:nativeFailures.Add("Could not decode process start time for ${processName}: ${rawTime}"); continue }
     $phase = $null
     foreach ($interval in $script:nativeIntervals) {
         if ($created -ge $interval.startUtc -and $created -le $interval.endUtc) { $phase=$interval.phase; break }

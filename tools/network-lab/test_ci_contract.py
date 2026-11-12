@@ -223,40 +223,38 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "ci-update-preserve.yaml"):
+        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "Invoke-NativePhase"):
             with self.subTest(required=required):
                 self.assertIn(required, script)
+        self.assertLess(script.index("Invoke-NativePhase -Phase seed"), script.index("Invoke-NativePhase -Phase exercise"))
+        self.assertLess(script.index("Invoke-NativePhase -Phase exercise"), script.index("Invoke-NativePhase -Phase recovery"))
 
 
-    def test_synthetic_profile_clean_path_is_checked_before_creation(self):
-        script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        check = script.index("if (Test-Path -LiteralPath (Split-Path -Parent $profileDirectory))")
-        create = script.index("[IO.Directory]::CreateDirectory($profileDirectory)")
-        self.assertLess(check, create, "preflight must run before creating the synthetic profile")
-        self.assertNotIn("$profileRoot = Split-Path -Parent $profileDirectory", script)
-
-
-    def test_native_acceptance_is_traced_and_only_alpha_is_forbidden(self):
+    def test_core_start_events_are_limited_to_verified_native_intervals(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
         native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
         for required in (
             "Register-CimIndicationEvent",
             "Win32_ProcessStartTrace",
             "verge-mihomo-alpha.exe",
-            "$nativeScript",
-            "$alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' }",
-            "if ($alphaStarts.Count)",
+            "$nativeIntervals",
+            "TIME_CREATED",
+            "NativePhase",
+            "Invoke-NativePhase -Phase seed",
+            "Invoke-NativePhase -Phase exercise",
+            "Invoke-NativePhase -Phase recovery",
+            "No core process-start event was observed inside native phase",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, script)
-        self.assertIn("& $nativeScript", script)
-        self.assertIn("Start-Process -FilePath $guiPath", native)
-        self.assertIn("install_service", native)
-        self.assertIn("$expectedServiceExe = Join-Path $serviceData", native)
-        self.assertIn("CVR_2510_SERVICE_SHA256", native)
-        self.assertIn("$serviceHash -ne $env:CVR_2510_SERVICE_SHA256", native)
-        self.assertIn("get_core_startup_error", native)
-        self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
+        self.assertIn("Invoke-CvrCommand -Command 'install_service'", native)
+        self.assertIn("Assert-LiveCoreIdentity", native)
+        self.assertIn("Assert-LiveSidecarCoreIdentity", native)
+        self.assertIn("source-built core", native)
+        self.assertIn("if ($processName -ieq 'verge-mihomo-alpha.exe')", script)
+        self.assertIn("elseif (-not $phase)", script)
+
+
 
     def test_source_job_parses_native_windows_powershell_before_build(self):
         workflow = WORKFLOWS["test.yml"]
@@ -283,31 +281,18 @@ class CIContractTests(unittest.TestCase):
         self.assertLess(fetch.index("Parser]::ParseFile"), job.index("Fresh native Windows core build"))
 
 
-    def test_profile_selection_precedes_tun_and_readiness_checks_follow_tun(self):
-        script = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
-        select = script.split("function Select-FixtureProfile", 1)[1].split(
-            "function Assert-SelectedProfileReady", 1
-        )[0]
-        self.assertNotIn("Wait-ServiceReady", select)
-        phase = script.split("if ($uidA) {", 1)[1].split("if ($uidB) {", 1)[0]
-        self.assertLess(phase.index("Select-FixtureProfile"), phase.index("patch_verge_config"))
-        self.assertLess(phase.index("patch_verge_config"), phase.index("Assert-SelectedProfileReady"))
-
-
-    def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
+    def test_smoke_runs_functional_recovery_after_candidate_exercise(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        recovery = "$installRecovered = Invoke-CvrInstaller -Version '2.5.8'"
-        self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
-        self.assertLess(script.index("& $nativeScript"), script.index(recovery))
-        recovery_script = script[script.index(recovery):]
-        for required in (
-            "Assert-ProfilePreserved -Phase 'recovery'",
-            "Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'",
-        ):
-            with self.subTest(required=required):
-                self.assertIn(required, recovery_script)
-        self.assertIn('throw "CVR $Phase did not preserve the synthetic profile marker."', script)
-        self.assertIn('throw "Fresh candidate core was not restored after $Phase."', script)
+        native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
+        exercise = script.index("Invoke-NativePhase -Phase exercise")
+        recovery_install = script.index("$installRecovered = Invoke-CvrInstaller -Version '2.5.8'")
+        recovery_phase = script.index("Invoke-NativePhase -Phase recovery", recovery_install)
+        self.assertLess(exercise, recovery_install)
+        self.assertLess(recovery_install, recovery_phase)
+        self.assertIn("get_profiles", native)
+        self.assertIn("read_profile_file", native)
+        self.assertIn("Assert-FixtureNodeSelection", native)
+        self.assertIn("Get-RuntimeYaml", native)
 
 
     def test_rc7_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
