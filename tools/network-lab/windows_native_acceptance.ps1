@@ -326,7 +326,13 @@ function Invoke-TunHttp {
         $bytes = [Text.Encoding]::ASCII.GetBytes($request); $stream.Write($bytes, 0, $bytes.Length)
         $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::ASCII, $false, 1024, $true)
         $response = $reader.ReadToEnd()
-        if ($response -notmatch ('(?s)^HTTP/1\.[01] 200\b.*\r\n\r\nnative-fixture:' + [regex]::Escape($FixtureName))) { throw "Synthetic HTTP marker mismatch for $FixtureName." }
+        if ($response -notmatch ('(?s)^HTTP/1\.[01] 200\b.*\r\n\r\nnative-fixture:' + [regex]::Escape($FixtureName))) {
+            $status = ($response -split '\r?\n', 2)[0]
+            $body = if ($response -match '(?s)\r?\n\r?\n(?<body>.*)$') { $Matches.body } else { '' }
+            if ($body.Length -gt 256) { $body = $body.Substring(0, 256) }
+            $body = $body.Replace(([string][char]13), '\r').Replace(([string][char]10), '\n')
+            throw "Synthetic HTTP marker mismatch for $FixtureName; response status='$status'; body='$body'."
+        }
         return $response
     } finally { $client.Dispose() }
 }
@@ -663,6 +669,21 @@ function Wait-RuntimeRule {
     while ([DateTime]::UtcNow -lt $deadline) { $yaml=Get-RuntimeYaml; if ($yaml.Contains($Rule)) { return $yaml }; Start-Sleep -Milliseconds 500 }
     throw "Loaded runtime did not contain $Rule."
 }
+function Invoke-CvrRestartCore {
+    param([string]$Phase)
+    try {
+        [void](Invoke-CvrCommand -Command 'restart_core')
+    } catch {
+        $failure = $_.Exception.Message
+        $startupError = $null
+        try { $startupError = Invoke-CvrCommand -Command 'get_core_startup_error' }
+        catch { $startupError = $_.Exception.Message }
+        $startupText = ConvertTo-Json -InputObject $startupError -Compress -Depth 8
+        $snapshot = Get-NativeStateSnapshot -Phase "$Phase restart failure"
+        throw "$Phase restart_core failed: $failure; coreStartupError=$startupText; snapshot=$snapshot"
+    }
+}
+
 function Add-FixtureProfile {
     param([string]$Name, [string]$AllowName, [string]$RejectName, [int]$DnsPort, [int]$ProfileDnsPort, [int]$ControllerPort, [int]$ProxyPortA, [int]$ProxyPortB)
     $yaml = @"
@@ -865,7 +886,14 @@ function Test-FixtureTraffic {
     param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app')][string]$ExpectedResolver)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
-    [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
+    try {
+        [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
+    } catch {
+        $failure = $_.Exception.Message
+        $resolverLog = if (Test-Path -LiteralPath $script:dnsLogPath -PathType Leaf) { @(Get-Content -LiteralPath $script:dnsLogPath -Tail 12) } else { @() }
+        $snapshot = Get-NativeStateSnapshot -Phase "traffic $FixtureName"
+        throw "$failure; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
+    }
     if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
     Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
 }
@@ -1094,7 +1122,7 @@ try {
             $runtime = Get-RuntimeYaml
             if (-not $runtime.Contains('proxy-server-nameserver:') -or -not $runtime.Contains('nameserver-policy:')) { throw 'Recovered 2.5.8 core did not load the persisted profile DNS configuration.' }
             [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
-            [void](Invoke-CvrCommand -Command 'restart_core')
+            [void](Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN')
             Assert-SelectedSidecarProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 functional recovery TUN'
             Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
             Write-Host '2.5.8 recovery launched the verified GUI and custom core, loaded preserved profiles/config, restored its GLOBAL selector, and passed synthetic DNS/TUN/HTTP traffic.'
@@ -1127,7 +1155,7 @@ try {
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 to 2.5.10 update'
             [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
-            [void](Invoke-CvrCommand -Command 'restart_core')
+            [void](Invoke-CvrRestartCore -Phase 'native TUN service startup')
             Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'native TUN service startup'
 
             $appDns = @{ dns=@{ enable=$true; 'enhanced-mode'='fake-ip'; 'fake-ip-range'='198.18.0.1/16'; 'default-nameserver'=@('127.0.0.1'); nameserver=@("udp://127.0.0.1:$appDnsPort") } }
@@ -1169,7 +1197,7 @@ try {
             Test-FixtureTraffic -FixtureName 'dns-reenabled.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'
             Test-RejectedFixture -FixtureName 'native-fixture-b.invalid' -AllowedControlName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -ExpectedResolver app -Phase 'profile A application reject'
 
-            [void](Invoke-CvrCommand -Command 'restart_core')
+            [void](Invoke-CvrRestartCore -Phase 'service core restart')
             Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'service core restart'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase 'core restart'
             Assert-ProfileDnsState -Uid $uidA -Enabled $true -Phase 'core restart'
