@@ -3,10 +3,12 @@ import io
 import json
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from collect import CARGO_ABOUT_ACCEPTED_LICENSES, _cargo_about_config
 from generate_notices import AuditIncomplete, generate_notices
 from normalize_inventory import main as normalize_inventory_cli, normalize_inventory
 
@@ -32,6 +34,18 @@ def load_bundle():
 
 
 class ToolOutputNormalizationTests(unittest.TestCase):
+    def test_cargo_about_config_has_bounded_license_resolution_priority(self):
+        config = tomllib.loads(_cargo_about_config("wasm32-wasip1"))
+        accepted = config["accepted"]
+
+        self.assertEqual(config["targets"], ["wasm32-wasip1"])
+        self.assertEqual(accepted, list(CARGO_ABOUT_ACCEPTED_LICENSES))
+        self.assertEqual(len(accepted), len(set(accepted)))
+        self.assertTrue({"MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "LGPL-3.0-or-later"}.issubset(accepted))
+        self.assertNotIn("NOASSERTION", accepted)
+        self.assertTrue(config["ignore-build-dependencies"])
+        self.assertTrue(config["ignore-dev-dependencies"])
+
     def test_cli_writes_mixed_newlines_byte_exact_and_reports_matching_sha256(self):
         bundle = load_bundle()
         mixed_license = "Fixture MIT terms first line\r\nsecond line\nthird line\r\n"

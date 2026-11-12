@@ -35,6 +35,39 @@ WINTUN_TERMS_PATH = "wintun/LICENSE.txt"
 CHACHA_API = "https://api.github.com/repos/MetaCubeX/chacha"
 
 
+# cargo-about calls this list "accepted": it selects a license from SPDX OR expressions;
+# it is a reporting-resolution policy, not a legal-compatibility approval. --fail still rejects
+# expressions that cannot be resolved using this bounded list.
+CARGO_ABOUT_ACCEPTED_LICENSES = (
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+)
+
+
+def _cargo_about_config(target):
+    accepted = json.dumps(list(CARGO_ABOUT_ACCEPTED_LICENSES))
+    targets = json.dumps([target])
+    return (
+        f"targets = {targets}\\n"
+        f"accepted = {accepted}\\n"
+        "ignore-build-dependencies = true\\n"
+        "ignore-dev-dependencies = true\\n"
+    )
+
 def _sha256(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -685,10 +718,7 @@ def _rust_rows(easytier, build, root, env, output_dir):
     )
     metadata_json = json.loads(metadata)
     about_config = Path(output_dir) / "cargo-about.toml"
-    about_config.write_text(
-        f'targets = ["{target}"]\nignore-build-dependencies = true\nignore-dev-dependencies = true\n',
-        encoding="utf-8",
-    )
+    about_config.write_text(_cargo_about_config(target), encoding="utf-8")
     about_binary, cargo_about_record = _cargo_tool(cargo, root, env)
     about_env = dict(env)
     about_env["CARGO_NET_OFFLINE"] = "true"
