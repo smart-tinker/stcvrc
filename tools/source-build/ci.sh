@@ -125,10 +125,20 @@ else
   PATH="$root/protoc/bin:$PATH"
 fi
 export PATH
-PROTOC="$(native_path "$root/protoc/bin/protoc")"
+if [[ "$host" == windows ]]; then
+  PROTOC="$(native_path "$root/protoc/bin/protoc.exe")"
+else
+  PROTOC="$(native_path "$root/protoc/bin/protoc")"
+fi
 export PROTOC
-if [[ "$host" == windows ]]; then PROTOC="$PROTOC.exe"; fi
 test "$(protoc --version)" = 'libprotoc 35.1'
+python - <<'PY'
+import os, subprocess
+protoc = os.environ["PROTOC"]
+version = subprocess.check_output([protoc, "--version"], text=True).strip()
+assert version == "libprotoc 35.1", (protoc, version)
+print(f"Native PROTOC verified: {protoc} ({version})")
+PY
 
 export RUSTUP_TOOLCHAIN=1.95.0
 RUSTUP_HOME="$(native_path "$root/rustup")"
