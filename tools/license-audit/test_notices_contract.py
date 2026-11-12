@@ -88,7 +88,10 @@ class NoticeEvidenceTests(unittest.TestCase):
             if item["id"] == "candidate-1.19.33-rc.2"
         )
         self.assertIn("unverified", candidate["patch_source_claim"]["status"])
-        self.assertNotEqual(source["patchSource"]["base"], candidate["upstream_commit"])
+        self.assertNotEqual(
+            candidate["patch_source_claim"]["base"],
+            candidate["upstream_commit"],
+        )
 
 
 if __name__ == "__main__":
