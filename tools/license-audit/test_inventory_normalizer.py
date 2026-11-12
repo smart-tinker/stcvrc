@@ -356,6 +356,35 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertNotIn("dev-feature-only", {item["name"] for item in inventory["components"]})
 
 
+    def test_rust_inventory_ignores_cargo_about_target_superset(self):
+        bundle = load_bundle()
+        source = "registry+https://github.com/rust-lang/crates.io-index"
+        target_only_id = source + "#target-only@0.1.0"
+        target_only = {
+            "id": target_only_id,
+            "name": "target-only",
+            "version": "0.1.0",
+            "source": source,
+            "manifest_path": "/cargo/registry/src/target-only-0.1.0/Cargo.toml",
+            "license": "MIT",
+        }
+        bundle["rust"]["metadata"]["packages"].append(target_only)
+        bundle["rust"]["about"]["crates"].append({
+            "package": {
+                "id": target_only_id,
+                "name": "target-only",
+                "version": "0.1.0",
+                "source": source,
+                "license": "MIT",
+            },
+            "license": "MIT",
+        })
+
+        inventory = normalize_inventory(bundle)
+
+        self.assertNotIn("target-only", {item["name"] for item in inventory["components"]})
+
+
     def test_normalizes_selected_go_and_rust_runtime_graphs(self):
         inventory = normalize_inventory(load_bundle())
         names = {item["name"] for item in inventory["components"]}
