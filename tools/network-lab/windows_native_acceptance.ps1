@@ -93,6 +93,31 @@ function Invoke-CvrCommand {
         return $null
     }
 }
+function Assert-GlobalUiModesOff {
+    param([string]$Phase)
+    $settings = Invoke-CvrCommand -Command 'get_verge_config'
+    foreach ($field in @('enable_tun_mode','enable_system_proxy','enable_auto_launch')) {
+        $property = $settings.PSObject.Properties[$field]
+        if ($property -and [bool]$property.Value) {
+            throw "CVR global mode $field is unexpectedly enabled during $Phase."
+        }
+    }
+    $internetSettingsPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+    $internetSettings = Get-ItemProperty -LiteralPath $internetSettingsPath -ErrorAction SilentlyContinue
+    $proxyEnableProperty = if ($internetSettings) { $internetSettings.PSObject.Properties['ProxyEnable'] } else { $null }
+    if ($proxyEnableProperty) {
+        if ([int]$proxyEnableProperty.Value -ne 0) { throw "Windows per-user ProxyEnable is enabled during $Phase." }
+        Write-Host "Windows per-user ProxyEnable=0 during $Phase."
+    } else {
+        $probeUri = [Uri]'http://stcvrc-system-proxy-check.invalid/'
+        $webProxy = [Net.WebRequest]::DefaultWebProxy
+        if (-not $webProxy -or -not $webProxy.IsBypassed($probeUri)) {
+            throw "Windows proxy state is unavailable or enabled during $Phase."
+        }
+        Write-Host "Windows system proxy resolver reports no proxy during $Phase; ProxyEnable was unavailable."
+    }
+}
+
 function Invoke-DnsQuery {
     param([string]$Name, [int]$Port)
     $labels = @()
@@ -555,7 +580,7 @@ try {
 
     if ($Phase -eq 'seed') {
         try {
-            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false; enable_auto_launch=$false } })
+            Assert-GlobalUiModesOff -Phase '2.5.8 profile/config seed'
             $uidA=Add-FixtureProfile -Name 'native-fixture-a' -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid' -DnsPort $dnsPort -ProfileDnsPort $profileDnsPort -ControllerPort (Get-FreeTcpPort) -ProxyPortA $proxyPortA -ProxyPortB $proxyPortB
             $uidB=Add-FixtureProfile -Name 'native-fixture-b' -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid' -DnsPort $dnsPort -ProfileDnsPort $profileDnsPort -ControllerPort (Get-FreeTcpPort) -ProxyPortA $proxyPortA -ProxyPortB $proxyPortB
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
@@ -570,7 +595,7 @@ try {
         } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
     } elseif ($Phase -eq 'recovery') {
         try {
-            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false; enable_auto_launch=$false } })
+            Assert-GlobalUiModesOff -Phase '2.5.8 functional recovery'
             $profiles = Invoke-CvrCommand -Command 'get_profiles'
             $profileA = Get-FixtureProfile -Name 'native-fixture-a'
             $profileB = Get-FixtureProfile -Name 'native-fixture-b'
@@ -605,6 +630,7 @@ try {
         }
 
         try {
+            Assert-GlobalUiModesOff -Phase '2.5.10 service exercise'
             $profileA=Get-FixtureProfile -Name 'native-fixture-a'
             $profileB=Get-FixtureProfile -Name 'native-fixture-b'
             $uidA=[string]$profileA.uid; $uidB=[string]$profileB.uid
@@ -612,7 +638,7 @@ try {
             if ([string]$profiles.current -ne $uidA) { throw "The 2.5.10 update did not preserve current profile A: $($profiles.current)." }
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 to 2.5.10 update'
-            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true; enable_system_proxy=$false; enable_auto_launch=$false } })
+            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
             [void](Invoke-CvrCommand -Command 'restart_core')
             Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'native TUN service startup'
 
@@ -665,7 +691,7 @@ try {
 
         if ($script:cdp.State -eq [Net.WebSockets.WebSocketState]::Open) {
             try {
-                [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false; enable_system_proxy=$false } })
+                [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
                 [void](Invoke-CvrCommand -Command 'uninstall_service')
                 [void](Invoke-CvrCommand -Command 'exit_app')
             } catch { Add-Failure "Tauri runtime cleanup: $($_.Exception.Message)" }
