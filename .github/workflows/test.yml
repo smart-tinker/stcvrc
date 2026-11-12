@@ -930,24 +930,6 @@ jobs:
           tar -xzf go.tar.gz
           printf '%s\n' "$RUNNER_TEMP/test-go/go/bin" >> "$GITHUB_PATH"
 
-      - name: Record current public Shadowsocks image digest
-        run: |
-          set -euo pipefail
-          docker pull mritd/shadowsocks:latest
-          repo_digests="$(docker image inspect mritd/shadowsocks:latest --format '{{range .RepoDigests}}{{println .}}{{end}}')"
-          printf 'Pulled Shadowsocks repo digests:\n%s\n' "$repo_digests" | tee -a "$GITHUB_STEP_SUMMARY"
-          found=0
-          while IFS= read -r repo_digest; do
-            [[ "$repo_digest" == *"mritd/shadowsocks@sha256:"* ]] || continue
-            digest="${repo_digest##*@}"
-            if [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-              printf 'Image digest to pin: %s\n' "$repo_digest" | tee -a "$GITHUB_STEP_SUMMARY"
-              found=1
-              break
-            fi
-          done <<< "$repo_digests"
-          [[ "$found" == 1 ]]
-
       - name: Test fragmented v2ray-plugin mux status header
         working-directory: source
         run: |
@@ -957,6 +939,28 @@ jobs:
           export GOCACHE="$RUNNER_TEMP/mux-go-cache"
           mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
           go test -count=1 -run='^TestMuxReadHandlesShortStatusHeader$' ./transport/v2ray-plugin
+
+      - name: Run the Shadowsocks v2ray-plugin case ten times
+        timeout-minutes: 12
+        working-directory: source/test
+        run: |
+          set -euo pipefail
+          export GOPATH="$RUNNER_TEMP/issue-25-plugin-go-path"
+          export GOMODCACHE="$RUNNER_TEMP/issue-25-plugin-go-modcache"
+          export GOCACHE="$RUNNER_TEMP/issue-25-plugin-go-cache"
+          mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+          failures=0
+          for attempt in $(seq 1 10); do
+            printf '\n=== TestMihomo_ShadowsocksV2RayPlugin attempt %s/10 ===\n' "$attempt"
+            if go test -p=1 -v -mod=readonly -count=1 -timeout=60s -run='^TestMihomo_ShadowsocksV2RayPlugin$' .; then
+              printf 'plugin attempt %s: PASS\n' "$attempt" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              failures=$((failures + 1))
+              printf 'plugin attempt %s: FAIL\n' "$attempt" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          printf 'Shadowsocks v2ray-plugin failures: %s/10\n' "$failures" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$failures" -eq 0
 
       - name: Run the full protocol module suite from clean Go caches
         working-directory: source/test
