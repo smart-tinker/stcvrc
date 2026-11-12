@@ -4,13 +4,6 @@ name: Dependency review
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - .github/workflows/**
-      - .github/dependabot.yml
-      - go.mod
-      - go.sum
-      - test/go.mod
-      - test/go.sum
 
 permissions:
   contents: read

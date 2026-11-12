@@ -9,9 +9,6 @@ name: STCVRC network lab
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - .github/workflows/**
-      - tools/network-lab/**
   workflow_dispatch: {}
 
 permissions:

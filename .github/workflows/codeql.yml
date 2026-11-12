@@ -11,11 +11,6 @@ name: CodeQL
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - '**.go'
-      - go.mod
-      - go.sum
-      - .github/workflows/**
 
 permissions:
   contents: read

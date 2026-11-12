@@ -318,8 +318,8 @@ class CIContractTests(unittest.TestCase):
 
     def test_test_module_dependency_changes_run_protocol_suite(self):
         workflow = WORKFLOWS["test.yml"]
-        self.assertEqual(workflow.count("      - test/**"), 2,
-                         "test module changes must trigger on both push and pull_request")
+        self.assertEqual(workflow.count("      - test/**"), 1,
+                         "test module changes must remain in push filters; all pull requests run")
         self.assertIn("  test-module:" + chr(10), workflow,
                       "the test module needs its own fresh hosted-runner job")
         job = workflow.split(chr(10) + "  test-module:" + chr(10), 1)[1]

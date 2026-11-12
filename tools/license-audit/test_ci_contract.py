@@ -120,10 +120,10 @@ class DistributionAuditContractTests(unittest.TestCase):
     def test_license_audit_docs_trigger_source_checks(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         for path in ("README.md", "docs/license-audit.md", "docs/license-provenance.json", "docs/third-party-notices.md"):
-            self.assertGreaterEqual(
-                workflow.count(f"      - {path}"),
-                2,
-                f"{path} edits must trigger both push and pull_request checks",
+            self.assertIn(
+                f"      - {path}",
+                workflow,
+                f"{path} must remain in push filters; all pull requests run",
             )
 
     def test_incomplete_and_unknown_report_status_survives_summary_pipeline(self):

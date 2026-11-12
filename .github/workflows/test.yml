@@ -25,25 +25,6 @@ name: STCVRC source checks
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - '**.go'
-      - go.mod
-      - go.sum
-      - component/ca/ca-certificates.crt
-      - .github/workflows/**
-      - .github/dependabot.yml
-      - .github/ISSUE_TEMPLATE/**
-      - .github/PULL_REQUEST_TEMPLATE.md
-      - README.md
-      - docs/license-audit.md
-      - docs/license-provenance.json
-      - docs/third-party-notices.md
-      - tools/license-audit/**
-      - docs/openvpn-profile-contract.md
-      - docs/openvpn-profile-examples/**
-      - tools/network-lab/**
-      - test/**
-      - candidates/cvr-2.5.10/**
   workflow_dispatch: {}
 
 permissions:
