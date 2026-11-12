@@ -62,10 +62,10 @@ def _cargo_about_config(target):
     accepted = json.dumps(list(CARGO_ABOUT_ACCEPTED_LICENSES))
     targets = json.dumps([target])
     return (
-        f"targets = {targets}\\n"
-        f"accepted = {accepted}\\n"
-        "ignore-build-dependencies = true\\n"
-        "ignore-dev-dependencies = true\\n"
+        f"targets = {targets}\n"
+        f"accepted = {accepted}\n"
+        "ignore-build-dependencies = true\n"
+        "ignore-dev-dependencies = true\n"
     )
 
 def _sha256(data):
