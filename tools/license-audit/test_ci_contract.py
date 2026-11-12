@@ -292,5 +292,33 @@ SOFTWARE.""",
             workflow,
         )
 
+    def test_mit_lzo_provenance_tracks_current_rc7_draft_assets(self):
+        manifest = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in manifest["variants"]}["candidate-1.19.33-mit-lzo"]
+        self.assertEqual(candidate["release_tag"], "stcvrc-1.19.33-rc.7")
+        self.assertEqual(candidate["release_id"], 442680453)
+        assets = {item["name"]: item["sha256"] for item in candidate["release_assets"]}
+        self.assertEqual(
+            assets,
+            {
+                "RC-MANIFEST.json": "ef81b3f7577ecb681dca400c633d27ca5901fba21d02fdc0548c8ae0c3e22d1f",
+                "verge-mihomo.exe": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87",
+            },
+        )
+
+    def test_candidate_source_manifest_matches_the_pinned_binary_provenance(self):
+        provenance = json.loads((ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8"))
+        candidate = {item["id"]: item for item in provenance["variants"]}["candidate-1.19.33-mit-lzo"]
+        path = ROOT / "candidates" / "v1.19.33-20261022" / "source.json"
+        self.assertTrue(path.is_file(), "public candidate source manifest is missing")
+        source = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(source["source"]["commit"], candidate["source_commit"])
+        self.assertEqual(source["source"]["upstream_tag"], candidate["upstream_tag"])
+        self.assertEqual(source["source"]["upstream_commit"], candidate["upstream_commit"])
+        self.assertEqual(source["source"]["upstream_delta_blobs"], candidate["upstream_delta_blobs"])
+        self.assertEqual(source["binary"]["sha256"], candidate["asset_sha256"])
+        self.assertEqual(source["toolchain"]["go_version"], candidate["go_version"])
+        self.assertEqual(source["toolchain"]["archive_sha256"], candidate["go_sha256"])
+
 if __name__ == "__main__":
     unittest.main()
