@@ -632,6 +632,11 @@ function Get-NativeStateSnapshot {
         $snapshot.runtimeRuleLines = @($yaml -split '\r?\n' | Where-Object { $_ -match '(^\s*rules:|native-fixture-[ab]\.invalid|native-fixture-[ab])' } | Select-Object -First 20)
     } catch { $snapshot.runtimeYamlError = $_.Exception.Message }
     try {
+        $snapshot.dnsConfiguration = Get-SafeDnsConfigurationSnapshot
+    } catch { $snapshot.dnsConfigurationError = $_.Exception.Message }
+    $snapshot.fixtureHttpServerStdoutTail = @(Get-BoundedLogTail -Path $script:serverStdoutPath -Count 12)
+    $snapshot.fixtureHttpServerStderrTail = @(Get-BoundedLogTail -Path $script:serverStderrPath -Count 12)
+    try {
         $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
         if ($svc -or $serviceRecord) {
@@ -892,7 +897,8 @@ function Test-FixtureTraffic {
         $failure = $_.Exception.Message
         $resolverLog = if (Test-Path -LiteralPath $script:dnsLogPath -PathType Leaf) { @(Get-Content -LiteralPath $script:dnsLogPath -Tail 12) } else { @() }
         $snapshot = Get-NativeStateSnapshot -Phase "traffic $FixtureName"
-        throw "$failure; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
+        $dnsEndpointText = '{0}:{1}' -f $dnsEndpoint.address, $dnsEndpoint.port
+        throw "$failure; expectedResolver=$ExpectedResolver; dnsEndpoint=$dnsEndpointText; fakeAddress=$fake; httpEndpoint=127.0.0.1:$HttpPort; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
     }
     if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
     Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
