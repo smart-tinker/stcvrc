@@ -536,5 +536,15 @@ class CIContractTests(unittest.TestCase):
         self.assertIn('go version -m "$RUNNER_TEMP/core-windows.exe" | tee -a "$GITHUB_STEP_SUMMARY"', source_job)
 
 
+    def test_all_pull_request_sources_run_without_a_same_repository_guard(self):
+        for name, workflow in WORKFLOWS.items():
+            with self.subTest(workflow=name):
+                self.assertNotIn(
+                    "github.event.pull_request.head.repo.full_name == github.repository",
+                    workflow,
+                    f"{name} skips fork pull requests",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
