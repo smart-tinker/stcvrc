@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
+import hashlib
 import json
 import os
 import pathlib
 import platform
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
@@ -30,31 +31,44 @@ MPTCP_INFO = 1
 MPTCP_INFO_FLAG_FALLBACK = 1
 SO_PROTOCOL = getattr(socket, "SO_PROTOCOL", 38)
 MPTCP_INFO_FLAGS_OFFSET = 8  # six u8 fields, two bytes of ABI padding, then u32 flags
-PAYLOAD_SIZE = 96
-
-
 class ProbeError(RuntimeError):
     pass
 
 
-class MptcpBlocked(ProbeError):
+class ProbeInvalid(ProbeError):
+    pass
+
+
+class ProbeBehaviorFail(ProbeError):
+    pass
+
+
+class MptcpBlocked(ProbeInvalid):
     pass
 
 
 def effective_socket_state(sock: socket.socket) -> tuple[str, int, int | None]:
     """Return effective state, SO_PROTOCOL and MPTCP flags if available."""
-    protocol = sock.getsockopt(socket.SOL_SOCKET, SO_PROTOCOL)
+    try:
+        protocol = sock.getsockopt(socket.SOL_SOCKET, SO_PROTOCOL)
+    except OSError as error:
+        raise ProbeInvalid(f"SO_PROTOCOL query failed: {error}") from error
     if protocol == socket.IPPROTO_TCP:
         return "tcp", protocol, None
     if protocol != IPPROTO_MPTCP:
-        raise ProbeError(f"unexpected SO_PROTOCOL={protocol}")
+        raise ProbeInvalid(f"unexpected SO_PROTOCOL={protocol}")
     try:
         info = sock.getsockopt(SOL_MPTCP, MPTCP_INFO, 128)
     except OSError as error:
-        raise ProbeError(f"MPTCP_INFO failed on an MPTCP socket: {error}") from error
+        if error.errno in (errno.EOPNOTSUPP, errno.ENOPROTOOPT):
+            # Linux uses these errors when this MPTCP connection has fallen
+            # back to TCP, or when the kernel predates MPTCP_INFO. The
+            # separate successful-negotiation preflight distinguishes those.
+            return "tcp-fallback", protocol, None
+        raise ProbeInvalid(f"MPTCP_INFO query failed: {error}") from error
     end = MPTCP_INFO_FLAGS_OFFSET + 4
     if len(info) < end:
-        raise ProbeError(f"MPTCP_INFO returned only {len(info)} bytes")
+        raise ProbeInvalid(f"MPTCP_INFO returned only {len(info)} bytes")
     flags = int.from_bytes(
         info[MPTCP_INFO_FLAGS_OFFSET:end], byteorder=sys.byteorder, signed=False
     )
@@ -76,7 +90,7 @@ class MptcpEcho:
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self.records: list[dict[str, object]] = []
-        self.errors: list[str] = []
+        self.errors: list[ProbeError] = []
         self.handlers: list[threading.Thread] = []
         self.thread = threading.Thread(target=self._serve, daemon=True)
         self.thread.start()
@@ -91,7 +105,7 @@ class MptcpEcho:
                 if self.stop_event.is_set():
                     return
                 with self.lock:
-                    self.errors.append("MPTCP echo listener accept failed")
+                    self.errors.append(ProbeInvalid("MPTCP echo listener accept failed"))
                 return
             handler = threading.Thread(target=self._handle, args=(conn,), daemon=True)
             self.handlers.append(handler)
@@ -110,7 +124,7 @@ class MptcpEcho:
                 return  # readiness probes connect and close without sending payload
             if bytes(received) != self.payload:
                 with self.lock:
-                    self.errors.append("echo endpoint received unexpected payload")
+                    self.errors.append(ProbeBehaviorFail("echo endpoint received unexpected payload"))
                 return
             state, protocol, flags = effective_socket_state(conn)
             with self.lock:
@@ -121,11 +135,14 @@ class MptcpEcho:
         except socket.timeout as error:
             if received:
                 with self.lock:
-                    self.errors.append(f"echo timed out after partial payload: {error}")
+                    self.errors.append(ProbeBehaviorFail(f"echo timed out after partial payload: {error}"))
         except (OSError, ProbeError) as error:
             if received:
                 with self.lock:
-                    self.errors.append(str(error))
+                    self.errors.append(
+                        error if isinstance(error, ProbeError)
+                        else ProbeBehaviorFail(f"echo endpoint socket failed: {error}")
+                    )
         finally:
             conn.close()
 
@@ -134,11 +151,11 @@ class MptcpEcho:
         while time.monotonic() < deadline:
             with self.lock:
                 if self.errors:
-                    raise ProbeError("; ".join(self.errors))
+                    raise self.errors[0]
                 if self.records:
                     return self.records[0]
             time.sleep(0.02)
-        raise ProbeError("timed out waiting for the loopback echo transaction")
+        raise ProbeBehaviorFail("timed out waiting for the loopback echo transaction")
 
     def close(self) -> None:
         self.stop_event.set()
@@ -175,7 +192,7 @@ def exchange_mptcp(server: MptcpEcho, payload: bytes) -> tuple[str, dict[str, ob
         client.sendall(payload)
         echoed = receive_exact(client, len(payload))
         if echoed != payload:
-            raise ProbeError("loopback MPTCP echo payload did not round-trip")
+            raise ProbeBehaviorFail("loopback MPTCP echo payload did not round-trip")
         client_state, client_protocol, client_flags = effective_socket_state(client)
         peer = server.wait_record()
         return client_state, {
@@ -197,7 +214,7 @@ def random_port(exclude: set[int]) -> int:
             port = probe.getsockname()[1]
         if port not in exclude:
             return port
-    raise ProbeError("could not reserve distinct loopback ports")
+    raise ProbeInvalid("could not reserve distinct loopback ports")
 
 
 def check_kernel_support() -> dict[str, object]:
@@ -212,7 +229,7 @@ def check_kernel_support() -> dict[str, object]:
     with mptcp_echo(payload) as server:
         try:
             client_state, observed = exchange_mptcp(server, payload)
-        except OSError as error:
+        except (OSError, ProbeError) as error:
             raise MptcpBlocked(f"IPPROTO_MPTCP loopback negotiation failed: {error}") from error
     if client_state != "mptcp" or observed["server"]["state"] != "mptcp":
         raise MptcpBlocked(
@@ -259,7 +276,7 @@ def wait_until_listening(process: subprocess.Popen, port: int, log_path: pathlib
     last_error = None
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise ProbeError(
+            raise ProbeInvalid(
                 f"Xray exited with {process.returncode}: "
                 + log_path.read_text(encoding="utf-8", errors="replace")
             )
@@ -269,7 +286,7 @@ def wait_until_listening(process: subprocess.Popen, port: int, log_path: pathlib
         except OSError as error:
             last_error = error
             time.sleep(0.05)
-    raise ProbeError(
+    raise ProbeInvalid(
         f"Xray did not listen on loopback port {port}: {last_error}; "
         + log_path.read_text(encoding="utf-8", errors="replace")
     )
@@ -294,7 +311,7 @@ def run_xray(xray: pathlib.Path, config: dict[str, object], godebug: str, port: 
             check=False,
         )
         if checked.returncode:
-            raise ProbeError(
+            raise ProbeInvalid(
                 f"Xray rejected generated config: {checked.stdout[-4000:]}"
             )
         with log_path.open("w", encoding="utf-8") as log:
@@ -336,7 +353,7 @@ def run_case(xray: pathlib.Path, case: dict[str, object]) -> dict[str, object]:
                 client.sendall(payload)
                 echoed = receive_exact(client, len(payload))
                 if echoed != payload:
-                    raise ProbeError(f"{case['name']}: Xray loopback payload did not round-trip")
+                    raise ProbeBehaviorFail(f"{case['name']}: Xray loopback payload did not round-trip")
                 client_state, client_protocol, client_flags = effective_socket_state(client)
                 peer = backend.wait_record()
             finally:
@@ -347,7 +364,7 @@ def run_case(xray: pathlib.Path, case: dict[str, object]) -> dict[str, object]:
     observed_inbound = client_state == "mptcp"
     observed_outbound = peer["state"] == "mptcp"
     if observed_inbound != expected_inbound or observed_outbound != expected_outbound:
-        raise ProbeError(
+        raise ProbeBehaviorFail(
             f"{case['name']}: expected inbound/outbound "
             f"{expected_inbound}/{expected_outbound}, observed "
             f"{observed_inbound}/{observed_outbound}; client="
@@ -386,6 +403,14 @@ CASES = (
         "expected_outbound": False,
     },
     {
+        "name": "default-godebug-1",
+        "godebug": 1,
+        "inbound": None,
+        "outbound": None,
+        "expected_inbound": False,
+        "expected_outbound": True,
+    },
+    {
         "name": "inbound-explicit-true",
         "godebug": 0,
         "inbound": True,
@@ -420,22 +445,63 @@ CASES = (
 )
 
 
+def identify_xray(xray: pathlib.Path, expected_sha256: str) -> tuple[str, str]:
+    if not xray.is_file() or not os.access(xray, os.X_OK):
+        raise ProbeInvalid(f"not an executable Xray binary: {xray}")
+    actual_sha256 = hashlib.sha256(xray.read_bytes()).hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise ProbeInvalid(
+            f"Xray SHA256 mismatch: expected {expected_sha256}, got {actual_sha256}"
+        )
+    try:
+        version = subprocess.run(
+            [str(xray), "version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ProbeInvalid(f"could not read Xray version: {error}") from error
+    version_line = version.stdout.splitlines()[0] if version.stdout else ""
+    if version.returncode or not version_line.startswith("Xray 26.10.31 ("):
+        raise ProbeInvalid(f"unexpected Xray version output: {version.stdout[:500]}")
+    return version_line, actual_sha256
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--xray", required=True, type=pathlib.Path)
+    parser.add_argument("--xray-sha256", required=True)
     args = parser.parse_args()
-    if not args.xray.is_file() or not os.access(args.xray, os.X_OK):
-        raise ProbeError(f"not an executable Xray binary: {args.xray}")
+    try:
+        xray_version, xray_sha256 = identify_xray(args.xray, args.xray_sha256)
+    except ProbeInvalid as error:
+        print(f"MPTCP-INVALID: {error}", file=sys.stderr)
+        return 2
     try:
         capability = check_kernel_support()
     except (MptcpBlocked, OSError, ProbeError) as error:
         print(f"MPTCP-BLOCKED: {error}", file=sys.stderr)
         return 2
-    results = [run_case(args.xray.resolve(), case) for case in CASES]
+    results = []
+    try:
+        for case in CASES:
+            results.append(run_case(args.xray.resolve(), case))
+    except ProbeInvalid as error:
+        print(f"MPTCP-INVALID: {error}", file=sys.stderr)
+        return 2
+    except ProbeBehaviorFail as error:
+        print(f"MPTCP-FAIL: {error}", file=sys.stderr)
+        return 1
+    except (ProbeError, OSError, subprocess.SubprocessError) as error:
+        print(f"MPTCP-INVALID: setup/query could not be completed: {error}", file=sys.stderr)
+        return 2
     print(
         json.dumps(
             {
-                "xray": "26.10.31",
+                "xray": {"version": xray_version, "sha256": xray_sha256},
                 "runner_capability": capability,
                 "cases": results,
             },
@@ -446,8 +512,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (ProbeError, OSError, subprocess.SubprocessError) as error:
-        print(f"MPTCP-FAIL: {error}", file=sys.stderr)
-        raise SystemExit(1)
+    raise SystemExit(main())
