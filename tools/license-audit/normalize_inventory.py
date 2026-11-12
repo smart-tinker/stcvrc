@@ -234,7 +234,15 @@ def _go_components(bundle):
             unique[(license_item["spdx"], license_item["sha256"])] = license_item
         licenses = [unique[key] for key in sorted(unique)]
 
+        replacement_module = None
+        replacement = module.get("Replace")
         if module_path == _EASYTIER_MODULE:
+            if not isinstance(replacement, dict):
+                raise AuditIncomplete("EasyTier Go adapter is not the source-built local replacement")
+            replacement_path = _required(replacement.get("Path"), "EasyTier local replacement path")
+            replacement_dir = _required(replacement.get("Dir"), "EasyTier local replacement directory")
+            if not replacement_path.startswith(".") or not Path(replacement_dir).is_absolute():
+                raise AuditIncomplete("EasyTier Go adapter replacement is not a local source checkout")
             commit = _required(build.get("easytier_source_commit"), "EasyTier source commit")
             if not _COMMIT.fullmatch(commit):
                 raise AuditIncomplete("invalid EasyTier source commit")
@@ -242,9 +250,29 @@ def _go_components(bundle):
             source_url = f"{_EASYTIER_REPO}/tree/{commit}/easytier-go"
             source_digest = {"algorithm": "git-commit", "value": commit}
             upstream_version = version
+        elif replacement is not None:
+            if not isinstance(replacement, dict):
+                raise AuditIncomplete(f"invalid Go module replacement for {module_path}")
+            replacement_path = _required(replacement.get("Path"), f"replacement module path for {module_path}")
+            if replacement_path.startswith((".", "/")):
+                raise AuditIncomplete(f"unsupported local Go module replacement for {module_path}")
+            replacement_version = _required(replacement.get("Version"), f"replacement module version for {module_path}")
+            source_sum = _required(replacement.get("Sum"), f"replacement go.sum checksum for {module_path}")
+            if not _GO_H1.fullmatch(source_sum):
+                raise AuditIncomplete(f"invalid replacement go.sum h1 checksum for {module_path}")
+            source_version = version
+            source_url = (
+                "https://proxy.golang.org/"
+                + _go_proxy_escape(replacement_path)
+                + "/@v/"
+                + _go_proxy_escape(replacement_version)
+                + ".zip"
+            )
+            source_digest = {"algorithm": "go.sum-h1", "value": source_sum}
+            upstream_version = version
+            replacement_module = f"{replacement_path}@{replacement_version}"
         else:
-            source_sum = module.get("Sum") or module.get("GoModSum")
-            source_sum = _required(source_sum, f"go.sum module checksum for {module_path}")
+            source_sum = _required(module.get("Sum"), f"go.sum module checksum for {module_path}")
             if not _GO_H1.fullmatch(source_sum):
                 raise AuditIncomplete(f"invalid go.sum h1 checksum for {module_path}")
             source_version = version
@@ -267,6 +295,7 @@ def _go_components(bundle):
             source_digest,
             licenses,
             **({"upstream_module_version": upstream_version} if upstream_version else {}),
+            **({"replacement_module": replacement_module} if replacement_module else {}),
         )
         components.append(component)
 
@@ -274,13 +303,15 @@ def _go_components(bundle):
     if not isinstance(stdlib, dict):
         raise AuditIncomplete("missing Go standard-library license text")
     go_version = _required(build.get("go_version"), "Go toolchain version")
-    go_archive_sha = _required(build.get("go_archive_sha256"), "Go archive SHA256")
+    go_archive = build.get("go_archive")
+    if not isinstance(go_archive, dict):
+        raise AuditIncomplete("missing pinned Go toolchain archive")
+    go_archive_sha = _required(go_archive.get("sha256"), "Go archive SHA256")
     if not _SHA256.fullmatch(go_archive_sha):
         raise AuditIncomplete("invalid Go archive SHA256")
-    go_archive_url = _https(
-        stdlib.get("source_url"),
-        "Go toolchain archive",
-    )
+    go_archive_url = _https(go_archive.get("url"), "Go toolchain archive")
+    if _https(stdlib.get("source_url"), "Go standard-library source") != go_archive_url:
+        raise AuditIncomplete("Go standard-library source does not match the pinned toolchain")
     stdlib_license = _license_record(
         stdlib.get("spdx"),
         stdlib.get("text"),
@@ -504,6 +535,46 @@ def _rust_components(bundle):
         )
         components.append(component)
         required_keys.append(_component_key(component))
+
+    standard_library = rust.get("standard_library")
+    if not isinstance(standard_library, dict):
+        raise AuditIncomplete("missing Rust standard-library license evidence")
+    rust_version = _required(standard_library.get("version"), "Rust standard-library version")
+    if rust_version != _required(build.get("rust_version"), "Rust toolchain version"):
+        raise AuditIncomplete("Rust standard-library version does not match the selected toolchain")
+    stdlib_commit = _required(standard_library.get("source_commit"), "Rust standard-library source commit")
+    if not _COMMIT.fullmatch(stdlib_commit):
+        raise AuditIncomplete("invalid Rust standard-library source commit")
+    stdlib_licenses = standard_library.get("licenses")
+    if not isinstance(stdlib_licenses, list):
+        raise AuditIncomplete("missing Rust standard-library license texts")
+    stdlib_by_id = {}
+    for entry in stdlib_licenses:
+        if not isinstance(entry, dict):
+            raise AuditIncomplete("invalid Rust standard-library license record")
+        spdx = _required(entry.get("spdx"), "Rust standard-library SPDX identifier")
+        if spdx in stdlib_by_id:
+            raise AuditIncomplete(f"duplicate Rust standard-library license: {spdx}")
+        source_url = _https(entry.get("source_url"), f"Rust standard-library {spdx} license source")
+        stdlib_by_id[spdx] = _license_record(
+            spdx,
+            entry.get("text"),
+            source_url,
+            source_revision=stdlib_commit,
+        )
+    if set(stdlib_by_id) != {"MIT", "Apache-2.0"}:
+        raise AuditIncomplete("Rust standard library requires MIT and Apache-2.0 license texts")
+    stdlib_component = _component(
+        "rust-toolchain-runtime",
+        "runtime",
+        "Rust standard library",
+        rust_version,
+        f"https://github.com/rust-lang/rust/tree/{stdlib_commit}",
+        {"algorithm": "git-commit", "value": stdlib_commit},
+        [stdlib_by_id[key] for key in sorted(stdlib_by_id)],
+    )
+    components.append(stdlib_component)
+    required_keys.append(_component_key(stdlib_component))
     return components, required_keys
 
 
@@ -518,15 +589,18 @@ def normalize_inventory(bundle):
     core_commit = _required(build.get("core_source_commit"), "core source commit")
     if not _COMMIT.fullmatch(core_commit):
         raise AuditIncomplete("invalid core source commit")
-    target = _required(build.get("target"), "distribution target")
-    if target != "windows/amd64":
-        raise AuditIncomplete(f"unexpected distribution target: {target}")
     artifacts = build.get("artifacts")
     if not isinstance(artifacts, list):
         raise AuditIncomplete("missing source-built core assets")
     binaries = [item for item in artifacts if isinstance(item, dict) and item.get("name") == "verge-mihomo.exe"]
     if len(binaries) != 1 or not isinstance(binaries[0].get("sha256"), str) or not _SHA256.fullmatch(binaries[0]["sha256"]):
         raise AuditIncomplete("missing or invalid Windows core SHA256")
+    target = _required(binaries[0].get("target"), "Windows core target")
+    if target != "windows/amd64":
+        raise AuditIncomplete(f"unexpected Windows core target: {target}")
+    artifact_size = binaries[0].get("size")
+    if not isinstance(artifact_size, int) or isinstance(artifact_size, bool) or artifact_size < 1:
+        raise AuditIncomplete("missing or invalid Windows core size")
     go_tags = build.get("go_build_tags")
     rust_features = build.get("rust_features")
     if not isinstance(go_tags, list) or any(not isinstance(item, str) or not item for item in go_tags):
@@ -534,6 +608,9 @@ def normalize_inventory(bundle):
     if not isinstance(rust_features, list) or any(not isinstance(item, str) or not item for item in rust_features):
         raise AuditIncomplete("missing selected Rust features")
     rust_target = _required(build.get("rust_target"), "selected Rust target")
+    rust_no_default_features = build.get("rust_no_default_features")
+    if not isinstance(rust_no_default_features, bool):
+        raise AuditIncomplete("missing Rust default-feature selection")
     wasm_commit = _required(build.get("easytier_source_commit"), "EasyTier source commit")
     wasm_sha = _required(build.get("wasm_sha256"), "fresh WASM SHA256")
     if not _COMMIT.fullmatch(wasm_commit) or not _SHA256.fullmatch(wasm_sha):
@@ -543,10 +620,12 @@ def normalize_inventory(bundle):
         "candidate_id": version,
         "core_source_commit": core_commit,
         "core_sha256": binaries[0]["sha256"],
+        "core_size": artifact_size,
         "target": target,
         "go_build_tags": sorted(set(go_tags)),
         "rust_target": rust_target,
         "rust_features": sorted(set(rust_features)),
+        "rust_no_default_features": rust_no_default_features,
         "embedded_wasm": {"source_commit": wasm_commit, "sha256": wasm_sha},
     }
     go_components, go_required, go_tools = _go_components(bundle)

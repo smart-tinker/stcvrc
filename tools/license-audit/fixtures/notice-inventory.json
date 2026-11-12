@@ -19,7 +19,8 @@
       "ring-crypto",
       "wasi-crypto-offload"
     ],
-    "rust_no_default_features": true
+    "rust_no_default_features": true,
+    "core_size": 123
   },
   "components": [
     {

@@ -35,7 +35,8 @@
       "url": "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz",
       "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
     },
-    "rust_no_default_features": true
+    "rust_no_default_features": true,
+    "rust_version": "1.95.0"
   },
   "go": {
     "core_module_path": "github.com/metacubex/mihomo",

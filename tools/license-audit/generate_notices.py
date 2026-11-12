@@ -117,7 +117,7 @@ def _component(component, expected_role):
         "licenses": [item[0] for item in licenses],
         "copyrights": copyrights,
     }
-    for field in ("declared_license", "selected_license", "upstream_module_version"):
+    for field in ("declared_license", "selected_license", "upstream_module_version", "replacement_module"):
         if field in component:
             value = component[field]
             if value is not None and (not isinstance(value, str) or not value.strip()):
@@ -141,6 +141,8 @@ def _render_component(record, licenses):
         lines.append(f"Selected license: {record['selected_license']}")
     if record.get("upstream_module_version"):
         lines.append(f"Upstream module version: {record['upstream_module_version']}")
+    if record.get("replacement_module"):
+        lines.append(f"Replacement source module: {record['replacement_module']}")
     if record["copyrights"]:
         lines.extend(["Copyright:", *[f"- {item}" for item in record["copyrights"]]])
     for license_record, license_text in licenses:
@@ -173,7 +175,13 @@ def generate_notices(inventory):
     tags = scope.get("go_build_tags")
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag for tag in tags):
         raise AuditIncomplete("invalid Go build tags")
+    core_size = scope.get("core_size")
+    if not isinstance(core_size, int) or isinstance(core_size, bool) or core_size < 1:
+        raise AuditIncomplete("invalid core artifact size")
     rust_target = _required_text(scope.get("rust_target"), "Rust target")
+    rust_no_default_features = scope.get("rust_no_default_features")
+    if not isinstance(rust_no_default_features, bool):
+        raise AuditIncomplete("missing Rust default-feature selection")
     rust_features = scope.get("rust_features")
     if not isinstance(rust_features, list) or any(not isinstance(item, str) or not item.strip() for item in rust_features):
         raise AuditIncomplete("invalid Rust features")
@@ -215,10 +223,12 @@ def generate_notices(inventory):
             "candidate_id": candidate_id,
             "core_source_commit": source_commit,
             "core_sha256": core_sha,
+            "core_size": core_size,
             "target": target,
             "go_build_tags": sorted(tags),
             "rust_target": rust_target,
             "rust_features": sorted(set(rust_features)),
+            "rust_no_default_features": rust_no_default_features,
             "embedded_wasm": {"source_commit": wasm_commit, "sha256": wasm_sha},
         },
         "components": [item[1] for item in normalized_runtime],
@@ -231,10 +241,12 @@ def generate_notices(inventory):
         f"Candidate: {candidate_id}",
         f"Core source commit: {source_commit}",
         f"Core binary SHA256: {core_sha}",
+        f"Core binary size: {core_size} bytes",
         f"Build target: {target}",
         f"Go build tags: {', '.join(sorted(tags))}",
         f"Rust target: {rust_target}",
         f"Rust features: {', '.join(sorted(set(rust_features)))}",
+        f"Rust default features: {'disabled' if rust_no_default_features else 'enabled'}",
         f"Embedded EasyTier WASM source commit: {wasm_commit}",
         f"Embedded EasyTier WASM SHA256: {wasm_sha}",
         "",
