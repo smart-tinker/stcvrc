@@ -85,6 +85,16 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(AuditIncomplete, "license"):
             generate_notices(inventory)
 
+    def test_rejects_unverifiable_source_digest_algorithm_or_value(self):
+        inventory = inventory_fixture()
+        inventory["components"][0]["source_digest"] = {
+            "algorithm": "made-up-proof",
+            "value": "opaque",
+        }
+
+        with self.assertRaisesRegex(AuditIncomplete, "source digest"):
+            generate_notices(inventory)
+
 
 if __name__ == "__main__":
     unittest.main()
