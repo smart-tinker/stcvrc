@@ -219,14 +219,70 @@ function Assert-LiveCoreIdentity {
 }
 function Assert-LiveSidecarCoreIdentity {
     $state = Invoke-CvrCommand -Command 'get_runtime_state'
-    if (([string]$state.mode).ToLowerInvariant() -ne 'sidecar') { throw "Expected the explicitly isolated sidecar mode, got $($state.mode)." }
+    if (([string]$state.mode).ToLowerInvariant() -ne 'sidecar') { throw "Expected the explicitly isolated sidecar mode, got $($state.mode); snapshot=$(Get-NativeStateSnapshot -Phase 'core identity')." }
     $allCores = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'")
     if ($allCores.Count -ne 1) { throw "Expected exactly one live sidecar core process; found $($allCores.Count)." }
     $path = [IO.Path]::GetFullPath([string]$allCores[0].ExecutablePath)
     if (-not [StringComparer]::OrdinalIgnoreCase.Equals($path,[IO.Path]::GetFullPath($installedCore))) { throw "Recovered/seeded core path differs from the installed custom core: $path" }
     if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live sidecar core SHA256 mismatch.' }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
-}function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
+}
+function Get-RuntimeYaml { [string](Invoke-CvrCommand -Command 'get_runtime_yaml') }
+function Get-NativeStateSnapshot {
+    param([string]$Phase)
+    $snapshot = [ordered]@{
+        phase = $Phase
+        currentProfileUid = $null
+        fixtureProfiles = @()
+        runtimeMode = $null
+        runtimeRuleLines = @()
+        service = $null
+        coreProcesses = @()
+    }
+    try {
+        $profiles = Invoke-CvrCommand -Command 'get_profiles'
+        $snapshot.currentProfileUid = [string]$profiles.current
+        foreach ($name in @('native-fixture-a','native-fixture-b')) {
+            foreach ($item in @($profiles.items | Where-Object { $_.name -eq $name })) {
+                $snapshot.fixtureProfiles += [ordered]@{
+                    name = [string]$item.name
+                    uid = [string]$item.uid
+                    selected = @($item.selected | ForEach-Object {
+                        [ordered]@{ group = [string]$_.name; now = [string]$_.now }
+                    })
+                }
+            }
+        }
+    } catch { $snapshot.profilesError = $_.Exception.Message }
+    try {
+        $state = Invoke-CvrCommand -Command 'get_runtime_state'
+        $snapshot.runtimeMode = [string]$state.mode
+        if ($state.PSObject.Properties.Name -contains 'status') { $snapshot.runtimeStatus = [string]$state.status }
+    } catch { $snapshot.runtimeStateError = $_.Exception.Message }
+    try {
+        $yaml = Get-RuntimeYaml
+        $snapshot.runtimeRuleLines = @($yaml -split '\r?\n' | Where-Object { $_ -match '(^\s*rules:|native-fixture-[ab]\.invalid|native-fixture-[ab])' } | Select-Object -First 20)
+    } catch { $snapshot.runtimeYamlError = $_.Exception.Message }
+    try {
+        $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($svc) { $snapshot.service = [ordered]@{ name = [string]$svc.Name; status = [string]$svc.Status } }
+    } catch { $snapshot.serviceError = $_.Exception.Message }
+    try {
+        foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe' OR Name='verge-mihomo-alpha.exe'" -ErrorAction Stop)) {
+            $hash = $null
+            if ($process.ExecutablePath -and (Test-Path -LiteralPath $process.ExecutablePath -PathType Leaf)) {
+                $hash = (Get-FileHash -LiteralPath $process.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $snapshot.coreProcesses += [ordered]@{
+                name = [string]$process.Name
+                pid = [int]$process.ProcessId
+                path = [string]$process.ExecutablePath
+                sha256 = $hash
+            }
+        }
+    } catch { $snapshot.coreProcessError = $_.Exception.Message }
+    return (ConvertTo-Json -InputObject $snapshot -Compress -Depth 8)
+}
 function Wait-RuntimeRule {
     param([string]$Rule)
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -359,16 +415,19 @@ function Assert-FixtureNodeSelection {
         if ($actual -eq $ExpectedNode) { break }
         Start-Sleep -Milliseconds 300
     }
-    if ($actual -ne $ExpectedNode) { throw "$Phase core selected GLOBAL=$actual, expected $ExpectedNode for $ProfileName." }
+    if ($actual -ne $ExpectedNode) { throw "$Phase core selected GLOBAL=$actual, expected $ExpectedNode for $ProfileName; snapshot=$(Get-NativeStateSnapshot -Phase $Phase)." }
     $profile = Get-FixtureProfile -Name $ProfileName
     $matches = @($profile.selected | Where-Object { $_.name -eq 'GLOBAL' })
     if ($matches.Count -ne 1 -or [string]$matches[0].now -ne $ExpectedNode) {
-        throw "$Phase profiles.yaml did not retain GLOBAL=$ExpectedNode for $ProfileName."
+        $persisted = @($profile.selected | ForEach-Object { [ordered]@{ group=[string]$_.name; now=[string]$_.now } } | ConvertTo-Json -Compress -Depth 4)
+        throw "$Phase live core selected GLOBAL=$actual but profiles.yaml selected state was $persisted; snapshot=$(Get-NativeStateSnapshot -Phase $Phase)."
     }
 }
 function Select-FixtureNode {
     param([string]$Node, [string]$ProfileName)
-    [void](Invoke-CvrCommand -Command 'switch_proxy_node' -Payload @{ groupName='GLOBAL'; proxyName=$Node; unfix=$false })
+    $selectionResult = Invoke-CvrCommand -Command 'switch_proxy_node' -Payload @{ groupName='GLOBAL'; proxyName=$Node; unfix=$false }
+    $selectionJson = if ($null -eq $selectionResult) { 'null' } else { ConvertTo-Json -InputObject $selectionResult -Compress -Depth 8 }
+    Write-Host "switch_proxy_node GLOBAL=$Node result=$selectionJson."
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ((Get-GlobalNodeSelection) -eq $Node) { break }
@@ -378,9 +437,19 @@ function Select-FixtureNode {
 }
 function Select-FixtureProfile {
     param([string]$Uid, [string]$AllowName, [string]$RejectName)
-    [void](Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } })
-    $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
-    if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
+    $outcome = Invoke-CvrCommand -Command 'patch_profiles_config' -Payload @{ profiles=@{ current=$Uid } }
+    $outcomeJson = if ($null -eq $outcome) { 'null' } else { ConvertTo-Json -InputObject $outcome -Compress -Depth 8 }
+    $status = ([string]$outcome.status).ToLowerInvariant()
+    Write-Host "patch_profiles_config uid=$Uid returned $outcomeJson."
+    if ($status -ne 'valid') {
+        throw "patch_profiles_config did not validate the selected profile; status=$status result=$outcomeJson snapshot=$(Get-NativeStateSnapshot -Phase 'profile selection')."
+    }
+    try {
+        $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
+        if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
+    } catch {
+        throw "Profile selection validated (uid=$Uid, result=$outcomeJson), but loaded runtime rules were not confirmed: $($_.Exception.Message) snapshot=$(Get-NativeStateSnapshot -Phase 'runtime rule wait')."
+    }
 }
 function Assert-SelectedProfileReady {
     param([string[]]$OriginalDefaults, [string[]]$OriginalDns, [string]$Phase)
