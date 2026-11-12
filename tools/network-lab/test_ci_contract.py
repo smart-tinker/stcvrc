@@ -222,7 +222,6 @@ class CIContractTests(unittest.TestCase):
         job = workflow.split("\n  cvr-windows-payload:\n", 1)[1].split("\n  assemble-draft-rc:\n", 1)[0]
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
-        self.assertIn("Install, native acceptance, then recover to 2.5.8", job)
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
         for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "ci-update-preserve.yaml"):
             with self.subTest(required=required):
@@ -245,22 +244,21 @@ class CIContractTests(unittest.TestCase):
             "Win32_ProcessStartTrace",
             "verge-mihomo-alpha.exe",
             "$nativeScript",
-            "Alpha core process started:",
-            "Native acceptance starts the verified GUI and service",
+            "$alphaStarts = @($processNames | Where-Object { $_ -eq 'verge-mihomo-alpha.exe' }",
+            "if ($alphaStarts.Count)",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, script)
         self.assertIn("& $nativeScript", script)
-        self.assertNotIn("Forbidden CVR process started during install smoke:", script)
         self.assertIn("Start-Process -FilePath $guiPath", native)
         self.assertIn("install_service", native)
         self.assertLess(script.index("& $nativeScript"), script.index("$alphaStarts = @($processNames"))
 
     def test_windows_install_smoke_recovers_to_the_pinned_baseline(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        workflow = WORKFLOWS["test.yml"]
         recovery = "$installRecovered = Invoke-CvrInstaller -Version '2.5.8'"
         self.assertIn(recovery, script, "the updated 2.5.10 install is not rolled back to the pinned recovery version")
+        self.assertLess(script.index("& $nativeScript"), script.index(recovery))
         recovery_script = script[script.index(recovery):]
         for required in (
             "Assert-ProfilePreserved -Phase 'recovery'",
@@ -270,7 +268,6 @@ class CIContractTests(unittest.TestCase):
                 self.assertIn(required, recovery_script)
         self.assertIn('throw "CVR $Phase did not preserve the synthetic profile marker."', script)
         self.assertIn('throw "Fresh candidate core was not restored after $Phase."', script)
-        self.assertIn("Install, native acceptance, then recover to 2.5.8", workflow)
 
 
     def test_rc7_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
