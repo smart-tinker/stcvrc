@@ -950,7 +950,7 @@ function Test-RejectedFixture {
         }
     } catch { $phaseFailures.Add("post-reject service/route check: $($_.Exception.Message)") }
     try {
-            $afterControlName = 'post-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName
+        $afterControlName = 'post-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName
         Test-FixtureTraffic -FixtureName $afterControlName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver $ExpectedResolver
         Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase "$Phase positive control after reject"
         $routeAfterControl = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction Stop |
