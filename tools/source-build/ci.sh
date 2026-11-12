@@ -78,16 +78,21 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 printf 'Installed Go protoc plugin: %s\n' "$(protoc-gen-go --version)"
 if [[ "$host" == windows ]]; then
   # Upstream shell checks use Unix display names; native tools retain their .exe suffix.
-  cat > "$root/bin/protoc-gen-go" <<'SH'
+  mkdir -p "$root/shims"
+  plugin_binary_sha="$(sha256sum "$root/bin/protoc-gen-go.exe" | awk '{print $1}')"
+  cat > "$root/shims/protoc-gen-go" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "$#" == 1 && "$1" == --version ]]; then
-  "${BASH_SOURCE[0]}.exe" "$@" | tr -d '\r' | sed 's/^protoc-gen-go\.exe /protoc-gen-go /'
+  "$(dirname -- "${BASH_SOURCE[0]}")/../bin/protoc-gen-go.exe" "$@" | tr -d '\r' | sed 's/^protoc-gen-go\.exe /protoc-gen-go /'
 else
-  exec "${BASH_SOURCE[0]}.exe" "$@"
+  exec "$(dirname -- "${BASH_SOURCE[0]}")/../bin/protoc-gen-go.exe" "$@"
 fi
 SH
-  chmod +x "$root/bin/protoc-gen-go"
+  chmod +x "$root/shims/protoc-gen-go"
+  bash -n "$root/shims/protoc-gen-go"
+  test "$(sha256sum "$root/bin/protoc-gen-go.exe" | awk '{print $1}')" = "$plugin_binary_sha"
+  export PATH="$root/shims:$PATH"
   hash -r
 fi
 test "$(protoc-gen-go --version)" = 'protoc-gen-go v1.36.11'
@@ -100,18 +105,24 @@ else
   unzip -q "$root/protoc.zip" -d "$root/protoc"
 fi
 if [[ "$host" == windows ]]; then
-  cat > "$root/protoc/bin/protoc" <<'SH'
+  protoc_binary_sha="$(sha256sum "$root/protoc/bin/protoc.exe" | awk '{print $1}')"
+  cat > "$root/shims/protoc" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "$#" == 1 && "$1" == --version ]]; then
-  "${BASH_SOURCE[0]}.exe" "$@" | tr -d '\r'
+  "$(dirname -- "${BASH_SOURCE[0]}")/../protoc/bin/protoc.exe" "$@" | tr -d '\r'
 else
-  exec "${BASH_SOURCE[0]}.exe" "$@"
+  exec "$(dirname -- "${BASH_SOURCE[0]}")/../protoc/bin/protoc.exe" "$@"
 fi
 SH
-  chmod +x "$root/protoc/bin/protoc"
+  chmod +x "$root/shims/protoc"
+  bash -n "$root/shims/protoc"
+  test "$(sha256sum "$root/protoc/bin/protoc.exe" | awk '{print $1}')" = "$protoc_binary_sha"
+  PATH="$root/shims:$root/protoc/bin:$PATH"
+else
+  PATH="$root/protoc/bin:$PATH"
 fi
-export PATH="$root/protoc/bin:$PATH"
+export PATH
 PROTOC="$(native_path "$root/protoc/bin/protoc")"
 export PROTOC
 if [[ "$host" == windows ]]; then PROTOC="$PROTOC.exe"; fi
