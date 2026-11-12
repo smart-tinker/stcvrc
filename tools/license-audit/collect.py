@@ -253,17 +253,24 @@ def _go_rows(core, go, build, root, env):
     goflags = f"-modfile={modfile.as_posix()} -mod=readonly -p=2 -tags={','.join(tags)}"
     selected["GOFLAGS"] = goflags
     modules = _run([go, "list", "-m", "-json", "all"], core, selected)
-    packages = _run([go, "list", "-deps", "-json", "./..."], core, selected)
+    packages = _run([go, "list", "-deps", "-json", "."], core, selected)
     module_rows = _read_json_stream(modules, "go list -m")
     package_rows = _read_json_stream(packages, "go list -deps")
     selected_modules = _go_module_map(module_rows)
-    # Validate manual evidence before overriding its classification.
-    overrides = _manual_go_overrides(selected_modules, build, root)
+    runtime_module_paths = set()
+    for package in package_rows:
+        module = package.get("Module")
+        if isinstance(module, dict):
+            path = module.get("Path")
+            if isinstance(path, str) and path:
+                runtime_module_paths.add(path)
+    # Validate manual evidence only for modules in the built core's package graph.
+    overrides = _manual_go_overrides(selected_modules, runtime_module_paths, build, root)
     license_tool, tool_record = _download_go_license_tool(go, root, selected, root)
     template = Path(root) / "output" / "license-report.tmpl"
     template.write_text(_go_license_report_template(), encoding="utf-8")
     report = _run(
-        [license_tool, "report", "./...", f"--template={template}"],
+        [license_tool, "report", ".", f"--template={template}"],
         core,
         selected,
     )
@@ -320,18 +327,22 @@ def _github_json(url):
     return result
 
 
-def _manual_go_overrides(modules, build, root):
+def _manual_go_overrides(modules, runtime_module_paths, build, root):
     evidence_path = Path(__file__).resolve().parent / "fixtures" / "expected-rc7-sources.json"
     evidence = json.loads(_read(evidence_path, "pinned license evidence").decode("utf-8"))
-    expected_text = evidence.get("canonical_license_texts", {}).get("GPL-3.0-or-later")
-    if not isinstance(expected_text, dict):
-        raise AuditIncomplete("missing pinned full GPL-3.0-or-later text evidence")
-    gpl_text = _fetch(expected_text["url"]).decode("utf-8")
-    if _sha256(gpl_text.encode("utf-8")) != expected_text.get("sha256"):
-        raise AuditIncomplete("canonical GPL-3.0-or-later text checksum mismatch")
-
     result = []
-    for pin in evidence.get("meta_gpl_overrides", []):
+    runtime_pins = [
+        pin for pin in evidence.get("meta_gpl_overrides", [])
+        if pin.get("module") in runtime_module_paths
+    ]
+    if runtime_pins:
+        expected_text = evidence.get("canonical_license_texts", {}).get("GPL-3.0-or-later")
+        if not isinstance(expected_text, dict):
+            raise AuditIncomplete("missing pinned full GPL-3.0-or-later text evidence")
+        gpl_text = _fetch(expected_text["url"]).decode("utf-8")
+        if _sha256(gpl_text.encode("utf-8")) != expected_text.get("sha256"):
+            raise AuditIncomplete("canonical GPL-3.0-or-later text checksum mismatch")
+    for pin in runtime_pins:
         module = pin["module"]
         version = pin["version"]
         selected = modules.get(module)
@@ -367,7 +378,11 @@ def _manual_go_overrides(modules, build, root):
 
     chacha = evidence.get("chacha_mit_evidence")
     if not isinstance(chacha, dict):
-        raise AuditIncomplete("missing pinned chacha MIT child evidence")
+        if any(path == "github.com/metacubex/chacha" for path in runtime_module_paths):
+            raise AuditIncomplete("missing pinned chacha MIT child evidence")
+        return result
+    if chacha["module"] not in runtime_module_paths:
+        return result
     selected = modules.get(chacha["module"])
     if not isinstance(selected, dict) or selected.get("Version") != chacha["version"] or selected.get("Replace"):
         raise AuditIncomplete("chacha source version does not match the reviewed license-only child")

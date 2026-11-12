@@ -64,6 +64,14 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         self.assertEqual(component["source_digest"], {"algorithm": "go.sum-h1", "value": "h1:" + ("I" * 43) + "="})
         self.assertEqual(component["upstream_module_version"], "v1.34.2")
 
+    def test_rejects_unknown_license_for_a_selected_runtime_module(self):
+        bundle = load_bundle()
+        row = next(item for item in bundle["go"]["license_report"] if item["Name"] == "example.com/go-widget")
+        row["LicenseName"] = "Unknown"
+
+        with self.assertRaises(AuditIncomplete):
+            normalize_inventory(bundle)
+
     def test_preserves_chacha_license_only_child_as_separate_source_evidence(self):
         inventory = normalize_inventory(load_bundle())
         component = next(item for item in inventory["components"] if item["name"] == "github.com/metacubex/chacha")
