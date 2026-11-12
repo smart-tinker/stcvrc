@@ -269,10 +269,10 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("Install 2.5.8, update to 2.5.10, then recover to 2.5.8", workflow)
 
 
-    def test_rc6_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
+    def test_rc7_manifest_records_bounded_windows_smoke_without_claiming_acceptance(self):
         assembly = WORKFLOWS["test.yml"].split(chr(10) + "  assemble-draft-rc:" + chr(10), 1)[1]
-        self.assertIn("tag=stcvrc-1.19.33-rc.6", assembly)
-        self.assertIn("STCVRC 1.19.33 RC6", assembly)
+        self.assertIn("tag=stcvrc-1.19.33-rc.7", assembly)
+        self.assertIn("STCVRC 1.19.33 RC7", assembly)
         self.assertIn('test "$release_target" = "$HEAD_SHA"', assembly)
         for status in (
             '"disposableWindowsInstallUpdateRecovery": "PASS"',

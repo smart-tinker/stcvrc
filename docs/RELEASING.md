@@ -18,7 +18,7 @@ Do not rename or move historical tags. The accepted stable release is [`v1.19.29
 
 As checked on 2026-11-11, RC6 has release tag name `stcvrc-1.19.33-rc.6`, targets main commit `18d853ef19e0b6b06c9dea30cfb1fced6d4bf601`, and is `draft=true`, `prerelease=true`. Its tag string had no Git ref at that check. It contains only `verge-mihomo.exe` and `RC-MANIFEST.json`; the manifest records the exact source, build run, byte digest, and acceptance states. The latest assembly is [run 43057665817](https://github.com/smart-tinker/stcvrc/actions/runs/43057665817).
 
-For future tags, prefer SemVer's `vX.Y.Z-rc.N` form so numeric RC order is explicit. This is a recommendation, not current automation: the draft assembler is hardcoded to RC6. Adopt a new format only in a separately reviewed workflow change and verify its tag/ref behavior. Preserve every existing release and tag. See [Semantic Versioning](https://semver.org/).
+The draft assembler now targets the new `stcvrc-1.19.33-rc.7` identity. It creates a release only when that tag is absent; RC6 and all other existing releases/assets remain untouched. The repository rules allow creating new `stcvrc-*` tags and prevent updating or deleting existing ones.
 
 ## Current CI responsibilities
 
