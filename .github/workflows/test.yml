@@ -173,7 +173,7 @@ jobs:
           set -euo pipefail
           script="$GITHUB_WORKSPACE/source/tools/network-lab/windows_native_acceptance.ps1"
           test -f "$script"
-          NATIVE_SCRIPT="$script" pwsh -NoLogo -NoProfile -NonInteractive -Command '
+          NATIVE_SCRIPT="$script" pwsh -NoLogo -NoProfile -NonInteractive -Command - <<'POWERSHELL'
             $tokens = $null
             $parseErrors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($env:NATIVE_SCRIPT, [ref]$tokens, [ref]$parseErrors)
@@ -181,7 +181,7 @@ jobs:
               Write-Error "$($parseError.Extent.StartLineNumber):$($parseError.Message)"
             }
             if ($parseErrors.Count -gt 0) { exit 1 }
-          '
+          POWERSHELL
 
       - name: Install checksum-pinned Go and workflow linter
         run: |
