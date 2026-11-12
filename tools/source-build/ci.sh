@@ -20,7 +20,7 @@ fetch_source() {
   test -z "$(git -C "$path" status --porcelain)"
 }
 fetch_source "$core" https://github.com/smart-tinker/stcvrc.git 086a62c3ce9a77f650786ae2eae92b68909d49e1
-fetch_source "$easytier" https://github.com/EasyTier/EasyTier.git 3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253
+fetch_source "$easytier" https://github.com/EasyTier/EasyTier.git e313ba8efb84dd7b7fc728ff6f19fd1444482f2c
 awk '$1 == "github.com/easytier/easytier/easytier-go" { if ($2 != "v0.0.0-20260910071355-3d0c9c3ca5e2") exit 1; found++ } END { if (found != 1) exit 1 }' "$core/go.mod"
 grep -Fqx 'channel = "1.95"' "$easytier/rust-toolchain.toml"
 
@@ -59,7 +59,7 @@ cd "$easytier/easytier-go"
 go generate ./internal/artifact
 wasm="$easytier/easytier-go/internal/artifact/easytier_core.wasm"
 wasm_sha="$(sha256sum "$wasm" | awk '{print $1}')"
-grep -Fq 'Commit = "3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253"' internal/artifact/provenance.go
+grep -Fq 'Commit = "e313ba8efb84dd7b7fc728ff6f19fd1444482f2c"' internal/artifact/provenance.go
 grep -Fq "SHA256 = \"$wasm_sha\"" internal/artifact/provenance.go
 go mod verify
 go test -count=1 -timeout=240s ./...
@@ -115,7 +115,9 @@ report = {
     "status": "fresh-source-candidate-experiment; no release",
     "recipe_commit": subprocess.check_output(["git", "-C", str(recipe), "rev-parse", "HEAD"], text=True).strip(),
     "core_source_commit": "086a62c3ce9a77f650786ae2eae92b68909d49e1",
-    "easytier_source_commit": "3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253",
+    "easytier_source_commit": "e313ba8efb84dd7b7fc728ff6f19fd1444482f2c",
+    "easytier_original_module_version": "v0.0.0-20260910071355-3d0c9c3ca5e2",
+    "easytier_source_change_reason": "upstream PR2588 aligns regenerated guest ABI4 and host socket wire3",
     "wasm_sha256": digest(wasm),
     "modfile_sha256": digest(modfile),
     "generated_easytier_files": {path: digest(easytier/path) for path in sorted(changed)},

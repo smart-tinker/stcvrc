@@ -1096,6 +1096,8 @@ jobs:
       - name: Remove disposable source, compiler and build directories
         if: always()
         run: |
+          root="$RUNNER_TEMP/stcvrc-source-built"
+          if [[ -d "$root" ]]; then chmod -R u+w -- "$root"; fi
           rm -rf -- "$RUNNER_TEMP/stcvrc-source-built" "$RUNNER_TEMP/stcvrc-build-recipe"
 
   license-audit:
