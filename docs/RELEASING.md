@@ -24,7 +24,7 @@ The draft assembler now targets the new `stcvrc-1.19.33-rc.7` identity. It creat
 
 | Workflow/job | What it verifies | What it does not establish |
 | --- | --- | --- |
-| `STCVRC source checks` | Exact source tests/builds, module verification, candidate package inputs and the bounded disposable Windows update/recovery smoke. | GUI or service startup, TUN/DNS behavior, real profiles, user acceptance, or deployment. |
+| `STCVRC source checks` | Exact source tests/builds, module verification, candidate package inputs, and a disposable Windows 2.5.8 → 2.5.10 native acceptance/recovery sequence. The Windows job requires an actual GUI window, exercises Tauri commands and service-backed runtime, reloads two generic synthetic profiles A → B → A, checks fake-IP DNS and HTTP traffic through only 198.18.0.0/16, binds the live core path/SHA to the fresh source build, and compares default routes and physical DNS before/after. | Every GUI screen/control, external VPN endpoints, OpenVPN, arbitrary host drivers/profiles, or production deployment. It is one hosted Windows image and generic fixture coverage. |
 | `STCVRC network lab` | Fresh pinned-core loopback A/B failover, both-endpoints-down behavior and TLS hostname rejection on its configured runners. Check its run on the same source/fixture revision; it is a separate workflow. | Windows TUN, OpenVPN rekey, production network behavior, or long-duration acceptance. |
 | `assemble-draft-rc` in `.github/workflows/test.yml` | Runs only on manual `workflow_dispatch` from `main`, after `source`, `profile-contract`, `cvr-2-5-10-package`, and `cvr-windows-payload` succeed. It rebuilds the pinned core, writes the executable and manifest to a draft GitHub Release, then reads both assets back and compares exact bytes and manifest fields. | It does not gate on the separate network-lab workflow, issue closure, license sign-off, native acceptance, stable publication, or deployment. Check those separately. |
 
@@ -32,7 +32,7 @@ The release workflow uses standard public GitHub-hosted runners, `contents: read
 
 ## Draft-to-RC checklist
 
-1. Confirm the target CVR version, recovery version, upstream core revision, downstream candidate revision, and the issue that records the user scenario and upstream gap.
+1. Confirm the target CVR version, recovery version, upstream core revision, downstream candidate revision, and the issue that records the upstream gap and required behavior.
 2. Check the candidate input manifest and the exact workflow head. Tests and builds must use fresh source and bind the binary digest to the selected source and toolchain; do not reuse an old release executable.
 3. Read the current source, package, profile, vulnerability, dependency, and network-lab results. A skipped job is not a pass. For separate workflows, verify that the tested source and fixture commits match the proposed candidate.
 4. Dispatch draft assembly only from `main` after the configured dependencies pass. Read back the release record, actual Git ref state, manifest, asset list, and downloaded asset bytes. Record each SHA-256 and the creating run.
@@ -43,7 +43,7 @@ CI reports each result as PASS, FAIL, UNRUN, BLOCKED, or INVALID. Missing eviden
 
 ## Stable and deployment gates
 
-There is no automated stable-release or deployment job in the current workflow. Stable requires a separate final version/tag and a fresh verification of the exact bytes if version metadata or source changes. It also requires applicable native startup/TUN/DNS and recovery checks, a qualified observation window, user acceptance, reviewed license/provenance evidence, and an explicit owner publication decision. Mark the intended stable release Latest and verify the release record afterward; do not convert an RC tag by simply clearing its prerelease flag.
+There is no automated stable-release or deployment job in the current workflow. Stable requires a separate final version/tag and fresh exact-byte verification if version metadata or source changes. It also requires successful exact-head source/build checks, applicable synthetic native startup/TUN/DNS and recovery checks, reviewed license/provenance evidence, and an explicit owner publication decision. No canary period, observation window, or named-person acceptance is required. Mark the intended stable release Latest and verify the release record afterward; do not convert an RC tag by simply clearing its prerelease flag.
 
 Deployment is tracked per target only after stable acceptance and separate authorization. CI success, merging a PR, creating a draft, or publishing an RC does not change an installed host.
 
