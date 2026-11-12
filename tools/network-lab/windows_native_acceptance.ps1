@@ -128,6 +128,84 @@ function Test-CdpEvaluationErrorFormatting {
 }
 Test-CdpEvaluationErrorFormatting
 
+function Get-CdpFailureSnapshot {
+    param([string]$Command)
+    $snapshot = [ordered]@{
+        command = $Command
+        websocketState = if ($script:cdp) { [string]$script:cdp.State } else { 'missing' }
+        gui = $null
+        devtools = $null
+    }
+    try {
+        if ($script:guiProcess) {
+            $script:guiProcess.Refresh()
+            $gui = [ordered]@{
+                pid = [int]$script:guiProcess.Id
+                alive = (-not [bool]$script:guiProcess.HasExited)
+                windowTitle = [string]$script:guiProcess.MainWindowTitle
+                windowHandle = [string]$script:guiProcess.MainWindowHandle
+            }
+            if ($script:guiProcess.HasExited) { $gui.exitCode = [int]$script:guiProcess.ExitCode }
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($script:guiProcessId)" -ErrorAction Stop
+            if ($process) {
+                $gui.path = [string]$process.ExecutablePath
+                $gui.parentPid = [int]$process.ParentProcessId
+                if ($gui.path -and (Test-Path -LiteralPath $gui.path -PathType Leaf)) {
+                    $gui.sha256 = (Get-FileHash -LiteralPath $gui.path -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+            }
+            $snapshot.gui = $gui
+        }
+    } catch {
+        $snapshot.guiReadError = $_.Exception.Message
+    }
+    try {
+        if ($script:devtoolsPort -gt 0) {
+            $pages = @(Invoke-RestMethod -Uri "http://127.0.0.1:$($script:devtoolsPort)/json/list" -TimeoutSec 2)
+            $pageTargets = @($pages | Where-Object { $_.type -eq 'page' })
+            $snapshot.devtools = [ordered]@{
+                available = $true
+                pageCount = $pageTargets.Count
+                pages = @($pageTargets | ForEach-Object { [ordered]@{ title = [string]$_.title; type = [string]$_.type } })
+            }
+        }
+    } catch {
+        $snapshot.devtools = [ordered]@{ available = $false; error = $_.Exception.Message }
+    }
+    return (ConvertTo-Json -InputObject $snapshot -Compress -Depth 8)
+}
+
+function Request-CvrGuiExit {
+    if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected for exit.' }
+    if (-not $script:guiProcess -or $script:guiProcessId -le 0) { throw 'The exact CVR GUI process is unavailable for exit verification.' }
+    $script:cdpId++
+    $expression = "(window.__TAURI_INTERNALS__.invoke('exit_app',{}),'exit-requested')"
+    $packet = @{ id=$script:cdpId; method='Runtime.evaluate'; params=@{ expression=$expression; awaitPromise=$false; returnByValue=$true; userGesture=$true } } | ConvertTo-Json -Compress -Depth 8
+    $bytes = [Text.Encoding]::UTF8.GetBytes($packet)
+    try {
+        $null = $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+    } catch {
+        $snapshot = Get-CdpFailureSnapshot -Command 'exit_app'
+        throw "Could not send CVR exit_app request: $($_.Exception.Message); snapshot=$snapshot"
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $script:guiProcess.Refresh()
+        if ($script:guiProcess.HasExited) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    $script:guiProcess.Refresh()
+    if (-not $script:guiProcess.HasExited) {
+        $snapshot = Get-CdpFailureSnapshot -Command 'exit_app'
+        throw "CVR exit_app did not terminate GUI PID $script:guiProcessId within 45 seconds; snapshot=$snapshot"
+    }
+    $exitCode = [int]$script:guiProcess.ExitCode
+    if ($exitCode -ne 0) { throw "CVR exit_app terminated GUI PID $script:guiProcessId with exit code $exitCode." }
+    Write-Host "CVR exit_app completed; GUI PID $script:guiProcessId exited with code 0."
+    $script:cdp.Dispose()
+    $script:cdp = $null
+}
+
 function Invoke-CvrCommand {
     param([string]$Command, [hashtable]$Payload = @{})
     if (-not $script:cdp -or $script:cdp.State -ne [Net.WebSockets.WebSocketState]::Open) { throw 'The visible CVR WebView2 command channel is not connected.' }
@@ -138,7 +216,13 @@ function Invoke-CvrCommand {
     $bytes = [Text.Encoding]::UTF8.GetBytes($packet)
     $null = $script:cdp.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
     while ($true) {
-        $reply = Receive-CdpMessage
+        try {
+            $reply = Receive-CdpMessage
+        } catch {
+            $exceptionType = $_.Exception.GetType().FullName
+            $snapshot = Get-CdpFailureSnapshot -Command $Command
+            throw "CDP receive failed while awaiting Tauri command '$Command' ($exceptionType): $($_.Exception.Message); snapshot=$snapshot"
+        }
         if ($reply.id -ne $script:cdpId) { continue }
         $evaluationError = Get-CdpEvaluationError -Result $reply.result
         if ($null -ne $evaluationError) {
@@ -649,8 +733,8 @@ function Test-RejectedFixture {
 $baselineDefaults = @(Get-DefaultRouteSnapshot)
 $baselineDns = @(Get-PhysicalDnsSnapshot)
 if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw 'Clean-runner precondition failed: synthetic route already exists.' }
-$script:cdp=$null; $script:cdpId=0; $gui=$null; $server=$null
-$devtoolsPort=Get-FreeTcpPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort
+$script:cdp=$null; $script:cdpId=0; $script:guiProcess=$null; $script:guiProcessId=0; $script:devtoolsPort=0; $gui=$null; $server=$null
+$devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort
 $profileDnsPort=Get-FreeTcpPort; $appDnsPort=Get-FreeTcpPort
 $proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
 $script:dnsLogPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-dns-$Phase.log"
@@ -711,6 +795,7 @@ try {
     if (-not $serverReady) { throw 'Synthetic HTTP/DNS server did not become ready.' }
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$devtoolsPort"
     $gui=Start-Process -FilePath $guiPath -PassThru -WindowStyle Normal
+    $script:guiProcess=$gui; $script:guiProcessId=[int]$gui.Id
     $deadline=[DateTime]::UtcNow.AddSeconds(40); $windowReady=$false
     while ([DateTime]::UtcNow -lt $deadline) {
         $gui.Refresh()
@@ -745,7 +830,7 @@ try {
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 pre-update seed'
             Write-Host '2.5.8 seeded two valid local profiles and persisted distinct GLOBAL selections before the 2.5.10 update.'
-            [void](Invoke-CvrCommand -Command 'exit_app')
+            Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
     } elseif ($Phase -eq 'recovery') {
         try {
@@ -764,7 +849,7 @@ try {
             $runtime = Get-RuntimeYaml
             if (-not $runtime.Contains('proxy-server-nameserver:') -or -not $runtime.Contains('nameserver-policy:')) { throw 'Recovered 2.5.8 core did not load the persisted profile DNS configuration.' }
             Write-Host '2.5.8 recovery launched the verified GUI and custom core, loaded preserved profiles/config, and restored each profile GLOBAL selector.'
-            [void](Invoke-CvrCommand -Command 'exit_app')
+            Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 functional recovery: $($_.Exception.Message)" }
     } else {
         try {
@@ -847,7 +932,7 @@ try {
             try {
                 [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
                 [void](Invoke-CvrCommand -Command 'uninstall_service')
-                [void](Invoke-CvrCommand -Command 'exit_app')
+                Request-CvrGuiExit
             } catch { Add-Failure "Tauri runtime cleanup: $($_.Exception.Message)" }
         }
     }
