@@ -115,21 +115,16 @@ class ToolOutputNormalizationTests(unittest.TestCase):
 
     def test_preserves_rust_distribution_copyright_as_a_supplemental_notice(self):
         bundle = load_bundle()
-        text = "<html>Fixture Rust library notice.</html>\\n"
-        bundle["rust"]["standard_library"]["supplemental_notices"] = [{
-            "name": "COPYRIGHT-library.html",
-            "text": text,
-            "sha256": "66d9c3344388f00327404d6c75d147e65369c98698e5354b2716a0db9dda3320",
-            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
-            "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
-            "source_path": "COPYRIGHT-library.html",
-        }]
+        text = "<html>Fixture Rust library notice.</html>\n"
+        library = next(item for item in bundle["rust"]["standard_library"]["supplemental_notices"]
+                       if item["name"] == "COPYRIGHT-library.html")
+        library["text"] = text
+        library["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
         inventory = normalize_inventory(bundle)
         rust_std = next(item for item in inventory["components"] if item["name"] == "Rust standard library")
-
-        self.assertEqual(rust_std["supplemental_notices"][0]["name"], "COPYRIGHT-library.html")
-        self.assertEqual(rust_std["supplemental_notices"][0]["text"], text)
+        preserved = next(item for item in rust_std["supplemental_notices"] if item["name"] == "COPYRIGHT-library.html")
+        self.assertEqual(preserved["text"], text)
 
     def test_rejects_rust_distribution_without_copyright_library_notice(self):
         bundle = load_bundle()
