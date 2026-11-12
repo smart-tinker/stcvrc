@@ -932,6 +932,20 @@ def _rust_rows(easytier, build, root, env, output_dir):
     )
     metadata_json = json.loads(metadata)
     _validate_easytier_license_scope(easytier, build, metadata_json)
+    runtime_tree = _run(
+        [
+            cargo, "tree", "--locked", "--manifest-path", manifest,
+            "--target", target,
+            "--features", ",".join(features),
+            "--no-default-features",
+            "--edges", "normal",
+            "--format", "{p}",
+            "--prefix", "none",
+            "--no-dedupe",
+        ],
+        easytier,
+        env,
+    )
     about_config = Path(output_dir) / "cargo-about.toml"
     about_config.write_text(_cargo_about_config(target), encoding="utf-8")
     about_binary, cargo_about_record = _cargo_tool(cargo, root, env)
@@ -988,6 +1002,7 @@ def _rust_rows(easytier, build, root, env, output_dir):
     }
     return {
         "metadata": metadata_json,
+        "runtime_tree": runtime_tree,
         "about": about_json,
         "cargo_lock_text": lock.decode("utf-8"),
         "source_root": str(easytier),

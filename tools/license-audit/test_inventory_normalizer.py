@@ -19,7 +19,7 @@ from collect import (
     _validate_easytier_license_scope,
 )
 from generate_notices import AuditIncomplete, generate_notices
-from normalize_inventory import main as normalize_inventory_cli, normalize_inventory
+from normalize_inventory import _cargo_tree_runtime_ids, main as normalize_inventory_cli, normalize_inventory
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "tool-output-bundle.json"
@@ -34,6 +34,11 @@ def git_blob(text):
 def load_bundle():
     bundle = json.loads(FIXTURE.read_text(encoding="utf-8"))
     bundle["rust"]["source_root"] = str(EASYTIER_SOURCE_FIXTURE)
+    metadata_by_id = {package["id"]: package for package in bundle["rust"]["metadata"]["packages"]}
+    bundle["rust"]["runtime_tree"] = "\\n".join(
+        f'{metadata_by_id[entry["package"]["id"]]["name"]} v{metadata_by_id[entry["package"]["id"]]["version"]}'
+        for entry in bundle["rust"]["about"]["crates"]
+    )
     for package in bundle["rust"]["metadata"]["packages"]:
         if package.get("source") is None:
             package["manifest_path"] = str(EASYTIER_SOURCE_FIXTURE / "easytier-core" / "Cargo.toml")
@@ -268,6 +273,43 @@ class ToolOutputNormalizationTests(unittest.TestCase):
             self.assertIn(hashlib.sha256(sources_bytes).hexdigest(), output.getvalue())
 
 
+    def test_cargo_tree_maps_duplicate_name_and_version_by_exact_source(self):
+        registry = "registry+https://github.com/rust-lang/crates.io-index"
+        git_source = "git+https://github.com/example/duplicate?rev=deadbeef#deadbeef"
+        root = "path+file:///tmp/example#root@1.0.0"
+        metadata = {
+            "packages": [
+                {"id": root, "name": "root", "version": "1.0.0", "source": None, "manifest_path": "/tmp/root/Cargo.toml"},
+                {"id": registry + "#duplicate@1.0.0", "name": "duplicate", "version": "1.0.0", "source": registry},
+                {"id": git_source + "#duplicate@1.0.0", "name": "duplicate", "version": "1.0.0", "source": git_source},
+            ],
+            "resolve": {"root": root},
+        }
+
+        packages, runtime_ids = _cargo_tree_runtime_ids(
+            metadata,
+            "root v1.0.0 (/tmp/root)\\nduplicate v1.0.0 (git+https://github.com/example/duplicate?rev=deadbeef#deadbeef)",
+        )
+
+        self.assertEqual(set(packages), {root, registry + "#duplicate@1.0.0", git_source + "#duplicate@1.0.0"})
+        self.assertEqual(runtime_ids, {root, git_source + "#duplicate@1.0.0"})
+
+    def test_cargo_tree_rejects_an_ambiguous_unqualified_package(self):
+        registry = "registry+https://github.com/rust-lang/crates.io-index"
+        git_source = "git+https://github.com/example/duplicate?rev=deadbeef#deadbeef"
+        root = "path+file:///tmp/example#root@1.0.0"
+        metadata = {
+            "packages": [
+                {"id": root, "name": "root", "version": "1.0.0", "source": None, "manifest_path": "/tmp/root/Cargo.toml"},
+                {"id": registry + "#duplicate@1.0.0", "name": "duplicate", "version": "1.0.0", "source": registry},
+                {"id": git_source + "#duplicate@1.0.0", "name": "duplicate", "version": "1.0.0", "source": git_source},
+            ],
+            "resolve": {"root": root},
+        }
+
+        with self.assertRaises(AuditIncomplete):
+            _cargo_tree_runtime_ids(metadata, "root v1.0.0 (/tmp/root)\\nduplicate v1.0.0")
+
     def test_rust_inventory_uses_observed_build_graph_not_feature_unified_metadata_edges(self):
         bundle = load_bundle()
         rust = bundle["rust"]
@@ -289,10 +331,6 @@ class ToolOutputNormalizationTests(unittest.TestCase):
             "dep_kinds": [{"kind": None, "target": None}],
         })
         metadata["resolve"]["nodes"].append({"id": package_id, "deps": [], "features": []})
-        rust["runtime_package_ids"] = [
-            entry["package"]["id"] for entry in rust["about"]["crates"]
-        ]
-
         inventory = normalize_inventory(bundle)
 
         self.assertNotIn("dev-feature-only", {item["name"] for item in inventory["components"]})

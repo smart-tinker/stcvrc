@@ -661,33 +661,68 @@ def _go_embedded_assets(bundle, graph):
     return components
 
 
-def _rust_runtime_ids(metadata):
+def _cargo_tree_runtime_ids(metadata, tree_text):
     if not isinstance(metadata, dict) or not isinstance(metadata.get("packages"), list):
         raise AuditIncomplete("missing cargo metadata package graph")
     resolve = metadata.get("resolve")
     if not isinstance(resolve, dict):
         raise AuditIncomplete("cargo metadata has no resolved graph")
     root = _required(resolve.get("root"), "Cargo runtime root package")
-    packages = {item.get("id"): item for item in metadata["packages"] if isinstance(item, dict)}
-    nodes = {item.get("id"): item for item in resolve.get("nodes", []) if isinstance(item, dict)}
-    if root not in packages or root not in nodes:
-        raise AuditIncomplete("Cargo runtime root is absent from resolved package graph")
-    reachable = set()
-    pending = [root]
-    while pending:
-        package_id = pending.pop()
-        if package_id in reachable:
+    packages = {}
+    by_name_version = {}
+    for package in metadata["packages"]:
+        if not isinstance(package, dict):
+            raise AuditIncomplete("invalid Cargo metadata package")
+        package_id = _required(package.get("id"), "Cargo package id")
+        if package_id in packages:
+            raise AuditIncomplete(f"duplicate Cargo metadata package id: {package_id}")
+        name = _required(package.get("name"), "Cargo package name")
+        version = _required(package.get("version"), "Cargo package version")
+        packages[package_id] = package
+        by_name_version.setdefault((name, version), []).append(package)
+    if root not in packages:
+        raise AuditIncomplete("Cargo runtime root is absent from package metadata")
+    if not isinstance(tree_text, str) or not tree_text.strip():
+        raise AuditIncomplete("missing cargo tree normal-dependency graph")
+
+    def source_forms(value):
+        forms = {value}
+        for prefix in ("registry+", "git+", "path+"):
+            if value.startswith(prefix):
+                forms.add(value[len(prefix):])
+        return forms
+
+    def package_source_forms(package):
+        forms = set()
+        for value in (package.get("source"), package["id"].rsplit("#", 1)[0]):
+            if isinstance(value, str) and value:
+                forms.update(source_forms(value))
+        if package.get("source") is None:
+            manifest = package.get("manifest_path")
+            if isinstance(manifest, str) and manifest:
+                directory = Path(manifest).resolve().parent
+                forms.update((str(directory), directory.as_posix(), directory.as_uri(), "path+" + directory.as_uri()))
+        return forms
+
+    runtime_ids = set()
+    for line in tree_text.splitlines():
+        line = line.strip()
+        if not line:
             continue
-        if package_id not in packages or package_id not in nodes:
-            raise AuditIncomplete(f"Cargo dependency graph references a missing package: {package_id}")
-        reachable.add(package_id)
-        for dependency in nodes[package_id].get("deps", []):
-            if not isinstance(dependency, dict):
-                raise AuditIncomplete("invalid Cargo dependency edge")
-            kinds = dependency.get("dep_kinds") or [{"kind": None}]
-            if any(kind.get("kind") is None for kind in kinds if isinstance(kind, dict)):
-                pending.append(_required(dependency.get("pkg"), "Cargo dependency package id"))
-    return packages, reachable
+        match = re.fullmatch(r"(?P<name>\S+) v(?P<version>\S+)(?: \((?P<source>.*)\))?", line)
+        if not match:
+            raise AuditIncomplete(f"invalid cargo tree package row: {line}")
+        key = (match.group("name"), match.group("version"))
+        candidates = by_name_version.get(key, [])
+        source = match.group("source")
+        if source is not None:
+            candidates = [package for package in candidates if source in package_source_forms(package)]
+        if len(candidates) != 1:
+            raise AuditIncomplete(f"cargo tree package row is unmapped or ambiguous: {line}")
+        runtime_ids.add(candidates[0]["id"])
+    if root not in runtime_ids:
+        raise AuditIncomplete("cargo tree normal-dependency graph omits its root package")
+    return packages, runtime_ids
 
 
 def _cargo_lock(lock_text):
@@ -813,7 +848,7 @@ def _rust_components(bundle):
     if not isinstance(rust, dict):
         raise AuditIncomplete("missing Rust tool output")
     metadata = rust.get("metadata")
-    packages, required_ids = _rust_runtime_ids(metadata)
+    packages, required_ids = _cargo_tree_runtime_ids(metadata, rust.get("runtime_tree"))
     lock_packages = _cargo_lock(rust.get("cargo_lock_text"))
     about = rust.get("about")
     if not isinstance(about, dict):
