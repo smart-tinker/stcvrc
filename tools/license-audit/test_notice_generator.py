@@ -56,6 +56,40 @@ class NoticeGeneratorBehaviorTests(unittest.TestCase):
             "same exact inventory must produce byte-stable notices and source records",
         )
 
+    def test_renders_rust_distribution_copyright_as_a_separate_notice(self):
+        inventory = inventory_fixture()
+        rust_std = next(item for item in inventory["components"] if item["name"] == "Rust standard library")
+        text = "<html>Fixture COPYRIGHT-library notice text.</html>\n"
+        rust_std["supplemental_notices"] = [{
+            "name": "COPYRIGHT-library.html",
+            "text": text,
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+        }]
+
+        notices, sources = generate_notices(inventory)
+
+        self.assertIn("Fixture COPYRIGHT-library notice text.", notices)
+        rust_source = next(item for item in sources["components"] if item["name"] == "Rust standard library")
+        self.assertEqual(rust_source["supplemental_notices"][0]["name"], "COPYRIGHT-library.html")
+        self.assertEqual(
+            rust_source["supplemental_notices"][0]["sha256"],
+            hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        )
+
+    def test_rejects_missing_or_tampered_rust_copyright_notice(self):
+        inventory = inventory_fixture()
+        rust_std = next(item for item in inventory["components"] if item["name"] == "Rust standard library")
+        rust_std["supplemental_notices"] = [{
+            "name": "COPYRIGHT-library.html",
+            "text": "tampered",
+            "sha256": "0" * 64,
+            "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+        }]
+
+        with self.assertRaises(AuditIncomplete):
+            generate_notices(inventory)
+
     def test_rejects_a_runtime_component_with_missing_license_text(self):
         inventory = inventory_fixture()
         inventory["components"][0]["licenses"][0]["text"] = ""
