@@ -33,6 +33,60 @@ def load_bundle():
     return bundle
 
 
+def add_core_source_license_rows(bundle):
+    core = bundle["go"]["core_module_path"]
+    commit = bundle["build"]["core_source_commit"]
+    root_text = "Fixture GPL terms.\\nCopyright (c) Mihomo Fixture\\n"
+    kcptun_text = "Fixture MIT terms.\\nCopyright (c) kcptun Fixture\\n"
+    attribution = "Grabbed from https://github.com/xtaci/tcpraw with modifications\\n"
+    bundle["go"]["license_report"].extend([
+        {
+            "Name": core,
+            "Version": "Unknown",
+            "LicensePath": "LICENSE",
+            "LicenseURL": "UNKNOWN",
+            "LicenseName": "GPL-3.0-or-later",
+            "LicenseText": root_text,
+            "SourcePath": "LICENSE",
+            "SourceRevision": commit,
+            "SourceGitBlob": "a" * 40,
+        },
+        {
+            "Name": core + "/transport/kcptun",
+            "Version": "Unknown",
+            "LicensePath": "transport/kcptun/LICENSE.md",
+            "LicenseURL": "UNKNOWN",
+            "LicenseName": "MIT",
+            "LicenseText": kcptun_text,
+            "SourcePath": "transport/kcptun/LICENSE.md",
+            "SourceRevision": commit,
+            "SourceGitBlob": "b" * 40,
+        },
+        {
+            "Name": core + "/transport/hysteria/conns/faketcp",
+            "Version": "Unknown",
+            "LicensePath": "transport/hysteria/conns/faketcp/LICENSE",
+            "LicenseURL": "UNKNOWN",
+            "LicenseName": "Unknown",
+            "LicenseText": "",
+            "SourcePath": "transport/hysteria/conns/faketcp/LICENSE",
+            "SourceRevision": commit,
+            "SourceGitBlob": "c" * 40,
+        },
+    ])
+    bundle["go"]["core_source_notices"] = [
+        {
+            "name": "faketcp upstream attribution (not a license)",
+            "text": attribution,
+            "sha256": hashlib.sha256(attribution.encode("utf-8")).hexdigest(),
+            "source_path": "transport/hysteria/conns/faketcp/LICENSE",
+            "source_revision": commit,
+            "source_git_blob": "c" * 40,
+        }
+    ]
+    return bundle
+
+
 class ToolOutputNormalizationTests(unittest.TestCase):
     def test_cargo_about_config_has_bounded_license_resolution_priority(self):
         config = tomllib.loads(_cargo_about_config("wasm32-wasip1"))
@@ -113,6 +167,38 @@ class ToolOutputNormalizationTests(unittest.TestCase):
         rendered = json.dumps(inventory, sort_keys=True)
         self.assertNotIn("/tmp/easytier", rendered)
         self.assertNotIn("/cargo/registry", rendered)
+
+    def test_includes_exact_core_module_license_files_and_attribution(self):
+        bundle = add_core_source_license_rows(load_bundle())
+        inventory = normalize_inventory(bundle)
+        component = next(
+            item for item in inventory["components"]
+            if item["name"] == "github.com/metacubex/mihomo"
+        )
+
+        commit = bundle["build"]["core_source_commit"]
+        self.assertEqual(component["ecosystem"], "go-source")
+        self.assertEqual(component["source_digest"], {"algorithm": "git-commit", "value": commit})
+        self.assertEqual(component["source_url"], f"https://github.com/MetaCubeX/mihomo/tree/{commit}")
+        licenses = {item["spdx"]: item for item in component["licenses"]}
+        self.assertEqual(set(licenses), {"GPL-3.0-or-later", "MIT"})
+        self.assertEqual(licenses["GPL-3.0-or-later"]["source_path"], "LICENSE")
+        self.assertEqual(licenses["GPL-3.0-or-later"]["source_revision"], commit)
+        self.assertEqual(licenses["GPL-3.0-or-later"]["source_git_blob"], "a" * 40)
+        self.assertEqual(licenses["MIT"]["source_path"], "transport/kcptun/LICENSE.md")
+        self.assertEqual(
+            component["supplemental_notices"][0]["source_path"],
+            "transport/hysteria/conns/faketcp/LICENSE",
+        )
+        self.assertEqual(component["supplemental_notices"][0]["source_revision"], commit)
+        self.assertIn("go-source:github.com/metacubex/mihomo@source-" + commit[:12], inventory["required_components"])
+
+    def test_go_report_uses_effective_replacement_versions(self):
+        bundle = load_bundle()
+        rows = {item["Name"]: item for item in bundle["go"]["license_report"]}
+
+        self.assertEqual(rows["github.com/easytier/easytier/easytier-go"]["Version"], "Unknown")
+        self.assertEqual(rows["google.golang.org/protobuf"]["Version"], "v0.0.0-20260306035419-7ceee0674686")
 
     def test_replaced_module_uses_replacement_source_and_checksum(self):
         inventory = normalize_inventory(load_bundle())
