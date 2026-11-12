@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -16,7 +17,10 @@ class Blocked(RuntimeError):
 def run(args, check=True):
     result = subprocess.run(args, text=True, capture_output=True)
     if check and result.returncode:
-        raise Blocked("required systemd operation failed: " + args[1])
+        command = args[2] if args and args[0] == "sudo" and len(args) > 2 else args[0]
+        detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "no stderr"
+        detail = re.sub(r"/[^ \\t]+", "<path>", detail)[:160]
+        raise Blocked(f"required command {command} failed ({result.returncode}): {detail}")
     return result
 
 
@@ -65,9 +69,12 @@ def require_systemd():
     version = run(["systemctl", "--version"]).stdout.splitlines()[0]
     if not version.startswith("systemd "):
         raise Blocked("systemd version could not be identified")
+    for command in ("systemctl", "systemd-run", "busctl", "nsenter", "ip", "curl"):
+        if shutil.which(command) is None:
+            raise Blocked("runner is missing required command: " + command)
     run(["sudo", "-n", "true"])
-    run(["sudo", "-n", "busctl", "--version"])
-    run(["sudo", "-n", "systemd-run", "--version"])
+    run(["systemd-run", "--version"])
+    run(["busctl", "--version"])
     return version
 
 

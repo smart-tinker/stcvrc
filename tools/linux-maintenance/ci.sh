@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 export PYTHONDONTWRITEBYTECODE=1
-python3 "$source_tree/tools/linux-maintenance/systemd_counter_probe.py" "$root"
 python3 -m unittest discover \
   -s "$source_tree/tools/linux-maintenance" \
   -p 'test_*.py' -v
+python3 "$source_tree/tools/linux-maintenance/systemd_counter_probe.py" "$root"
