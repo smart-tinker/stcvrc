@@ -160,6 +160,37 @@ def _has_module_build_info(build_info, module, version):
     return False
 
 
+def _go_license_report_template():
+    return (
+        '{{range .}}'
+        '{{printf "%q\\t%q\\t%q\\t%q\\t%q\\t" .Name .Version .LicenseURL .LicenseName .LicensePath}}'
+        '{{if and .LicensePath (ne .LicensePath "Unknown")}}'
+        '{{printf "%q" .LicenseText}}'
+        '{{else}}{{printf "%q" ""}}{{end}}'
+        '{{printf "\\n"}}'
+        '{{end}}'
+    )
+
+
+def _parse_go_license_report(report):
+    rows = []
+    for line in report.splitlines():
+        if not line:
+            continue
+        fields = line.split("\\t")
+        if len(fields) != 6:
+            raise AuditIncomplete("go-licenses returned a malformed template row")
+        try:
+            values = [ast.literal_eval(field) for field in fields]
+        except (SyntaxError, ValueError) as error:
+            raise AuditIncomplete("go-licenses returned an invalid quoted field") from error
+        rows.append(dict(zip(
+            ("Name", "Version", "LicenseURL", "LicenseName", "LicensePath", "LicenseText"),
+            values,
+        )))
+    return rows
+
+
 def _download_go_license_tool(go, root, env, output_dir):
     host_goos = "windows" if os.name == "nt" else "linux"
     host_arch = "arm64" if platform.machine().lower() in {"aarch64", "arm64"} else "amd64"
@@ -226,47 +257,17 @@ def _go_rows(core, go, build, root, env):
     module_rows = _read_json_stream(modules, "go list -m")
     package_rows = _read_json_stream(packages, "go list -deps")
     selected_modules = _go_module_map(module_rows)
-    # Validate manual evidence before telling go-licenses to skip its classifier.
+    # Validate manual evidence before overriding its classification.
     overrides = _manual_go_overrides(selected_modules, build, root)
-    ignored_modules = sorted({item["module"] for item in overrides})
-    for module_path in selected_modules:
-        if any(module_path.startswith(prefix) for prefix in ignored_modules) and module_path not in ignored_modules:
-            raise AuditIncomplete(f"manual go-licenses ignore prefix would hide an unreviewed module: {module_path}")
-    for package in package_rows:
-        module = package.get("Module")
-        path = package.get("ImportPath")
-        if not isinstance(module, dict) or not isinstance(path, str):
-            continue
-        if any(path.startswith(prefix) for prefix in ignored_modules) and module.get("Path") not in ignored_modules:
-            raise AuditIncomplete(f"manual go-licenses ignore prefix would hide an unreviewed package: {path}")
-
     license_tool, tool_record = _download_go_license_tool(go, root, selected, root)
     template = Path(root) / "output" / "license-report.tmpl"
-    template.write_text(
-        '{{range .}}{{printf "%q\\t%q\\t%q\\t%q\\t%q\\t%q\\n" .Name .Version .LicenseURL .LicenseName .LicensePath .LicenseText}}{{end}}',
-        encoding="utf-8",
-    )
-    ignore_args = [argument for module in ignored_modules for argument in ("--ignore", module)]
+    template.write_text(_go_license_report_template(), encoding="utf-8")
     report = _run(
-        [license_tool, "report", "./...", *ignore_args, f"--template={template}"],
+        [license_tool, "report", "./...", f"--template={template}"],
         core,
         selected,
     )
-    rows = []
-    for line in report.splitlines():
-        if not line:
-            continue
-        fields = line.split("\t")
-        if len(fields) != 6:
-            raise AuditIncomplete("go-licenses returned a malformed template row")
-        try:
-            values = [ast.literal_eval(field) for field in fields]
-        except (SyntaxError, ValueError) as error:
-            raise AuditIncomplete("go-licenses returned an invalid quoted field") from error
-        rows.append(dict(zip(
-            ("Name", "Version", "LicenseURL", "LicenseName", "LicensePath", "LicenseText"),
-            values,
-        )))
+    rows = _parse_go_license_report(report)
 
     embedded = _wintun_record(selected_modules)
     wintun_bindings = _wintun_binding_component(selected_modules, package_rows)
