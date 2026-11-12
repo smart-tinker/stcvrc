@@ -60,6 +60,17 @@ def checksum(path):
     return digest.hexdigest()
 
 
+def namespace_inode(pid):
+    result = run([
+        "sudo", "-n", "stat", "-L", "-c", "%i",
+        "/proc/" + str(pid) + "/ns/net",
+    ])
+    try:
+        return int(result.stdout.strip())
+    except ValueError as error:
+        raise Blocked("could not parse network namespace inode") from error
+
+
 def xray_version(binary, expected):
     result = run([str(binary), "version"])
     output = (result.stdout + result.stderr).strip()
@@ -200,6 +211,7 @@ def main():
     anchor_launcher = None
     anchor_pid = None
     units = [core_unit, health_unit]
+    touched_units = set()
     try:
         for command in ("sudo", "unshare", "nsenter", "ip", "curl", "systemd-run", "systemctl", "busctl"):
             if shutil.which(command) is None:
@@ -246,7 +258,7 @@ def main():
             raise Blocked("network namespace anchor did not publish a PID")
         anchor_pid = int(pid_file.read_text(encoding="utf-8").strip())
         host_netns = os.stat("/proc/self/ns/net").st_ino
-        isolated_netns = os.stat("/proc/" + str(anchor_pid) + "/ns/net").st_ino
+        isolated_netns = namespace_inode(anchor_pid)
         if isolated_netns == host_netns:
             raise Blocked("unshare did not create a distinct network namespace")
         run(["sudo", "-n", "nsenter", "-t", str(anchor_pid), "-n", "--",
@@ -284,6 +296,7 @@ def main():
         wrapper = root / "exec-current.sh"
         wrapper.write_text("#!/bin/sh\nexec \"$@\"\n", encoding="utf-8")
         wrapper.chmod(0o700)
+        touched_units.add(health_unit)
         run([
             "sudo", "-n", "systemd-run", "--quiet", "--no-block",
             "--unit=" + health_unit,
@@ -305,6 +318,7 @@ def main():
         atomic_symlink(valid_config, current_config)
 
         def start_core():
+            touched_units.add(core_unit)
             run([
                 "sudo", "-n", "systemd-run", "--quiet", "--no-block",
                 "--unit=" + core_unit,
@@ -317,7 +331,7 @@ def main():
 
         start_core()
         baseline_process = observe_process(core_unit, baseline_sha)
-        if os.stat("/proc/" + str(baseline_process["pid"]) + "/ns/net").st_ino != isolated_netns:
+        if namespace_inode(baseline_process["pid"]) != isolated_netns:
             raise RuntimeError("baseline Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
         report["transitions"].append({
@@ -343,7 +357,7 @@ def main():
             raise RuntimeError("candidate restart had an unexpected attribution: " + restart_attribution)
         if process["start_ticks"] == baseline_process["start_ticks"] and process["pid"] == baseline_process["pid"]:
             raise RuntimeError("candidate did not replace the baseline process")
-        if os.stat("/proc/" + str(process["pid"]) + "/ns/net").st_ino != isolated_netns:
+        if namespace_inode(process["pid"]) != isolated_netns:
             raise RuntimeError("candidate Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
         after_candidate_health = read_unit(core_unit)
@@ -404,7 +418,7 @@ def main():
                 core_unit, baseline_sha, previous_failed["invocation_id"]
             ),
         )
-        if os.stat("/proc/" + str(recovered["pid"]) + "/ns/net").st_ino != isolated_netns:
+        if namespace_inode(recovered["pid"]) != isolated_netns:
             raise RuntimeError("recovered Xray process escaped its test network namespace")
         wait_http(anchor_pid, proxy_port, health_port)
         after_recovery_health = read_unit(core_unit)
@@ -435,14 +449,23 @@ def main():
                 return None
 
         if shutil.which("sudo") and shutil.which("systemctl"):
-            for unit in units:
+            for unit in sorted(touched_units):
+                loaded = cleanup_command([
+                    "sudo", "-n", "systemctl", "show", unit,
+                    "--property=LoadState", "--value",
+                ])
+                if loaded is None or loaded.returncode != 0:
+                    report["cleanup_errors"].append("could not query an owned unit before cleanup")
+                    continue
+                if loaded.stdout.strip() == "not-found":
+                    continue
                 stop = cleanup_command(["sudo", "-n", "systemctl", "stop", unit])
                 if stop is None or stop.returncode not in (0, 5):
                     report["cleanup_errors"].append("systemctl stop failed for owned unit")
                 reset = cleanup_command(["sudo", "-n", "systemctl", "reset-failed", unit])
                 if reset is None or reset.returncode not in (0, 5):
                     report["cleanup_errors"].append("systemctl reset-failed failed for owned unit")
-        elif anchor_pid is not None:
+        elif touched_units:
             report["cleanup_errors"].append("sudo/systemctl unavailable for owned-unit cleanup")
 
         if anchor_pid is not None:
@@ -457,11 +480,6 @@ def main():
                     killed = cleanup_command(["sudo", "-n", "kill", "-KILL", str(anchor_pid)])
                     if killed is None or killed.returncode not in (0, 1):
                         report["cleanup_errors"].append("network namespace anchor kill failed")
-                    deadline = time.monotonic() + 2
-                    while time.monotonic() < deadline and Path("/proc/" + str(anchor_pid)).exists():
-                        time.sleep(0.1)
-                    if Path("/proc/" + str(anchor_pid)).exists():
-                        report["cleanup_errors"].append("network namespace anchor remains after kill")
 
         if anchor_launcher is not None:
             try:
@@ -472,6 +490,8 @@ def main():
                     anchor_launcher.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     report["cleanup_errors"].append("unshare launcher did not terminate")
+        if anchor_pid is not None and Path("/proc/" + str(anchor_pid)).exists():
+            report["cleanup_errors"].append("network namespace anchor remains after cleanup")
         if report["cleanup_errors"] and report["status"] == "PASS":
             report["status"] = "FAIL"
             report["reason"] = "owned-resource cleanup was incomplete"
