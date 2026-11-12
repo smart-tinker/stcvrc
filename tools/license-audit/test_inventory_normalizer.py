@@ -1,10 +1,14 @@
 import hashlib
+import io
 import json
+import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
-from generate_notices import AuditIncomplete
-from normalize_inventory import normalize_inventory
+from generate_notices import AuditIncomplete, generate_notices
+from normalize_inventory import main as normalize_inventory_cli, normalize_inventory
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "tool-output-bundle.json"
@@ -28,6 +32,46 @@ def load_bundle():
 
 
 class ToolOutputNormalizationTests(unittest.TestCase):
+    def test_cli_writes_mixed_newlines_byte_exact_and_reports_matching_sha256(self):
+        bundle = load_bundle()
+        mixed_license = "Fixture MIT terms first line\r\nsecond line\nthird line\r\n"
+        widget = next(item for item in bundle["go"]["license_report"] if item["Name"] == "example.com/go-widget")
+        widget["LicenseText"] = mixed_license
+        inventory = normalize_inventory(bundle)
+        notices, source_manifest = generate_notices(inventory)
+        source_text = json.dumps(source_manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        notices_bytes = notices.encode("utf-8")
+        sources_bytes = source_text.encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle_path = root / "bundle.json"
+            notices_path = root / "notices.txt"
+            sources_path = root / "sources.json"
+            bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+            output = io.StringIO()
+            previous_argv = sys.argv
+            try:
+                sys.argv = [
+                    "normalize_inventory.py",
+                    str(bundle_path),
+                    "--notices",
+                    str(notices_path),
+                    "--sources",
+                    str(sources_path),
+                ]
+                with redirect_stdout(output):
+                    normalize_inventory_cli()
+            finally:
+                sys.argv = previous_argv
+
+            self.assertEqual(notices_path.read_bytes(), notices_bytes)
+            self.assertEqual(sources_path.read_bytes(), sources_bytes)
+            self.assertIn(mixed_license, notices_path.read_bytes().decode("utf-8"))
+            self.assertIn(hashlib.sha256(notices_bytes).hexdigest(), output.getvalue())
+            self.assertIn(hashlib.sha256(sources_bytes).hexdigest(), output.getvalue())
+
+
     def test_normalizes_selected_go_and_rust_runtime_graphs(self):
         inventory = normalize_inventory(load_bundle())
         names = {item["name"] for item in inventory["components"]}

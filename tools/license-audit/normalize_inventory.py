@@ -871,7 +871,7 @@ def main():
     import argparse
     import hashlib
 
-    from generate_notices import generate_notices
+    from generate_notices import generate_notices, write_notice_outputs
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle")
@@ -882,10 +882,9 @@ def main():
     inventory = normalize_inventory(bundle)
     notices, sources = generate_notices(inventory)
     source_text = json.dumps(sources, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    Path(args.notices).write_text(notices, encoding="utf-8")
-    Path(args.sources).write_text(source_text, encoding="utf-8")
-    print(f"THIRD-PARTY-NOTICES.txt sha256={hashlib.sha256(notices.encode('utf-8')).hexdigest()}")
-    print(f"THIRD-PARTY-SOURCES.json sha256={hashlib.sha256(source_text.encode('utf-8')).hexdigest()}")
+    notices_sha, sources_sha = write_notice_outputs(notices, source_text, args.notices, args.sources)
+    print(f"THIRD-PARTY-NOTICES.txt sha256={notices_sha}")
+    print(f"THIRD-PARTY-SOURCES.json sha256={sources_sha}")
 
 
 if __name__ == "__main__":

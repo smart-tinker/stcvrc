@@ -7,6 +7,7 @@ import binascii
 import hashlib
 import json
 import re
+from pathlib import Path
 from urllib.parse import urlparse
 
 
@@ -422,6 +423,18 @@ def generate_notices(inventory):
         lines.extend(_render_component(record, licenses, supplemental))
     notices = "\n".join(lines).rstrip() + "\n"
     return notices, source_manifest
+
+
+def write_notice_outputs(notices, sources_text, notices_path, sources_path):
+    """Write generated UTF-8 outputs byte-for-byte and return their SHA256 digests."""
+    notices_bytes = notices.encode("utf-8")
+    sources_bytes = sources_text.encode("utf-8")
+    Path(notices_path).write_bytes(notices_bytes)
+    Path(sources_path).write_bytes(sources_bytes)
+    return (
+        hashlib.sha256(notices_bytes).hexdigest(),
+        hashlib.sha256(sources_bytes).hexdigest(),
+    )
 
 
 def source_manifest_json(inventory):

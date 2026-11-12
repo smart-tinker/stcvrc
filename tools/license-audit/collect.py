@@ -18,7 +18,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from generate_notices import AuditIncomplete, generate_notices
+from generate_notices import AuditIncomplete, generate_notices, write_notice_outputs
 from normalize_inventory import _copyright_lines, _json_stream, normalize_inventory
 
 
@@ -799,16 +799,18 @@ def collect(build_root, output_dir=None):
     inventory = normalize_inventory(bundle)
     notices, sources = generate_notices(inventory)
     sources_text = json.dumps(sources, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    (output / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
-    (output / "THIRD-PARTY-SOURCES.json").write_text(sources_text, encoding="utf-8")
-    (output / "license-inventory.json").write_text(
-        json.dumps(inventory, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    notices_sha, sources_sha = write_notice_outputs(
+        notices,
+        sources_text,
+        output / "THIRD-PARTY-NOTICES.txt",
+        output / "THIRD-PARTY-SOURCES.json",
     )
+    inventory_text = json.dumps(inventory, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    (output / "license-inventory.json").write_bytes(inventory_text.encode("utf-8"))
     print(f"Runtime components: {len(inventory['components'])}")
     print(f"Build tools: {len(inventory['build_tools'])}")
-    print(f"THIRD-PARTY-NOTICES.txt SHA256: {_sha256(notices.encode('utf-8'))}")
-    print(f"THIRD-PARTY-SOURCES.json SHA256: {_sha256(sources_text.encode('utf-8'))}")
+    print(f"THIRD-PARTY-NOTICES.txt SHA256: {notices_sha}")
+    print(f"THIRD-PARTY-SOURCES.json SHA256: {sources_sha}")
     print("License inventory scope: fresh source-built candidate only")
     return inventory
 
