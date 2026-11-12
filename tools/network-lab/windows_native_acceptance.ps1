@@ -138,13 +138,16 @@ function Wait-ServiceReady {
     }
     throw 'get_runtime_state did not reach service=ready, mode=service.'
 }
-function Assert-LiveCoreIdentity {
+function Assert-LiveServiceIdentity {
     $service = Get-Service -Name $serviceName -ErrorAction Stop
     if ($service.Status -ne 'Running') { throw 'SCM does not report the CVR service running.' }
     $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if (-not $serviceRecord -or $serviceRecord.State -ne 'Running') { throw 'CVR SCM service is not running.' }
     $serviceExe = [IO.Path]::GetFullPath(([string]$serviceRecord.PathName).Trim('"').Split(' ')[0])
     if (-not $serviceExe.StartsWith([IO.Path]::GetFullPath($installRoot), [StringComparison]::OrdinalIgnoreCase)) { throw "Service image is outside verified install: $serviceExe" }
+}
+function Assert-LiveCoreIdentity {
+    Assert-LiveServiceIdentity
     $processes = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'" | Where-Object { $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq [IO.Path]::GetFullPath($serviceCore) })
     if ($processes.Count -ne 1) { throw "Expected one live core at the service staging path; found $($processes.Count)." }
     if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
@@ -204,7 +207,7 @@ function Select-FixtureProfile {
     if (-not $yaml.Contains("DOMAIN,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
     $state = Wait-ServiceReady
     if (-not [bool]$state.tunCapable) { throw 'CVR reports no TUN capability.' }
-    Assert-LiveCoreIdentity; Assert-FixtureRoute
+    Assert-LiveCoreIdentity
     Assert-SystemRoutesRemainScoped -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase $AllowName
 }
 function Test-FixtureTraffic { param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort); $fake=Invoke-DnsQuery -Name $FixtureName -Port $DnsPort; [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort); Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP." }
@@ -288,8 +291,15 @@ try {
     try {
         $outcome=Invoke-CvrCommand -Command 'install_service'
         if (([string]$outcome.status).ToLowerInvariant() -ne 'installed') { throw "Tauri install_service did not report installed: $($outcome | ConvertTo-Json -Compress -Depth 10)" }
-        $null=Wait-ServiceReady; Assert-LiveCoreIdentity
-        Write-Host 'Tauri install_service produced a ready service-backed runtime.'
+        $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { break }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $svc -or $svc.Status -ne 'Running') { throw 'Tauri install_service did not start the SCM service.' }
+        Assert-LiveServiceIdentity
+        Write-Host 'Tauri install_service created and started the verified CVR service.'
     } catch {
         Add-Failure "Tauri service start: $($_.Exception.Message)"
         if (-not (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) { $output=& $helper.FullName --install-service 2>&1; if ($LASTEXITCODE -ne 0) { Add-Failure "Service helper fallback failed: $($output -join ' ')" } }
@@ -310,6 +320,7 @@ try {
     if ($uidB) {
         try {
             Select-FixtureProfile -Uid $uidB -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid' -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns
+            Assert-FixtureRoute
             Test-FixtureTraffic -FixtureName 'native-fixture-b.invalid' -DnsPort $dnsPort -HttpPort $httpPort
             Test-RejectedFixture -FixtureName 'native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort
         } catch { Add-Failure "Fixture B profile reload: $($_.Exception.Message)" }
