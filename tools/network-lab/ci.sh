@@ -95,7 +95,7 @@ timeout 90s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha2
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/failover.json"
 timeout 45s python3 "$HERE/lab.py" --core "$work/core" --core-sha256 "$core_sha256" \
   --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" --check-tls-rejection | tee "$work/tls.json"
-timeout 120s python3 "$HERE/mptcp_probe.py" --xray "$work/xray" | tee "$work/mptcp.json"
+timeout 120s python3 "$HERE/mptcp_probe.py" --xray "$work/xray" --xray-sha256 "$XRAY_SHA256" | tee "$work/mptcp.json"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
