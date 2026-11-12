@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Observe systemd restart-counter behavior on owned transient units only."""
+"""Observe Ubuntu systemd restart-counter semantics on owned transient units."""
 import json
 import os
 import re
@@ -8,6 +7,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from counter import UnknownRestartTransition, classify_restart_transition
 
 
 class Blocked(RuntimeError):
@@ -23,13 +24,10 @@ def run(args, check=True):
             command = command.replace(runner_temp, "<RUNNER_TEMP>")
         stdout = result.stdout.strip().replace(runner_temp, "<RUNNER_TEMP>") if runner_temp else result.stdout.strip()
         stderr = result.stderr.strip().replace(runner_temp, "<RUNNER_TEMP>") if runner_temp else result.stderr.strip()
-        payload = {
-            "command": command[:500],
-            "exit_code": result.returncode,
-            "stdout": stdout[:500],
-            "stderr": stderr[:500],
-        }
-        raise Blocked(json.dumps(payload, sort_keys=True))
+        raise Blocked(json.dumps({
+            "command": command[:500], "exit_code": result.returncode,
+            "stdout": stdout[:500], "stderr": stderr[:500],
+        }, sort_keys=True))
     return result
 
 
@@ -39,6 +37,7 @@ def snapshot(unit, phase):
                   "--no-pager"])
     fields = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
     return {
+        "unit": unit,
         "phase": phase,
         "active_state": fields.get("ActiveState", ""),
         "main_pid": int(fields.get("MainPID", "0") or "0"),
@@ -47,17 +46,14 @@ def snapshot(unit, phase):
     }
 
 
-def wait_active(unit, marker):
-    deadline = time.monotonic() + 15
+def wait_snapshot(unit, predicate, timeout=15):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            current = snapshot(unit, "wait")
-            if current["active_state"] == "active" and current["main_pid"] > 1 and marker.exists():
-                return current
-        except Blocked:
-            pass
+        current = snapshot(unit, "wait")
+        if predicate(current):
+            return current
         time.sleep(0.1)
-    raise Blocked("transient retry service did not reach active state")
+    raise Blocked("transient unit did not reach the expected state")
 
 
 def dbus_job(unit, method):
@@ -78,13 +74,24 @@ def require_systemd():
     version = run(["systemctl", "--version"]).stdout.splitlines()[0]
     if not version.startswith("systemd "):
         raise Blocked("systemd version could not be identified")
-    for command in ("systemctl", "systemd-run", "busctl", "nsenter", "ip", "curl"):
+    for command in ("sudo", "systemctl", "systemd-run", "busctl"):
         if shutil.which(command) is None:
             raise Blocked("runner is missing required command: " + command)
     run(["sudo", "-n", "true"])
-    run(["systemd-run", "--version"])
-    run(["busctl", "--version"])
     return version
+
+
+def start_transient(unit, script, marker):
+    run([
+        "sudo", "-n", "systemd-run", "--quiet", "--no-block",
+        "--unit=" + unit,
+        "--property=Type=simple",
+        "--property=Restart=on-failure",
+        "--property=RestartSec=100ms",
+        "--property=StartLimitIntervalSec=10s",
+        "--property=StartLimitBurst=4",
+        "/bin/sh", "-c", script, "sh", str(marker),
+    ])
 
 
 def main():
@@ -95,54 +102,46 @@ def main():
     try:
         report["systemd_version"] = require_systemd()
         script = 'if [ ! -e "$1" ]; then : > "$1"; exit 73; fi; exec sleep 45'
-        run([
-            "sudo", "-n", "systemd-run", "--quiet", "--no-block",
-            "--unit=" + unit,
-            "--property=Type=simple",
-            "--property=Restart=on-failure",
-            "--property=RestartSec=100ms",
-            "--property=StartLimitIntervalSec=10s",
-            "--property=StartLimitBurst=4",
-            "/bin/sh", "-c", script, "sh", str(marker),
-        ])
-        after_auto = wait_active(unit, marker)
-        observations = [snapshot(unit, "after_auto_retry")]
-        observations.append({"phase": "RestartUnit_job",
-                             "job_path": dbus_job(unit, "RestartUnit")})
-        observations.append(snapshot(unit, "after_manual_restart"))
+        start_transient(unit, script, marker)
+        before = wait_snapshot(unit, lambda x: x["active_state"] == "active" and x["main_pid"] > 1)
+        auto_retry = wait_snapshot(
+            unit, lambda x: x["n_restarts"] >= 1 and x["invocation_id"] != before["invocation_id"]
+        )
+        auto_retry["phase"] = "after_auto_retry"
+        auto_classification = classify_restart_transition(before, auto_retry)
+        job_path = dbus_job(unit, "RestartUnit")
+        manual = wait_snapshot(
+            unit,
+            lambda x: x["active_state"] == "active" and x["main_pid"] > 1
+            and x["invocation_id"] != auto_retry["invocation_id"],
+        )
+        manual["phase"] = "after_manual_restart"
+        receipt = {"unit": unit, "method": "RestartUnit", "job_id": job_path,
+                   "state": "dispatched"}
+        manual_classification = classify_restart_transition(auto_retry, manual, receipt)
         run(["sudo", "-n", "systemctl", "stop", unit])
-        observations.append(snapshot(unit, "after_stop"))
+        stopped = snapshot(unit, "after_stop")
         run(["sudo", "-n", "systemctl", "reset-failed", unit], check=False)
-        start = run([
-            "sudo", "-n", "systemd-run", "--quiet", "--no-block",
-            "--unit=" + unit,
-            "--property=Type=simple",
-            "--property=Restart=on-failure",
-            "--property=RestartSec=100ms",
-            "--property=StartLimitIntervalSec=10s",
-            "--property=StartLimitBurst=4",
-            "/bin/sh", "-c", script, "sh", str(marker),
-        ])
-        if start.returncode:
-            raise Blocked("recreating stopped transient unit failed: " + start.stderr.strip()[:240])
-        observations.append({"phase": "new_transient_start", "created": True})
-        observations.append(wait_active(unit, marker))
-        observations.append(snapshot(unit, "after_manual_start"))
+        start_transient(unit, script, marker)
+        recreated = wait_snapshot(unit, lambda x: x["active_state"] == "active" and x["main_pid"] > 1)
+        recreated["phase"] = "after_manual_start"
         report.update({
             "status": "PASS",
-            "auto_retry_main_pid": after_auto["main_pid"],
-            "observations": observations,
-            "counter_semantics": "observed-values-only; no monotonicity rule assumed",
+            "observations": [before, auto_retry, {"phase": "RestartUnit_job", "job_path": job_path},
+                             manual, stopped, recreated],
+            "classifications": [auto_classification, manual_classification],
+            "counter_rule": "requested counter reset requires a matching durable job receipt",
         })
         print(json.dumps(report, sort_keys=True))
         return 0
-    except Blocked as error:
+    except (Blocked, UnknownRestartTransition) as error:
         report["blocked_reason"] = str(error)
         print(json.dumps(report, sort_keys=True))
         return 2
     finally:
-        run(["sudo", "-n", "systemctl", "stop", unit], check=False)
-        run(["sudo", "-n", "systemctl", "reset-failed", unit], check=False)
+        if shutil.which("sudo") and shutil.which("systemctl"):
+            run(["sudo", "-n", "systemctl", "stop", unit], check=False)
+            run(["sudo", "-n", "systemctl", "reset-failed", unit], check=False)
 
 
 if __name__ == "__main__":
