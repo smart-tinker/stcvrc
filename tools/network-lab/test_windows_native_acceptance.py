@@ -105,6 +105,20 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Start-CvrService", recovery)
         self.assertIn("Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid'", recovery)
 
+    def test_recovery_preserves_and_uses_enabled_profile_dns_override(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split(
+            "\n    } else {", 1
+        )[0]
+        self.assertIn(
+            "Assert-ProfileDnsState -Uid ([string]$profileA.uid) -Enabled $true -Phase '2.5.8 recovery'",
+            recovery,
+        )
+        self.assertIn(
+            "Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'",
+            recovery,
+        )
+
     def test_native_phase_uses_real_service_and_recovery_paths(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         service = source.index("Invoke-CvrCommand -Command 'install_service'")
