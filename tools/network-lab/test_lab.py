@@ -96,6 +96,44 @@ class LabTests(unittest.TestCase):
         with mock.patch.object(lab, "probe", side_effect=[None, "A", "B"]), mock.patch.object(lab.time, "sleep"):
             self.assertGreaterEqual(lab.wait_for("B"), 0)
 
+    def test_failed_loopback_keeps_core_and_xray_log_tail(self):
+        original_ports, original_target = lab.PORTS.copy(), lab.TARGET
+        try:
+            lab.select_ports()
+
+            def fake_run(command, **kwargs):
+                if command[0] == "openssl":
+                    pathlib.Path(command[command.index("-keyout") + 1]).write_text("fixture key")
+                    pathlib.Path(command[command.index("-out") + 1]).write_text("fixture cert")
+                return mock.Mock(returncode=0)
+
+            process = mock.Mock()
+            process.poll.return_value = None
+
+            def fake_popen(command, **kwargs):
+                kwargs["stdout"].write(b"fixture process log marker\\n")
+                kwargs["stdout"].flush()
+                return process
+
+            with mock.patch.object(lab, "check_ports_available"):
+                with mock.patch.object(lab.subprocess, "run", side_effect=fake_run):
+                    with mock.patch.object(lab.subprocess, "Popen", side_effect=fake_popen):
+                        with mock.patch.object(
+                            lab, "wait_for", side_effect=AssertionError("Did not reach A")
+                        ):
+                            with self.assertRaisesRegex(
+                                AssertionError, "Did not reach A"
+                            ) as failure:
+                                lab.run("core.exe", "xray.exe", "openssl")
+
+            self.assertTrue(any(
+                "fixture process log marker" in note
+                for note in getattr(failure.exception, "__notes__", [])
+            ))
+        finally:
+            lab.PORTS.update(original_ports)
+            lab.TARGET = original_target
+
     def test_fault_timer_includes_process_shutdown(self):
         with mock.patch.object(lab, "probe", return_value="B"), mock.patch.object(lab.time, "monotonic", return_value=105):
             self.assertEqual(lab.wait_for("B", start=100), 5)

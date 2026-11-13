@@ -6,6 +6,7 @@ name: STCVRC network lab
     paths:
       - .github/workflows/**
       - tools/network-lab/**
+      - tools/linux-maintenance/**
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review, edited]
@@ -45,4 +46,14 @@ jobs:
 
       - name: Verify inputs, build the pinned candidate and test loopback failover
         run: bash "$GITHUB_WORKSPACE/fixture/tools/network-lab/ci.sh"
+
+      - name: Run isolated Linux maintenance transaction and recovery
+        run: |
+          set -euo pipefail
+          fixture_root="$GITHUB_WORKSPACE/fixture"
+          fixture_sha="$(git -C "$fixture_root" rev-parse HEAD)"
+          [[ "$fixture_sha" =~ ^[0-9a-f]{40}$ ]]
+          printf 'Exact maintenance source: %s\n' "$fixture_sha" >> "$GITHUB_STEP_SUMMARY"
+          bash "$fixture_root/tools/linux-maintenance/ci.sh" \
+            "$fixture_root" "$RUNNER_TEMP/stcvrc-ci-linux-maintenance"
 

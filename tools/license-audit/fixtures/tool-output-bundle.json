@@ -1,0 +1,349 @@
+{
+  "bundle_schema_version": 1,
+  "build": {
+    "version": "fixture-only-not-a-release",
+    "core_source_commit": "1111111111111111111111111111111111111111",
+    "artifacts": [
+      {
+        "name": "verge-mihomo.exe",
+        "target": "windows/amd64",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 123
+      },
+      {
+        "name": "core-linux",
+        "target": "linux/amd64",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size": 124
+      }
+    ],
+    "go_version": "1.26.11",
+    "easytier_source_commit": "2222222222222222222222222222222222222222",
+    "wasm_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "go_build_tags": [
+      "with_gvisor"
+    ],
+    "rust_target": "wasm32-wasip1",
+    "rust_features": [
+      "management-rpc",
+      "proxy-smoltcp-stack",
+      "wasi-crypto-offload",
+      "aes-gcm",
+      "tcp-hole-punch"
+    ],
+    "go_archive": {
+      "url": "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "rust_no_default_features": true,
+    "rust_version": "1.95.0"
+  },
+  "go": {
+    "core_module_path": "github.com/metacubex/mihomo",
+    "modules_json": "{\"Path\":\"github.com/metacubex/mihomo\"}\n{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}\n{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}\n{\"Path\":\"google.golang.org/protobuf\",\"Version\":\"v1.34.2\",\"Sum\":\"h1:GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGA=\",\"GoModSum\":\"h1:HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHA=\",\"Replace\":{\"Path\":\"github.com/metacubex/protobuf-go\",\"Version\":\"v0.0.0-20260306035419-7ceee0674686\",\"Sum\":\"h1:IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=\",\"GoModSum\":\"h1:JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJA=\"}}\n{\"Path\":\"github.com/metacubex/chacha\",\"Version\":\"v0.1.5\",\"Sum\":\"h1:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=\"}\n{\"Path\":\"github.com/metacubex/sing-tun\",\"Version\":\"v0.4.28\",\"Sum\":\"h1:IWcH13jEbsxzM5SZrRat3IeJG31WiF9fOj3r18yGHw4=\"}\n",
+    "packages_json": "{\"ImportPath\":\"github.com/metacubex/mihomo\",\"Module\":{\"Path\":\"github.com/metacubex/mihomo\"}}\n{\"ImportPath\":\"example.com/go-widget/http\",\"Module\":{\"Path\":\"example.com/go-widget\",\"Version\":\"v1.2.3\",\"Sum\":\"h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}\n{\"ImportPath\":\"github.com/easytier/easytier/easytier-go/adapter\",\"Module\":{\"Path\":\"github.com/easytier/easytier/easytier-go\",\"Version\":\"v0.0.0-20260910071355-3d0c9c3ca5e2\",\"Sum\":\"h1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=\",\"Replace\":{\"Path\":\"./third_party/easytier-go\",\"Dir\":\"/tmp/core/third_party/easytier-go\"}}}\n{\"ImportPath\":\"google.golang.org/protobuf/proto\",\"Module\":{\"Path\":\"google.golang.org/protobuf\",\"Version\":\"v1.34.2\",\"Sum\":\"h1:GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGA=\",\"GoModSum\":\"h1:HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHA=\",\"Replace\":{\"Path\":\"github.com/metacubex/protobuf-go\",\"Version\":\"v0.0.0-20260306035419-7ceee0674686\",\"Sum\":\"h1:IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII=\",\"GoModSum\":\"h1:JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJA=\"}}}\n{\"ImportPath\":\"github.com/metacubex/chacha\",\"Module\":{\"Path\":\"github.com/metacubex/chacha\",\"Version\":\"v0.1.5\",\"Sum\":\"h1:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=\"}}\n{\"ImportPath\":\"github.com/metacubex/sing-tun\",\"Module\":{\"Path\":\"github.com/metacubex/sing-tun\",\"Version\":\"v0.4.28\",\"Sum\":\"h1:IWcH13jEbsxzM5SZrRat3IeJG31WiF9fOj3r18yGHw4=\"}}\n{\"ImportPath\":\"github.com/metacubex/sing-tun/internal/wintun\",\"Module\":{\"Path\":\"github.com/metacubex/sing-tun\",\"Version\":\"v0.4.28\",\"Sum\":\"h1:IWcH13jEbsxzM5SZrRat3IeJG31WiF9fOj3r18yGHw4=\"},\"GoFiles\":[\"wintun_windows.go\"]}\n{\"ImportPath\":\"github.com/metacubex/sing-tun/internal/wintun/memmod\",\"Module\":{\"Path\":\"github.com/metacubex/sing-tun\",\"Version\":\"v0.4.28\",\"Sum\":\"h1:IWcH13jEbsxzM5SZrRat3IeJG31WiF9fOj3r18yGHw4=\"},\"GoFiles\":[\"memmod_windows.go\"]}\n",
+    "license_report": [
+      {
+        "Name": "example.com/go-widget",
+        "Version": "v1.2.3",
+        "LicensePath": "LICENSE",
+        "LicenseURL": "https://github.com/example/go-widget/blob/v1.2.3/LICENSE",
+        "LicenseName": "MIT",
+        "LicenseText": "Fixture MIT license text.\nCopyright (c) Go Fixture\n"
+      },
+      {
+        "Name": "github.com/easytier/easytier/easytier-go",
+        "Version": "Unknown",
+        "LicensePath": "third_party/easytier-go/LICENSE",
+        "LicenseURL": "",
+        "LicenseName": "LGPL-3.0-or-later",
+        "LicenseText": "Fixture EasyTier Go adapter license text.\nCopyright (c) EasyTier Fixture\n"
+      },
+      {
+        "Name": "google.golang.org/protobuf",
+        "Version": "v0.0.0-20260306035419-7ceee0674686",
+        "LicensePath": "LICENSE",
+        "LicenseURL": "https://github.com/MetaCubeX/protobuf-go/blob/v0.0.0-20260306035419-7ceee0674686/LICENSE",
+        "LicenseName": "BSD-3-Clause",
+        "LicenseText": "Fixture replacement protobuf license text.\n"
+      },
+      {
+        "Name": "github.com/metacubex/sing-tun",
+        "Version": "v0.4.28",
+        "LicenseURL": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/LICENSE",
+        "LicenseName": "GPL-3.0-or-later",
+        "LicensePath": "LICENSE",
+        "LicenseText": "Fixture sing-tun full license text.\n"
+      }
+    ],
+    "stdlib_license": {
+      "spdx": "BSD-3-Clause",
+      "text": "Fixture Go standard-library license text.\n",
+      "source_url": "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz"
+    },
+    "manual_overrides": [
+      {
+        "module": "github.com/metacubex/chacha",
+        "version": "v0.1.5",
+        "source_revision": "07294f500ca8384015f6cc21311de7b6f093607d",
+        "license_spdx": "MIT",
+        "license_text": "Fixture chacha MIT license text.\n",
+        "license_source_url": "https://github.com/MetaCubeX/chacha/blob/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE",
+        "license_text_source_revision": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
+        "license_text_path": "LICENSE",
+        "license_text_git_blob": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "copyrights": [
+          "Copyright (c) Example Chacha"
+        ]
+      }
+    ],
+    "required_manual_overrides": [
+      {
+        "module": "github.com/metacubex/chacha",
+        "version": "v0.1.5"
+      }
+    ],
+    "embedded_assets": [
+      {
+        "module": "github.com/metacubex/sing-tun",
+        "module_version": "v0.4.28",
+        "name": "wintun.dll",
+        "version": "0.14.1",
+        "target": "windows/amd64",
+        "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+        "source_path": "internal/wintun/amd64/wintun.dll",
+        "source_git_blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "expected_source_git_blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "size": 4,
+        "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/amd64/wintun.dll",
+        "archive_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+        "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "archive_path": "wintun/bin/amd64/wintun.dll",
+        "terms_name": "Wintun fixture terms",
+        "terms_text": "Fixture Wintun terms.\n",
+        "terms_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "terms_path": "wintun/LICENSE.txt",
+        "copyrights": []
+      }
+    ],
+    "additional_components": [
+      {
+        "ecosystem": "go-source",
+        "role": "runtime",
+        "name": "WireGuard Wintun Go bindings",
+        "version": "v0.4.28",
+        "source_url": "https://github.com/MetaCubeX/sing-tun/tree/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun",
+        "source_digest": {
+          "algorithm": "git-commit",
+          "value": "a128d0c3c8001e041725fa67ff3b521502298f17"
+        },
+        "licenses": [
+          {
+            "spdx": "MIT",
+            "text": "MIT License\n\nCopyright (c) <year> <copyright holders>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and\nassociated documentation files (the \"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the\nfollowing conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial\nportions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT\nLIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO\nEVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE\nUSE OR OTHER DEALINGS IN THE SOFTWARE.",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "source_url": "https://github.com/spdx/license-list-data/blob/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+            "source_revision": "31ba1a50e5397e00a304dbadc76531740e89ee48",
+            "source_path": "text/MIT.txt",
+            "source_git_blob": "d817195dad53ec992418c28ffca5fbd1cd86502a"
+          }
+        ],
+        "copyrights": [
+          "Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved."
+        ],
+        "supplemental_notices": [
+          {
+            "name": "SPDX MIT header: internal/wintun/wintun_windows.go",
+            "text": "/* SPDX-License-Identifier: MIT\n *\n * Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.\n */",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/wintun_windows.go",
+            "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+            "source_path": "internal/wintun/wintun_windows.go",
+            "source_git_blob": "288d364b67e6b5b32a08ddb7385e95981a3865ed"
+          },
+          {
+            "name": "SPDX MIT header: internal/wintun/memmod/memmod_windows.go",
+            "text": "/* SPDX-License-Identifier: MIT\n *\n * Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.\n */",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/memmod/memmod_windows.go",
+            "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+            "source_path": "internal/wintun/memmod/memmod_windows.go",
+            "source_git_blob": "985d48a13732cced2c8ebc028183d30e4e947ebf"
+          }
+        ]
+      }
+    ]
+  },
+  "rust": {
+    "metadata": {
+      "packages": [
+        {
+          "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+          "name": "easytier-core",
+          "version": "1.0.0",
+          "source": null,
+          "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml",
+          "license_file": "/tmp/easytier/LICENSE"
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+          "name": "example-rust-crate",
+          "version": "0.4.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "license": "MIT",
+          "manifest_path": "/cargo/registry/src/example-rust-crate-0.4.2/Cargo.toml"
+        },
+        {
+          "id": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
+          "name": "build-helper",
+          "version": "0.2.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "license": "Apache-2.0",
+          "manifest_path": "/cargo/registry/src/example-rust-crate-0.4.2/Cargo.toml"
+        }
+      ],
+      "resolve": {
+        "root": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+        "nodes": [
+          {
+            "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+            "deps": [
+              {
+                "name": "example-rust-crate",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              },
+              {
+                "name": "build-helper",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
+                "dep_kinds": [
+                  {
+                    "kind": "build",
+                    "target": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+            "deps": []
+          },
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#build-helper@0.2.0",
+            "deps": []
+          }
+        ]
+      }
+    },
+    "about": {
+      "overview": [],
+      "licenses": [
+        {
+          "name": "GNU Lesser General Public License v3.0 or later",
+          "id": "LGPL-3.0-or-later",
+          "first_of_kind": true,
+          "text": "Fixture LGPL license text.\n",
+          "source_path": "/tmp/easytier/LICENSE",
+          "used_by": [
+            {
+              "crate": {
+                "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+                "name": "easytier-core",
+                "version": "1.0.0",
+                "source": null,
+                "license": "LGPL-3.0-or-later"
+              },
+              "path": null
+            }
+          ]
+        },
+        {
+          "name": "MIT License",
+          "id": "MIT",
+          "first_of_kind": true,
+          "text": "Fixture Rust MIT license text.\nCopyright (c) Rust Fixture\n",
+          "source_path": "/cargo/registry/src/example-rust-crate/LICENSE",
+          "used_by": [
+            {
+              "crate": {
+                "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+                "name": "example-rust-crate",
+                "version": "0.4.2",
+                "source": "registry+https://github.com/rust-lang/crates.io-index",
+                "license": "MIT"
+              },
+              "path": null
+            }
+          ]
+        }
+      ],
+      "crates": [
+        {
+          "package": {
+            "id": "path+file:///tmp/easytier/easytier-core#easytier-core@1.0.0",
+            "name": "easytier-core",
+            "version": "1.0.0",
+            "source": null,
+            "manifest_path": "/tmp/easytier/easytier-core/Cargo.toml"
+          },
+          "license": "LGPL-3.0-or-later"
+        },
+        {
+          "package": {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#example-rust-crate@0.4.2",
+            "name": "example-rust-crate",
+            "version": "0.4.2",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "license": "MIT",
+            "manifest_path": "/cargo/registry/src/example-rust-crate-0.4.2/Cargo.toml"
+          },
+          "license": "MIT"
+        }
+      ]
+    },
+    "cargo_lock_text": "version = 4\n\n[[package]]\nname = \"example-rust-crate\"\nversion = \"0.4.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n\n[[package]]\nname = \"build-helper\"\nversion = \"0.2.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n",
+    "source_root": "/tmp/easytier",
+    "standard_library": {
+      "version": "1.95.0",
+      "source_commit": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+      "licenses": [
+        {
+          "spdx": "MIT",
+          "text": "Fixture Rust standard library MIT license text.\n",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-MIT"
+        },
+        {
+          "spdx": "Apache-2.0",
+          "text": "Fixture Rust standard library Apache license text.\n",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-APACHE"
+        }
+      ],
+      "supplemental_notices": [
+        {
+          "name": "COPYRIGHT",
+          "text": "Fixture Rust COPYRIGHT notice.\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "COPYRIGHT"
+        },
+        {
+          "name": "COPYRIGHT-library.html",
+          "text": "<html>Fixture Rust library notices.</html>\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "share/doc/rust/COPYRIGHT-library.html"
+        }
+      ]
+    }
+  },
+  "build_tools": []
+}

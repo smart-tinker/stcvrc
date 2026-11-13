@@ -245,18 +245,30 @@ def run(core, xray, openssl, check_tls_hostname=False):
             stack.callback(stop, process)
             return process
 
+        def wait_for_with_log(expected, started_at):
+            try:
+                return wait_for(expected, start=started_at)
+            except Exception as error:
+                try:
+                    tail = (directory / "process.log").read_text(errors="replace").splitlines()[-40:]
+                except OSError:
+                    tail = []
+                if tail:
+                    error.add_note("Core/Xray process log tail:\\n" + "\\n".join(tail))
+                raise
+
         initial_start = time.monotonic()
         a, b, client = start("A"), start("B"), start("core")
         if check_tls_hostname:
             print(json.dumps(check_tls_rejection(directory / "process.log", client)))
             return
-        results = {"initial_A_seconds": wait_for("A", start=initial_start)}
+        results = {"initial_A_seconds": wait_for_with_log("A", initial_start)}
         fault_start = time.monotonic()
         stop(a)
-        results["failover_B_seconds"] = wait_for("B", start=fault_start)
+        results["failover_B_seconds"] = wait_for_with_log("B", fault_start)
         recovery_start = time.monotonic()
         a = start("A")
-        results["failback_A_seconds"] = wait_for("A", start=recovery_start)
+        results["failback_A_seconds"] = wait_for_with_log("A", recovery_start)
         stop(a)
         stop(b)
         check_both_down(client)

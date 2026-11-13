@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "scope": {
+    "candidate_id": "fixture-only-not-a-release",
+    "core_source_commit": "0000000000000000000000000000000000000000",
+    "core_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "target": "windows/amd64",
+    "go_build_tags": [
+      "with_gvisor"
+    ],
+    "embedded_wasm": {
+      "source_commit": "2222222222222222222222222222222222222222",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "rust_target": "wasm32-wasip1",
+    "rust_features": [
+      "management-rpc",
+      "proxy-smoltcp-stack",
+      "ring-crypto",
+      "wasi-crypto-offload"
+    ],
+    "rust_no_default_features": true,
+    "core_size": 123
+  },
+  "components": [
+    {
+      "ecosystem": "go",
+      "role": "runtime",
+      "name": "example.invalid/go-widget",
+      "version": "v1.2.3",
+      "source_url": "https://example.invalid/go-widget/tree/v1.2.3",
+      "source_digest": {
+        "algorithm": "go.sum-h1",
+        "value": "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "licenses": [
+        {
+          "spdx": "MIT",
+          "text": "Fixture-only MIT license text.\nCopyright (c) Example Go Authors\n"
+        }
+      ],
+      "copyrights": [
+        "Copyright (c) Example Go Authors"
+      ]
+    },
+    {
+      "ecosystem": "rust",
+      "role": "runtime",
+      "name": "example-rust-crate",
+      "version": "0.4.2",
+      "source_url": "https://crates.io/crates/example-rust-crate/0.4.2",
+      "source_digest": {
+        "algorithm": "cargo-registry-sha256",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "licenses": [
+        {
+          "spdx": "Apache-2.0",
+          "text": "Fixture-only Apache license text.\nCopyright (c) Example Rust Authors\n"
+        }
+      ],
+      "copyrights": [
+        "Copyright (c) Example Rust Authors"
+      ]
+    },
+    {
+      "ecosystem": "rust-toolchain-runtime",
+      "role": "runtime",
+      "name": "Rust standard library",
+      "version": "1.95.0",
+      "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860",
+      "source_digest": {
+        "algorithm": "git-commit",
+        "value": "59807616e1fa2540724bfbac14d7976d7e4a3860"
+      },
+      "licenses": [
+        {
+          "spdx": "MIT",
+          "text": "Fixture Rust standard library MIT license text.\n",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-MIT"
+        },
+        {
+          "spdx": "Apache-2.0",
+          "text": "Fixture Rust standard library Apache license text.\n",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/LICENSE-APACHE"
+        }
+      ],
+      "copyrights": [],
+      "supplemental_notices": [
+        {
+          "name": "COPYRIGHT",
+          "text": "Fixture Rust copyright notice.\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/blob/59807616e1fa2540724bfbac14d7976d7e4a3860/COPYRIGHT",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "COPYRIGHT"
+        },
+        {
+          "name": "COPYRIGHT-library.html",
+          "text": "<html>Fixture Rust library notices.</html>\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/rust-lang/rust/tree/59807616e1fa2540724bfbac14d7976d7e4a3860/src/tools/generate-copyright",
+          "source_revision": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+          "source_path": "share/doc/rust/COPYRIGHT-library.html"
+        }
+      ]
+    },
+    {
+      "ecosystem": "embedded-binary",
+      "role": "runtime",
+      "name": "wintun.dll",
+      "version": "0.14.1",
+      "source_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+      "source_digest": {
+        "algorithm": "sha256",
+        "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "licenses": [],
+      "copyrights": [],
+      "source_archive": {
+        "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "wintun/bin/amd64/wintun.dll"
+      },
+      "embedded_from": {
+        "module": "github.com/metacubex/sing-tun",
+        "version": "v0.4.28",
+        "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+        "source_path": "internal/wintun/amd64/wintun.dll",
+        "source_git_blob": "ffffffffffffffffffffffffffffffffffffffff",
+        "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "size": 4,
+        "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/amd64/wintun.dll"
+      },
+      "asset_size": 4,
+      "supplemental_notices": [
+        {
+          "name": "Wintun signed-binary terms",
+          "text": "Fixture Wintun distribution terms.\n",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+          "source_path": "wintun/LICENSE.txt",
+          "source_archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "ecosystem": "go-source",
+      "role": "runtime",
+      "name": "WireGuard Wintun Go bindings",
+      "version": "v0.4.28",
+      "source_url": "https://github.com/MetaCubeX/sing-tun/tree/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun",
+      "source_digest": {
+        "algorithm": "git-commit",
+        "value": "a128d0c3c8001e041725fa67ff3b521502298f17"
+      },
+      "licenses": [
+        {
+          "spdx": "MIT",
+          "text": "MIT License\n\nCopyright (c) <year> <copyright holders>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and\nassociated documentation files (the \"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the\nfollowing conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial\nportions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT\nLIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO\nEVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE\nUSE OR OTHER DEALINGS IN THE SOFTWARE.",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/spdx/license-list-data/blob/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "source_revision": "31ba1a50e5397e00a304dbadc76531740e89ee48",
+          "source_path": "text/MIT.txt",
+          "source_git_blob": "d817195dad53ec992418c28ffca5fbd1cd86502a"
+        }
+      ],
+      "copyrights": [
+        "Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved."
+      ],
+      "supplemental_notices": [
+        {
+          "name": "SPDX MIT header: internal/wintun/wintun_windows.go",
+          "text": "/* SPDX-License-Identifier: MIT\n *\n * Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.\n */",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/wintun_windows.go",
+          "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+          "source_path": "internal/wintun/wintun_windows.go",
+          "source_git_blob": "288d364b67e6b5b32a08ddb7385e95981a3865ed"
+        },
+        {
+          "name": "SPDX MIT header: internal/wintun/memmod/memmod_windows.go",
+          "text": "/* SPDX-License-Identifier: MIT\n *\n * Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.\n */",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "source_url": "https://github.com/MetaCubeX/sing-tun/blob/a128d0c3c8001e041725fa67ff3b521502298f17/internal/wintun/memmod/memmod_windows.go",
+          "source_revision": "a128d0c3c8001e041725fa67ff3b521502298f17",
+          "source_path": "internal/wintun/memmod/memmod_windows.go",
+          "source_git_blob": "985d48a13732cced2c8ebc028183d30e4e947ebf"
+        }
+      ]
+    }
+  ],
+  "build_tools": [
+    {
+      "ecosystem": "rust-tool",
+      "role": "build-tool",
+      "name": "cargo-about",
+      "version": "0.9.2",
+      "source_url": "https://github.com/EmbarkStudios/cargo-about/tree/0.9.2",
+      "source_digest": {
+        "algorithm": "cargo-crate-sha256",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "licenses": [
+        {
+          "spdx": "MIT",
+          "text": "Fixture-only build tool license text.\n"
+        }
+      ],
+      "copyrights": []
+    }
+  ],
+  "required_components": [
+    "go:example.invalid/go-widget@v1.2.3",
+    "rust:example-rust-crate@0.4.2",
+    "rust-toolchain-runtime:Rust standard library@1.95.0",
+    "embedded-binary:wintun.dll@0.14.1",
+    "go-source:WireGuard Wintun Go bindings@v0.4.28"
+  ]
+}

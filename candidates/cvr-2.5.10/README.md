@@ -2,8 +2,9 @@
 
 Refs [issue #3](https://github.com/smart-tinker/stcvrc/issues/3).
 This preparation checks the official CVR 2.5.10 update and 2.5.8 recovery
-installers against a freshly built STCVRC 1.19.33 MIT-LZO Windows core from the
-exact source commit pinned in `inputs.json`. CI does not reuse a previously
+installers against a freshly built STCVRC 1.19.33 Windows core. The shared
+source recipe pins the core and regenerates the EasyTier WASM from exact public
+Rust/Go sources; `build.json` records the actual bytes. CI does not reuse a previously
 published core executable or change the accepted release table.
 The repository-wide release lifecycle is described in [docs/RELEASING.md](../../docs/RELEASING.md); this file remains the specific CVR bundle contract.
 
@@ -24,8 +25,9 @@ Place these public inputs in one directory, for each `VERSION` in `2.5.8`, `2.5.
 - `cvr-vVERSION-release.json` (raw official GitHub release metadata)
 - `tauri-vVERSION.conf.json` (source config at the commit pinned in `inputs.json`)
 
-`inputs.json` pins the exact assets, sizes, SHA256, source commits and updater
-key. Obtain the public files from those pinned URLs. An altered manifest requires
+`inputs.json` pins the exact official CVR assets, sizes, SHA256, source commits
+and updater key. Its `core` block remains the historical RC7 offline-verifier
+reference; the new native job takes core identity from its same-job `build.json`. Obtain the public files from those pinned URLs. An altered manifest requires
 review; the CLI has no option to substitute another trust manifest.
 
 ```sh
@@ -53,8 +55,9 @@ the GUI, service, helper or stock core.
 | --- | --- |
 | CVR 2.5.10 | Official installer/source refs in `inputs.json` |
 | Recovery CVR 2.5.8 | Official installer/source refs in `inputs.json` |
-| Custom STCVRC core | MIT-LZO source `086a62c3ce9a77f650786ae2eae92b68909d49e1`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8` |
-| Fresh Windows executable | SHA256 `d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87`; CI measures and records its size |
+| Custom STCVRC core | Source `a884ad53a3999dd35acab979e0bb040c47f6dbc9`, upstream `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8`; MIT LZO and complete Mux status reads |
+| Embedded EasyTier runtime | Source `3463190838eb642ba8324c6a4011acdea52495a8`; upstream generator, pinned Rust/protobuf/Binaryen toolchains and features |
+| Fresh Windows executable | Same-job `build.json` records SHA256 and size; native startup checks staged and live bytes against it |
 
 The RC manifest must record the clean verifier/docs commit separately from
 `coreSourceCommit`. Bind it to the verifier, inputs, measured receipt,
@@ -63,38 +66,40 @@ requires a new RC. Public RC assets require actual byte readback; stable require
 applicable owner acceptance. RC, stable publication and installed state are
 separate results. Existing tags/assets must remain immutable.
 
-## Windows update and recovery contract
+## Bounded native Windows acceptance
 
-Private captures, profiles, credentials, host plans, deployment commands and
-receipts stay outside this public repository. Prepare a fresh transaction and
-current 2.5.8 preimages rather than replaying an earlier upgrade.
+All machine-specific profiles, credentials, deployment state and private evidence
+stay out of this public repository. The workflow uses only the verified official
+2.5.8 recovery and 2.5.10 update installers on a clean disposable
+windows-2022 runner. It freshly builds the pinned STCVRC core from its exact
+source commit, regenerates the embedded WASM, collects notices for the selected
+Windows build graph, checks the measured SHA256, and stages those bytes before use.
 
-Before switching:
+The native job first installs 2.5.8 and updates it to 2.5.10. It then starts the
+verified installed GUI and requires an actual native window. Through that
+window's WebView2 Tauri command channel it installs the CVR service, creates two
+generic synthetic local profiles, selects each profile, and reloads A → B → A.
+A local UDP DNS responder and HTTP endpoint supply the only test destinations.
+The test queries CVR's fake-IP DNS listener and sends HTTP traffic to the
+returned synthetic addresses through an explicit 198.18.0.0/16 TUN route. It
+checks the allow/reject rules, that the live service-backed core path and SHA256
+match the fresh source build, and that the service returns to ready state after
+each profile change.
 
-1. Extract the verified installer without executing it; record actual GUI,
-   helper, service and stock-core payload hashes. Do not infer service byte
-   equality from its source version.
-2. Capture current GUI, service, both custom-core copies, owner/run intent,
-   profile/generated configuration, selectors, task security, ACL and native TCP
-   state. Preserve observer history and a usable current-version baseline.
-3. Prepare local verified 2.5.8 recovery, an independent SYSTEM Watch and fresh
-   guarded tasks. Verify Watch before Stop. Quiesce GUI/autostart and keep false
-   run intent **before NSIS or service-helper execution**: the installer can
-   publish/start a stock core and reset TCP settings.
-4. Check Python fixtures, Windows PowerShell 5.1 parsing and the existing actual
-   function mocks for task security, installer children, TCP and generated-file
-   ACL recovery. Use explicit absolute script paths in native mocks. Validate
-   the candidate against its intended configuration before releasing run intent.
+The runner's default routes and DNS servers on physical adapters are snapshotted
+before the native test and compared afterward. Broad /1 routes fail the check;
+the synthetic route is limited to 198.18.0.0/16 and removed during cleanup. The
+test does not enable the system proxy or configure system DNS. It then performs
+the pinned 2.5.8 recovery install and verifies the registered version, preserved
+synthetic profile marker, and staged fresh core.
 
-During the agreed canary window, verify the actual custom core in both validation
-and service execution locations before true run intent. Check fresh process
-identity, configuration generation, selectors, reload, DNS/TUN/system routes,
-TCP/ACL preservation, real consumer behavior and independent fresh SSH before
-confirmation. Test recovery to the captured working 2.5.8 bundle, not an older
-historical version. Test both untouched upgrade and opening/saving the new TUN
-DNS-mode dialog; compare persisted, generated, applied configuration and system
-DNS/routes. Follow with startup/reboot verification and the required qualified
-24-hour observation and owner acceptance. Gaps or unknown identity do not count
-as passing observation.
-
-These checks remain pending until operator-host evidence exists. GitHub Actions runs a bounded Windows install/update smoke on its disposable `windows-2022` runner: it installs the pinned 2.5.8 package, updates to 2.5.10 with `/UPDATE`, checks registry versions and preserves a synthetic profile marker, then stages the freshly built 1.19.33 core with `--install-core`. The NSIS installers reset TCP settings and the service helper adds firewall allow rules, so this is the final step on a clean runner that is discarded after the job. A Windows process-start trace rejects GUI, service or stock-core launches during the smoke. This smoke does not establish user-machine installation, recovery, service startup, TUN/DNS, qualified observation, or owner acceptance. The workflow uses standard public runners and no Actions cache or uploaded artifacts.
+A result is valid only for the exact PR head and successful Windows job. A failed
+or unavailable assertion remains open with its exact CI evidence. This verifies
+the installed GUI/backend start, service mode, synthetic profile reload,
+loopback DNS/TUN traffic, core identity and recovery on one hosted Windows
+image. It does not establish every GUI interaction, external VPN reachability,
+OpenVPN, arbitrary Windows drivers, user profiles or production deployment.
+The workflow uses standard public runners, without secrets, paid runners,
+Actions cache or artifacts. Scenarios are generic and synthetic; no person-specific fixtures are used.
+Stable publication still requires a separate explicit owner decision and
+reviewed source/license provenance.
