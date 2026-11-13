@@ -181,5 +181,27 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Add-Failure", seed)
         self.assertIn("2.5.8 pre-update TUN cleanup", seed)
 
+
+    def test_seed_and_recovery_start_the_service_before_tun(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        startup = source.split("function Start-CvrService", 1)
+        self.assertEqual(len(startup), 2)
+        startup_body = startup[1].split("function ", 1)[0]
+        self.assertIn("Invoke-CvrCommand -Command 'install_service'", startup_body)
+        self.assertIn("Assert-LiveServiceIdentity", startup_body)
+
+        seed = source.split("if ($Phase -eq 'seed')", 1)[1].split(
+            "elseif ($Phase -eq 'recovery')", 1
+        )[0]
+        recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split(
+            "\\n    } else {", 1
+        )[0]
+        for phase in (seed, recovery):
+            with self.subTest(phase="TUN phase"):
+                self.assertIn("Start-CvrService", phase)
+                self.assertIn("Assert-SelectedProfileReady", phase)
+                self.assertLess(phase.index("Start-CvrService"), phase.index("enable_tun_mode=$true"))
+
+
 if __name__ == "__main__":
     unittest.main()
