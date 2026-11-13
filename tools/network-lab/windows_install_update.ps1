@@ -174,6 +174,13 @@ $script:nativeIntervals = [Collections.Generic.List[object]]::new()
 $script:phaseBoundaries = [Collections.Generic.List[object]]::new()
 $script:nativeFailures = [Collections.Generic.List[string]]::new()
 $nativeScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_acceptance.ps1'
+$portPlanScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_port_plan.ps1'
+if (-not (Test-Path -LiteralPath $portPlanScript -PathType Leaf) -or -not $env:RUNNER_TEMP) { throw 'Native phase DNS port-plan inputs are missing.' }
+. $portPlanScript
+$env:STCVRC_NATIVE_PORT_PLAN = Join-Path $env:RUNNER_TEMP 'stcvrc-native-port-plan.json'
+if (Test-Path -LiteralPath $env:STCVRC_NATIVE_PORT_PLAN) { throw 'Refusing a preexisting native DNS port plan on the disposable runner.' }
+$null = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
+Write-Host 'Created one validated DNS port plan for seed, update, and recovery phases.'
 function Invoke-NativePhase {
     param([ValidateSet('seed','exercise','recovery')][string]$Phase, [string]$InstallDirectory)
     $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'

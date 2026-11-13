@@ -4,6 +4,11 @@ $ProgressPreference = 'SilentlyContinue'
 
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:GITHUB_REPOSITORY -ne 'smart-tinker/stcvrc') { throw 'Native acceptance is restricted to the disposable public STCVRC GitHub runner.' }
 if (-not $env:PR_SOURCE -or -not $env:CUSTOM_CORE -or -not $env:CVR_258_GUI_SHA256 -or -not $env:CVR_2510_GUI_SHA256) { throw 'The exact PR source, fresh custom core, or pinned CVR GUI SHA is missing.' }
+if (-not $env:STCVRC_NATIVE_PORT_PLAN) { throw 'The shared native DNS port plan is missing.' }
+$portPlanScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_port_plan.ps1'
+if (-not (Test-Path -LiteralPath $portPlanScript -PathType Leaf)) { throw 'The native DNS port-plan helper is missing.' }
+. $portPlanScript
+$nativePortPlan = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
 $expectedVersion = if ($Phase -in @('seed','recovery')) { '2.5.8' } else { '2.5.10' }
 $script:nativePhase = $Phase
 $expectedGuiSha = if ($expectedVersion -eq '2.5.8') { [string]$env:CVR_258_GUI_SHA256 } else { [string]$env:CVR_2510_GUI_SHA256 }
@@ -1020,8 +1025,8 @@ $baselineDefaults = @(Get-DefaultRouteSnapshot)
 $baselineDns = @(Get-PhysicalDnsSnapshot)
 if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw 'Clean-runner precondition failed: synthetic route already exists.' }
 $script:cdp=$null; $script:cdpId=0; $script:guiProcess=$null; $script:guiProcessId=0; $script:devtoolsPort=0; $gui=$null; $server=$null
-$devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get-FreeTcpPort; $dnsPort=Get-FreeTcpPort
-$profileDnsPort=Get-FreeTcpPort; $appDnsPort=Get-FreeTcpPort
+$devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get-FreeTcpPort
+$dnsPort=[int]$nativePortPlan.coreDnsPort; $profileDnsPort=[int]$nativePortPlan.profileDnsPort; $appDnsPort=[int]$nativePortPlan.appDnsPort
 $script:dnsPort=$dnsPort; $script:profileDnsPort=$profileDnsPort; $script:appDnsPort=$appDnsPort
 $proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
 $script:dnsLogPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-dns-$Phase.log"
