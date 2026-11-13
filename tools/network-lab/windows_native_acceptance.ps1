@@ -1072,6 +1072,8 @@ try {
         try { $probe=[Net.Sockets.TcpClient]::new(); $task=$probe.ConnectAsync([Net.IPAddress]::Loopback,$httpPort); if ($task.Wait(300)) { $serverReady=$true; $probe.Dispose(); break }; $probe.Dispose() } catch { Start-Sleep -Milliseconds 100 }
     }
     if (-not $serverReady) { throw 'Synthetic HTTP/DNS server did not become ready.' }
+    [void](Invoke-TunHttp -FakeAddress '127.0.0.1' -FixtureName 'fixture-server-health.invalid' -Port $httpPort)
+    Write-Host 'Synthetic fixture HTTP server passed its direct-loopback health check.'
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$devtoolsPort"
     $gui=Start-Process -FilePath $guiPath -PassThru -WindowStyle Normal
     $script:guiProcess=$gui; $script:guiProcessId=[int]$gui.Id
@@ -1108,6 +1110,19 @@ try {
             Select-FixtureNode -Node 'fixture-node-b' -ProfileName 'native-fixture-b'
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 pre-update seed'
+            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
+            try {
+                [void](Invoke-CvrRestartCore -Phase '2.5.8 pre-update TUN baseline')
+                Assert-SelectedSidecarProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN baseline'
+                Test-FixtureTraffic -FixtureName 'baseline-2.5.8.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
+                Write-Host '2.5.8 pre-update sidecar DNS/TUN/HTTP baseline passed.'
+            } finally {
+                [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
+                [void](Invoke-CvrRestartCore -Phase '2.5.8 pre-update TUN cleanup')
+                Assert-GlobalUiModesOff -Phase '2.5.8 pre-update TUN cleanup'
+                Assert-SystemRoutesRemainScoped -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN cleanup'
+                if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw '2.5.8 pre-update TUN cleanup left the synthetic route installed.' }
+            }
             Write-Host '2.5.8 seeded two valid local profiles and persisted distinct GLOBAL selections before the 2.5.10 update.'
             Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
