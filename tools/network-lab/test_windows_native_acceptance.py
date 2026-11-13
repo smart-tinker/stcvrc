@@ -212,5 +212,13 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("CVR_258_SERVICE_SHA256=$serviceHash", workflow)
 
 
+    def test_dns_traffic_uses_service_owned_core_in_every_native_phase(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        listener = source.split("function Assert-VerifiedRuntimeDnsListener", 1)[1].split(
+            "function Get-VerifiedRuntimeDnsEndpoint", 1
+        )[0]
+        self.assertIn("Assert-LiveCoreIdentity", listener)
+        self.assertNotIn("Assert-LiveSidecarCoreIdentity", listener)
+
 if __name__ == "__main__":
     unittest.main()
