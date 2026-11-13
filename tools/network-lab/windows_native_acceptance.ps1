@@ -1110,19 +1110,43 @@ try {
             Select-FixtureNode -Node 'fixture-node-b' -ProfileName 'native-fixture-b'
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 pre-update seed'
-            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
+            $seedFailure = $null
             try {
+                [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
                 [void](Invoke-CvrRestartCore -Phase '2.5.8 pre-update TUN baseline')
                 Assert-SelectedSidecarProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN baseline'
                 Test-FixtureTraffic -FixtureName 'baseline-2.5.8.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
                 Write-Host '2.5.8 pre-update sidecar DNS/TUN/HTTP baseline passed.'
+            } catch {
+                $seedFailure = $_.Exception.Message
             } finally {
-                [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
-                [void](Invoke-CvrRestartCore -Phase '2.5.8 pre-update TUN cleanup')
-                Assert-GlobalUiModesOff -Phase '2.5.8 pre-update TUN cleanup'
-                Assert-SystemRoutesRemainScoped -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN cleanup'
-                if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw '2.5.8 pre-update TUN cleanup left the synthetic route installed.' }
+                try {
+                    [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
+                } catch {
+                    Add-Failure "2.5.8 pre-update TUN cleanup (disable): $($_.Exception.Message)"
+                }
+                try {
+                    [void](Invoke-CvrRestartCore -Phase '2.5.8 pre-update TUN cleanup')
+                } catch {
+                    Add-Failure "2.5.8 pre-update TUN cleanup (restart): $($_.Exception.Message)"
+                }
+                try {
+                    Assert-GlobalUiModesOff -Phase '2.5.8 pre-update TUN cleanup'
+                } catch {
+                    Add-Failure "2.5.8 pre-update TUN cleanup (UI state): $($_.Exception.Message)"
+                }
+                try {
+                    Assert-SystemRoutesRemainScoped -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN cleanup'
+                } catch {
+                    Add-Failure "2.5.8 pre-update TUN cleanup (route scope): $($_.Exception.Message)"
+                }
+                try {
+                    if (@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue).Count) { throw '2.5.8 pre-update TUN cleanup left the synthetic route installed.' }
+                } catch {
+                    Add-Failure "2.5.8 pre-update TUN cleanup (synthetic route): $($_.Exception.Message)"
+                }
             }
+            if ($seedFailure) { throw $seedFailure }
             Write-Host '2.5.8 seeded two valid local profiles and persisted distinct GLOBAL selections before the 2.5.10 update.'
             Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
