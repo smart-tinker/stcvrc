@@ -189,8 +189,6 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         startup_body = startup[1].split("function ", 1)[0]
         self.assertIn("Invoke-CvrCommand -Command 'install_service'", startup_body)
         self.assertIn("Assert-LiveServiceIdentity", startup_body)
-        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("CVR_258_SERVICE_SHA256=$fileHash", workflow)
 
         seed = source.split("if ($Phase -eq 'seed')", 1)[1].split(
             "elseif ($Phase -eq 'recovery')", 1
@@ -203,6 +201,14 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 self.assertIn("Start-CvrService", phase)
                 self.assertIn("Assert-SelectedProfileReady", phase)
                 self.assertLess(phase.index("Start-CvrService"), phase.index("enable_tun_mode=$true"))
+
+
+
+    def test_258_service_identity_is_pinned_from_extracted_payload(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("$serviceFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge-service.exe' })", workflow)
+        self.assertIn("if ($serviceFiles.Count -ne 1)", workflow)
+        self.assertIn("CVR_258_SERVICE_SHA256=$serviceHash", workflow)
 
 
 if __name__ == "__main__":
