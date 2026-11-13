@@ -576,7 +576,7 @@ function Get-DnsReceiveDiagnostics {
 }
 function Assert-VerifiedRuntimeDnsListener {
     param([string]$Address, [int]$Port, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
-    if ($script:nativePhase -eq 'exercise') { Assert-LiveCoreIdentity } else { Assert-LiveSidecarCoreIdentity }
+    Assert-LiveCoreIdentity
     $expectedPid = [int]$script:verifiedCorePid
     if ($expectedPid -le 0) { throw 'The verified service core has no process ID for DNS listener ownership.' }
     $allowedAddresses = @($Address)
