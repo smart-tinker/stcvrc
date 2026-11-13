@@ -4,13 +4,18 @@ The end-to-end behavior is exercised by windows-2022 in test.yml. These checks
 keep the disposable-runner, route-scope, service identity, and DNS assertions
 wired into that native job.
 """
+import json
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER_SMOKE = ROOT / "tools" / "network-lab" / "windows_install_update.ps1"
 NATIVE_SMOKE = ROOT / "tools" / "network-lab" / "windows_native_acceptance.ps1"
+PORT_PLAN = ROOT / "tools" / "network-lab" / "windows_native_port_plan.ps1"
 
 
 class NativeWindowsAcceptanceContract(unittest.TestCase):
@@ -219,6 +224,44 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         )[0]
         self.assertIn("Assert-LiveCoreIdentity", listener)
         self.assertNotIn("Assert-LiveSidecarCoreIdentity", listener)
+
+    def test_dns_port_plan_is_reused_across_native_phases(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plan_path = Path(temp_dir) / "native-ports.json"
+            env = os.environ.copy()
+            env["STCVRC_PORT_PLAN_SCRIPT"] = str(PORT_PLAN)
+            env["STCVRC_PORT_PLAN_PATH"] = str(plan_path)
+            command = r"""
+                $ErrorActionPreference = 'Stop'
+                if (-not (Test-Path -LiteralPath $env:STCVRC_PORT_PLAN_SCRIPT -PathType Leaf)) {
+                    throw 'Native phase port-plan helper is missing.'
+                }
+                . $env:STCVRC_PORT_PLAN_SCRIPT
+                $first = Get-StcvrcNativePortPlan -Path $env:STCVRC_PORT_PLAN_PATH
+                $second = Get-StcvrcNativePortPlan -Path $env:STCVRC_PORT_PLAN_PATH
+                $names = @('coreDnsPort', 'profileDnsPort', 'appDnsPort')
+                $ports = @($names | ForEach-Object { [int]$first.$_ })
+                if (@($ports | Sort-Object -Unique).Count -ne 3) {
+                    throw 'The persistent DNS port plan must use three distinct ports.'
+                }
+                foreach ($name in $names) {
+                    if ([int]$first.$name -ne [int]$second.$name) {
+                        throw "DNS port plan changed between native phases: $name."
+                    }
+                }
+            """
+            result = subprocess.run(
+                ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            ports = [plan[name] for name in ("coreDnsPort", "profileDnsPort", "appDnsPort")]
+            self.assertEqual(len(set(ports)), 3)
+            self.assertTrue(all(0 < int(port) <= 65535 for port in ports))
 
 if __name__ == "__main__":
     unittest.main()
