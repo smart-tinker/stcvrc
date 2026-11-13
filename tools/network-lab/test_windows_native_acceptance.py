@@ -96,7 +96,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertLess(fixture.index("Invoke-TunHttp"), fixture.index("Assert-DnsResolver"))
         self.assertIn("Get-DnsReceiveDiagnostics", source)
         recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split("\n    } else {", 1)[0]
-        self.assertIn("Assert-SelectedSidecarProfileReady", recovery)
+        self.assertIn("Assert-SelectedProfileReady", recovery)
+        self.assertIn("Start-CvrService", recovery)
         self.assertIn("Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid'", recovery)
 
     def test_native_phase_uses_real_service_and_recovery_paths(self):
