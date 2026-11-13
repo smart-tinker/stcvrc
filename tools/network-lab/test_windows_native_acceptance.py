@@ -169,7 +169,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("get_core_startup_error", restart)
         self.assertIn("Get-NativeStateSnapshot", restart)
         self.assertEqual(source.count("Invoke-CvrCommand -Command 'restart_core'"), 1)
-        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 3)
+        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 5)
 
 
 if __name__ == "__main__":
