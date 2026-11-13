@@ -112,14 +112,19 @@ class LabTests(unittest.TestCase):
 
             def fake_popen(command, **kwargs):
                 kwargs["stdout"].write(b"fixture process log marker\\n")
+                kwargs["stdout"].flush()
                 return process
 
-            with mock.patch.object(lab, "check_ports_available"), \\
-                 mock.patch.object(lab.subprocess, "run", side_effect=fake_run), \\
-                 mock.patch.object(lab.subprocess, "Popen", side_effect=fake_popen), \\
-                 mock.patch.object(lab, "wait_for", side_effect=AssertionError("Did not reach A")):
-                with self.assertRaisesRegex(AssertionError, "Did not reach A") as failure:
-                    lab.run("core.exe", "xray.exe", "openssl")
+            with mock.patch.object(lab, "check_ports_available"):
+                with mock.patch.object(lab.subprocess, "run", side_effect=fake_run):
+                    with mock.patch.object(lab.subprocess, "Popen", side_effect=fake_popen):
+                        with mock.patch.object(
+                            lab, "wait_for", side_effect=AssertionError("Did not reach A")
+                        ):
+                            with self.assertRaisesRegex(
+                                AssertionError, "Did not reach A"
+                            ) as failure:
+                                lab.run("core.exe", "xray.exe", "openssl")
 
             self.assertTrue(any(
                 "fixture process log marker" in note
