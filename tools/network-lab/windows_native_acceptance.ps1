@@ -891,7 +891,6 @@ function Test-FixtureTraffic {
     param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app')][string]$ExpectedResolver)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
-    if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
     try {
         [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
     } catch {
@@ -901,6 +900,7 @@ function Test-FixtureTraffic {
         $dnsEndpointText = '{0}:{1}' -f $dnsEndpoint.address, $dnsEndpoint.port
         throw "$failure; expectedResolver=$ExpectedResolver; dnsEndpoint=$dnsEndpointText; fakeAddress=$fake; httpEndpoint=127.0.0.1:$HttpPort; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
     }
+    if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
     Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
 }
 function Test-RejectedFixture {
