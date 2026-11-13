@@ -189,6 +189,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         startup_body = startup[1].split("function ", 1)[0]
         self.assertIn("Invoke-CvrCommand -Command 'install_service'", startup_body)
         self.assertIn("Assert-LiveServiceIdentity", startup_body)
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("CVR_258_SERVICE_SHA256=$fileHash", workflow)
 
         seed = source.split("if ($Phase -eq 'seed')", 1)[1].split(
             "elseif ($Phase -eq 'recovery')", 1
