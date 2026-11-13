@@ -172,5 +172,14 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 5)
 
 
+    def test_tun_cleanup_failure_preserves_primary_restart_failure(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        seed = source.split("if ($Phase -eq 'seed')", 1)[1].split(
+            "elseif ($Phase -eq 'recovery')", 1
+        )[0]
+        self.assertIn("$seedFailure", seed)
+        self.assertIn("Add-Failure", seed)
+        self.assertIn("2.5.8 pre-update TUN cleanup", seed)
+
 if __name__ == "__main__":
     unittest.main()
