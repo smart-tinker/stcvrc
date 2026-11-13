@@ -627,6 +627,14 @@ jobs:
             if ($guiFiles.Count -ne 1) { throw "CVR $($release.version) payload expected one clash-verge.exe, found $($guiFiles.Count)" }
             $guiHash = (Get-FileHash -LiteralPath $guiFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($release.version -eq '2.5.8') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_GUI_SHA256=$guiHash" }
+            if ($release.version -eq '2.5.8') {
+              $serviceFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge-service.exe' })
+              if ($serviceFiles.Count -ne 1) { throw "CVR 2.5.8 payload expected one clash-verge-service.exe, found $($serviceFiles.Count)" }
+              $serviceHash = (Get-FileHash -LiteralPath $serviceFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($serviceHash -notmatch '^[0-9a-f]{64}$') { throw 'CVR 2.5.8 service SHA256 is malformed' }
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_SERVICE_SHA256=$serviceHash"
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "CVR 2.5.8 service SHA256: $serviceHash."
+            }
             if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_GUI_SHA256=$guiHash" }
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n### CVR $($release.version)`n- Installer SHA256: $installerHash`n- Authenticode: $authenticode`n- Extracted files: $($files.Count)"
             if ($release.version -eq '2.5.10') {

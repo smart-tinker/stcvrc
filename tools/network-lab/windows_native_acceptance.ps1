@@ -7,7 +7,8 @@ if (-not $env:PR_SOURCE -or -not $env:CUSTOM_CORE -or -not $env:CVR_258_GUI_SHA2
 $expectedVersion = if ($Phase -in @('seed','recovery')) { '2.5.8' } else { '2.5.10' }
 $script:nativePhase = $Phase
 $expectedGuiSha = if ($expectedVersion -eq '2.5.8') { [string]$env:CVR_258_GUI_SHA256 } else { [string]$env:CVR_2510_GUI_SHA256 }
-if ($Phase -eq 'exercise' -and $env:CVR_2510_SERVICE_SHA256 -notmatch '^[0-9a-f]{64}$') { throw 'The pinned CVR service SHA is malformed.' }
+$script:expectedServiceSha = if ($expectedVersion -eq '2.5.8') { [string]$env:CVR_258_SERVICE_SHA256 } else { [string]$env:CVR_2510_SERVICE_SHA256 }
+if ($script:expectedServiceSha -notmatch '^[0-9a-f]{64}$') { throw "The pinned CVR $expectedVersion service SHA is missing or malformed." }
 if (-not $env:STCVRC_BUILD_JSON -or -not (Test-Path -LiteralPath $env:STCVRC_BUILD_JSON -PathType Leaf)) { throw 'Fresh build identity report is missing.' }
 $build = Get-Content -LiteralPath $env:STCVRC_BUILD_JSON -Raw | ConvertFrom-Json
 $recipeSha = (& git -C $env:PR_SOURCE rev-parse HEAD).Trim()
@@ -369,7 +370,20 @@ function Assert-LiveServiceIdentity {
     if (-not [StringComparer]::OrdinalIgnoreCase.Equals($serviceExe, $expected)) { throw "SCM service image differs from the expected CVR payload path: $serviceExe" }
     if (-not (Test-Path -LiteralPath $serviceExe -PathType Leaf)) { throw "SCM service image is missing: $serviceExe" }
     $serviceHash = (Get-FileHash -LiteralPath $serviceExe -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($serviceHash -ne $env:CVR_2510_SERVICE_SHA256) { throw "SCM service image SHA256 differs from the extracted CVR 2.5.10 payload: $serviceHash" }
+    if ($serviceHash -ne $script:expectedServiceSha) { throw "SCM service image SHA256 differs from the pinned extracted CVR payload: $serviceHash" }
+}
+function Start-CvrService {
+    $outcome=Invoke-CvrCommand -Command 'install_service'
+    if (([string]$outcome.status).ToLowerInvariant() -ne 'installed') { throw "Tauri install_service did not report installed: $($outcome | ConvertTo-Json -Compress -Depth 10)" }
+    $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq 'Running') { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $svc -or $svc.Status -ne 'Running') { throw 'Tauri install_service did not start the SCM service.' }
+    Assert-LiveServiceIdentity
+    Write-Host "Tauri install_service created and started the verified CVR $expectedVersion service."
 }
 function Assert-LiveCoreIdentity {
     Assert-LiveServiceIdentity
@@ -1110,11 +1124,12 @@ try {
             Select-FixtureNode -Node 'fixture-node-b' -ProfileName 'native-fixture-b'
             Select-FixtureProfile -Uid $uidA -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 pre-update seed'
+            Start-CvrService
             $seedFailure = $null
             try {
                 [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
                 [void](Invoke-CvrRestartCore -Phase '2.5.8 pre-update TUN baseline')
-                Assert-SelectedSidecarProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN baseline'
+                Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 pre-update TUN baseline'
                 Test-FixtureTraffic -FixtureName 'baseline-2.5.8.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
                 Write-Host '2.5.8 pre-update sidecar DNS/TUN/HTTP baseline passed.'
             } catch {
@@ -1166,26 +1181,17 @@ try {
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 recovery'
             $runtime = Get-RuntimeYaml
             if (-not $runtime.Contains('proxy-server-nameserver:') -or -not $runtime.Contains('nameserver-policy:')) { throw 'Recovered 2.5.8 core did not load the persisted profile DNS configuration.' }
+            Start-CvrService
             [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
             [void](Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN')
-            Assert-SelectedSidecarProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 functional recovery TUN'
+            Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 functional recovery TUN'
             Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
             Write-Host '2.5.8 recovery launched the verified GUI and custom core, loaded preserved profiles/config, restored its GLOBAL selector, and passed synthetic DNS/TUN/HTTP traffic.'
             Request-CvrGuiExit
         } catch { Add-Failure "2.5.8 functional recovery: $($_.Exception.Message)" }
     } else {
         try {
-            $outcome=Invoke-CvrCommand -Command 'install_service'
-            if (([string]$outcome.status).ToLowerInvariant() -ne 'installed') { throw "Tauri install_service did not report installed: $($outcome | ConvertTo-Json -Compress -Depth 10)" }
-            $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
-            while ([DateTime]::UtcNow -lt $deadline) {
-                $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-                if ($svc -and $svc.Status -eq 'Running') { break }
-                Start-Sleep -Milliseconds 500
-            }
-            if (-not $svc -or $svc.Status -ne 'Running') { throw 'Tauri install_service did not start the SCM service.' }
-            Assert-LiveServiceIdentity
-            Write-Host 'Tauri install_service created and started the verified CVR service.'
+            Start-CvrService
         } catch {
             Add-Failure "Tauri service start: $($_.Exception.Message)"
         }
