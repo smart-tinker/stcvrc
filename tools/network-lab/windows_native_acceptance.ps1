@@ -277,7 +277,7 @@ function Assert-GlobalUiModesOff {
 }
 
 function Invoke-DnsQuery {
-    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     $labels = @()
     foreach ($label in $Name.Split('.')) { $encoded = [Text.Encoding]::ASCII.GetBytes($label); $labels += [byte]$encoded.Length; $labels += $encoded }
     $labels += [byte]0
@@ -580,7 +580,7 @@ function Get-DnsReceiveDiagnostics {
     return (ConvertTo-Json -InputObject $diagnostics -Compress -Depth 10)
 }
 function Assert-VerifiedRuntimeDnsListener {
-    param([string]$Address, [int]$Port, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$Address, [int]$Port, [string]$FixtureName, [ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     Assert-LiveCoreIdentity
     $expectedPid = [int]$script:verifiedCorePid
     if ($expectedPid -le 0) { throw 'The verified service core has no process ID for DNS listener ownership.' }
@@ -600,7 +600,7 @@ function Assert-VerifiedRuntimeDnsListener {
     Write-Host "Verified runtime DNS UDP endpoint $endpointText is owned by source-matched service core PID $expectedPid."
 }
 function Get-VerifiedRuntimeDnsEndpoint {
-    param([int]$FixtureExpectedPort, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([int]$FixtureExpectedPort, [string]$FixtureName, [ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     $null = Get-RuntimeYaml
     $listen = [string]$script:lastRuntimeDnsListen
     $match = [regex]::Match($listen, '^(?<address>127\.0\.0\.1|\[::1\]):(?<port>[1-9][0-9]{0,4})$')
@@ -808,7 +808,7 @@ function Assert-ProfileDnsState {
     if ([bool]$state.enabled -ne $Enabled) { throw "$Phase expected profile DNS override enabled=$Enabled, got $($state.enabled)." }
 }
 function Assert-DnsResolver {
-    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app')][string]$Resolver)
+    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app','subscription')][string]$Resolver)
     $expected = "$Resolver|$($Name.ToLowerInvariant())"
     $deadline = [DateTime]::UtcNow.AddSeconds(4)
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -907,7 +907,7 @@ function Assert-SelectedSidecarProfileReady {
     Assert-SystemRoutesRemainScoped -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase $Phase
 }
 function Test-FixtureTraffic {
-    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     try {
@@ -922,6 +922,42 @@ function Test-FixtureTraffic {
     if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
     Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
 }
+
+function Test-SubscriptionDnsOverrideAfterUpdate {
+    param([int]$DnsPort,[int]$HttpPort,[string]$RestoreProfileUid,[string[]]$OriginalDefaults,[string[]]$OriginalDns)
+    $url="http://127.0.0.1:$HttpPort/native-subscription-dns.yaml"
+    [void](Invoke-CvrCommand -Command 'import_profile' -Payload @{ url=$url; option=@{} })
+    $profiles=Invoke-CvrCommand -Command 'get_profiles'
+    $matches=@($profiles.items | Where-Object { [string]$_.url -eq $url })
+    if ($matches.Count -ne 1 -or -not $matches[0].uid) { throw "Expected one imported DNS subscription at $url." }
+    $uid=[string]$matches[0].uid
+    $name=[string]$matches[0].name
+    Select-FixtureProfile -Uid $uid -AllowName 'native-subscription-a.invalid' -RejectName 'native-subscription-b.invalid'
+    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase 'subscription DNS initial source'
+    $initialYaml=[string](Invoke-CvrCommand -Command 'read_profile_file' -Payload @{ index=$uid })
+    if (-not $initialYaml.Contains("udp://127.0.0.1:$script:profileDnsPort")) { throw 'Initial subscription did not contain the profile DNS resolver.' }
+    [void](Set-FixtureDnsOverride -Uid $uid -Enabled $false -Confirm $false)
+    $sourceBefore=Set-FixtureDnsOverride -Uid $uid -Enabled $true -Confirm $false
+    [void](Set-FixtureDnsOverride -Uid $uid -Enabled $true -Confirm $true)
+    Assert-ProfileDnsState -Uid $uid -Enabled $true -Phase 'subscription DNS override before refresh'
+    Test-FixtureTraffic -FixtureName 'subscription-before.native-subscription-a.invalid' -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'app'
+
+    Set-Content -LiteralPath $script:subscriptionDnsStatePath -Value ([string]$script:subscriptionDnsPort) -NoNewline -Encoding ascii
+    [void](Invoke-CvrCommand -Command 'update_profile' -Payload @{ index=$uid; option=$null })
+    $updatedProfile=Get-FixtureProfile -Name $name
+    $updatedYaml=[string](Invoke-CvrCommand -Command 'read_profile_file' -Payload @{ index=$uid })
+    if (-not $updatedYaml.Contains("udp://127.0.0.1:$script:subscriptionDnsPort")) { throw 'Subscription update did not persist the changed DNS resolver.' }
+    $sourceAfter=Set-FixtureDnsOverride -Uid $uid -Enabled $true -Confirm $false
+    if (-not $sourceAfter -or $sourceAfter -eq $sourceBefore) { throw 'Changed subscription DNS did not produce a new source-bound override confirmation.' }
+    Assert-ProfileDnsState -Uid $uid -Enabled $false -Phase 'subscription DNS update'
+    Test-FixtureTraffic -FixtureName 'subscription-after.native-subscription-a.invalid' -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'subscription'
+    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase 'subscription DNS update'
+    Select-FixtureProfile -Uid $RestoreProfileUid -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+    Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase 'subscription DNS restore'
+    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase 'subscription DNS restore'
+    Write-Host "CVR 2.5.10 reset the DNS override after subscription DNS changed; profile traffic used subscription resolver on port $script:subscriptionDnsPort."
+}
+
 function Test-RejectedFixture {
     param(
         [string]$FixtureName,
@@ -930,7 +966,7 @@ function Test-RejectedFixture {
         [int]$HttpPort,
         [string[]]$OriginalDefaults,
         [string[]]$OriginalDns,
-        [ValidateSet('profile','app')][string]$ExpectedResolver,
+        [ValidateSet('profile','app','subscription')][string]$ExpectedResolver,
         [string]$Phase
     )
     $beforeControlName = 'pre-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName
@@ -1029,6 +1065,11 @@ $devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get
 $dnsPort=[int]$nativePortPlan.coreDnsPort; $profileDnsPort=[int]$nativePortPlan.profileDnsPort; $appDnsPort=[int]$nativePortPlan.appDnsPort
 $script:dnsPort=$dnsPort; $script:profileDnsPort=$profileDnsPort; $script:appDnsPort=$appDnsPort
 $proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
+$subscriptionDnsPort=Get-FreeTcpPort; $subscriptionControllerPort=Get-FreeTcpPort
+$script:subscriptionDnsPort=$subscriptionDnsPort
+$script:subscriptionDnsStatePath=Join-Path $env:RUNNER_TEMP "stcvrc-native-subscription-dns-$Phase.txt"
+if (Test-Path -LiteralPath $script:subscriptionDnsStatePath) { throw 'Refusing a preexisting subscription DNS fixture state file.' }
+Set-Content -LiteralPath $script:subscriptionDnsStatePath -Value ([string]$profileDnsPort) -NoNewline -Encoding ascii
 $script:dnsLogPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-dns-$Phase.log"
 if (Test-Path -LiteralPath $script:dnsLogPath) { Remove-Item -LiteralPath $script:dnsLogPath -Force }
 $serverPath=Join-Path $env:RUNNER_TEMP 'stcvrc-native-fixture-server.py'
@@ -1043,11 +1084,74 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 HTTP_PORT=int(os.environ["STCVRC_NATIVE_HTTP_PORT"])
 PROFILE_DNS_PORT=int(os.environ["STCVRC_NATIVE_PROFILE_DNS_PORT"])
 APP_DNS_PORT=int(os.environ["STCVRC_NATIVE_APP_DNS_PORT"])
+SUBSCRIPTION_DNS_PORT=int(os.environ["STCVRC_NATIVE_SUBSCRIPTION_DNS_PORT"])
+SUBSCRIPTION_CONTROLLER_PORT=int(os.environ["STCVRC_NATIVE_SUBSCRIPTION_CONTROLLER_PORT"])
+CORE_DNS_PORT=int(os.environ["STCVRC_NATIVE_CORE_DNS_PORT"])
+PROXY_PORT_A=int(os.environ["STCVRC_NATIVE_PROXY_PORT_A"])
+PROXY_PORT_B=int(os.environ["STCVRC_NATIVE_PROXY_PORT_B"])
+SUBSCRIPTION_DNS_STATE=os.environ["STCVRC_NATIVE_SUBSCRIPTION_DNS_STATE"]
 DNS_LOG=os.environ["STCVRC_NATIVE_DNS_LOG"]
 LOG_LOCK=threading.Lock()
 class Handler(BaseHTTPRequestHandler):
     protocol_version="HTTP/1.1"
     def do_GET(self):
+        if self.path == "/native-subscription-dns.yaml":
+            with open(SUBSCRIPTION_DNS_STATE,encoding="ascii") as state:
+                upstream_port=state.read().strip()
+            body=f"""mode: rule
+log-level: info
+allow-lan: false
+bind-address: 127.0.0.1
+external-controller: 127.0.0.1:{SUBSCRIPTION_CONTROLLER_PORT}
+ipv6: false
+dns:
+  enable: true
+  listen: 127.0.0.1:{CORE_DNS_PORT}
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 127.0.0.1
+  nameserver:
+    - udp://127.0.0.1:{upstream_port}
+  proxy-server-nameserver:
+    - udp://127.0.0.1:{upstream_port}
+  nameserver-policy:
+    proxy-fixture.invalid: udp://127.0.0.1:{upstream_port}
+proxies:
+  - name: fixture-node-a
+    type: socks5
+    server: 127.0.0.1
+    port: {PROXY_PORT_A}
+  - name: fixture-node-b
+    type: socks5
+    server: 127.0.0.1
+    port: {PROXY_PORT_B}
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    proxies:
+      - fixture-node-a
+      - fixture-node-b
+tun:
+  enable: true
+  device: STCVRC-CI
+  stack: gvisor
+  auto-route: true
+  auto-detect-interface: false
+  strict-route: false
+  route-address:
+    - 198.18.0.0/16
+rules:
+  - DOMAIN-SUFFIX,native-subscription-a.invalid,DIRECT
+  - DOMAIN-SUFFIX,native-subscription-b.invalid,REJECT
+  - MATCH,GLOBAL
+""".encode("ascii")
+            self.send_response(200); self.send_header("Content-Type","application/yaml")
+            self.send_header("Content-Length",str(len(body))); self.send_header("Connection","close")
+            self.end_headers(); self.wfile.write(body)
+            print("SUBSCRIPTION port="+upstream_port,flush=True)
+            return
         host=self.headers.get("Host","").split(":",1)[0]
         body=("native-fixture:"+host).encode("ascii","strict")
         self.send_response(200); self.send_header("Content-Type","text/plain")
@@ -1073,12 +1177,19 @@ def dns_server(port,label):
         sock.sendto(response,peer)
 threading.Thread(target=dns_server,args=(PROFILE_DNS_PORT,"profile"),daemon=True).start()
 threading.Thread(target=dns_server,args=(APP_DNS_PORT,"app"),daemon=True).start()
+threading.Thread(target=dns_server,args=(SUBSCRIPTION_DNS_PORT,"subscription"),daemon=True).start()
 HTTPServer(("127.0.0.1",HTTP_PORT),Handler).serve_forever()
 '@
 [IO.File]::WriteAllText($serverPath,$serverCode,[Text.UTF8Encoding]::new($false))
 $env:STCVRC_NATIVE_HTTP_PORT=[string]$httpPort
 $env:STCVRC_NATIVE_PROFILE_DNS_PORT=[string]$profileDnsPort
 $env:STCVRC_NATIVE_APP_DNS_PORT=[string]$appDnsPort
+$env:STCVRC_NATIVE_SUBSCRIPTION_DNS_PORT=[string]$subscriptionDnsPort
+$env:STCVRC_NATIVE_SUBSCRIPTION_CONTROLLER_PORT=[string]$subscriptionControllerPort
+$env:STCVRC_NATIVE_CORE_DNS_PORT=[string]$dnsPort
+$env:STCVRC_NATIVE_PROXY_PORT_A=[string]$proxyPortA
+$env:STCVRC_NATIVE_PROXY_PORT_B=[string]$proxyPortB
+$env:STCVRC_NATIVE_SUBSCRIPTION_DNS_STATE=$script:subscriptionDnsStatePath
 $env:STCVRC_NATIVE_DNS_LOG=$script:dnsLogPath
 $python=(Get-Command python.exe -ErrorAction Stop).Source
 $serverArgs=@('-u', ('"' + $serverPath + '"'))
@@ -1220,6 +1331,7 @@ try {
             $dnsFile=[string](Invoke-CvrCommand -Command 'get_dns_config_content')
             if (-not $dnsFile.Contains("127.0.0.1:$appDnsPort")) { throw 'CVR did not persist the synthetic app DNS configuration.' }
 
+            Test-SubscriptionDnsOverrideAfterUpdate -DnsPort $dnsPort -HttpPort $httpPort -RestoreProfileUid $uidA -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns
             [void](Set-FixtureDnsOverride -Uid $uidA -Enabled $false -Confirm $false)
             Assert-ProfileDnsState -Uid $uidA -Enabled $false -Phase 'profile A DNS off'
             Test-FixtureTraffic -FixtureName 'dns-off.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
@@ -1282,6 +1394,7 @@ try {
     if ($gui -and -not $gui.HasExited) { & taskkill.exe /PID $gui.Id /T /F | Out-Null }
     foreach ($name in @('clash-verge','clash-verge-service','verge-mihomo','verge-mihomo-alpha')) { Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $script:subscriptionDnsStatePath) { Remove-Item -LiteralPath $script:subscriptionDnsStatePath -Force }
     Start-Sleep -Seconds 2
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { Add-Failure 'Temporary CVR service remained after cleanup.' }
     foreach ($name in @('clash-verge','clash-verge-service','verge-mihomo','verge-mihomo-alpha')) { if (Get-Process -Name $name -ErrorAction SilentlyContinue) { Add-Failure "Temporary process remained: $name" } }
@@ -1292,7 +1405,8 @@ $summary=@(
     '## Bounded native CVR 2.5.10 acceptance',
     '- Requires an actual GUI window and invokes the installed Tauri commands through its WebView2 page.',
     '- Checks ready service mode, SCM service, live core path and SHA against the fresh source build.',
-    '- Runs generic synthetic DNS/HTTP fixtures through explicit 198.18.0.0/16 TUN routing and verifies profile A-to-B-to-A reload/recovery.',
+    '- Runs generic synthetic DNS/HTTP fixtures, including a remote subscription DNS update that must clear the profile override and use the new resolver.',
+    '- Verifies explicit 198.18.0.0/16 TUN routing and profile A-to-B-to-A reload/recovery.',
     '- Compares system default routes and physical DNS before/after; removes only the exact temporary synthetic route.',
     '- No production profiles, external VPN, secrets, paid runners, Actions cache or artifacts.'
 )
