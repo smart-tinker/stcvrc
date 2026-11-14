@@ -99,6 +99,46 @@ class GithubApiMetadataTests(unittest.TestCase):
 
 
 class ManualGoOverrideRuntimeScopeTests(unittest.TestCase):
+    def test_chacha_pseudo_version_queries_the_pinned_commit(self):
+        version = "v0.1.6-0.20250812085457-7b981d42c3ba"
+        commit = "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"
+        license_parent = "07294f500ca8384015f6cc21311de7b6f093607d"
+        source = b"package chacha\\n"
+        license_text = b"""MIT License
+
+Copyright (c) 2016 Andreas Auernhammer
+Copyright (c) 2025 MetaCubex
+
+Permission is hereby granted, free of charge, to any person obtaining a copy.
+"""
+        commit_metadata = {
+            "sha": commit,
+            "parents": [{"sha": license_parent}],
+            "files": [{"filename": "LICENSE"}],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            source_dir = Path(temp)
+            package_dir = source_dir / "chacha"
+            package_dir.mkdir()
+            (package_dir / "chacha.go").write_bytes(source)
+
+            with patch("collect._github_json", return_value=commit_metadata) as github_json:
+                with patch("collect._module_dir", return_value=source_dir):
+                    with patch("collect._fetch", side_effect=[source, license_text]):
+                        overrides = _manual_go_overrides(
+                            {"github.com/metacubex/chacha": {"Version": version}},
+                            {"github.com/metacubex/chacha"},
+                            {},
+                            Path(temp),
+                        )
+
+        self.assertEqual(len(overrides), 1)
+        self.assertEqual(github_json.call_count, 2)
+        self.assertEqual(
+            [call.args[0] for call in github_json.call_args_list],
+            [f"{CHACHA_API}/commits/{commit}", f"{CHACHA_API}/commits/{commit}"],
+        )
+
     def test_does_not_fetch_manual_proofs_for_declared_but_uncompiled_modules(self):
         evidence_path = Path(__file__).resolve().parent / "fixtures" / "expected-rc7-sources.json"
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))

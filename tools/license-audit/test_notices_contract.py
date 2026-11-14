@@ -42,11 +42,12 @@ class NoticeEvidenceTests(unittest.TestCase):
                 f'https://github.com/MetaCubeX/{item["module"].rsplit("/", 1)[1]}/tree/{item["source_revision"]}',
             )
 
-    def test_chacha_license_exception_is_pinned_to_license_only_child(self):
+    def test_chacha_pin_selects_the_license_bearing_upstream_commit(self):
         item = load_json(EXPECTED)["chacha_mit_evidence"]
-        self.assertEqual(item["pinned_source_revision"], "07294f500ca8384015f6cc21311de7b6f093607d")
+        self.assertEqual(item["version"], "v0.1.6-0.20250812085457-7b981d42c3ba")
+        self.assertEqual(item["pinned_source_revision"], "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a")
         self.assertEqual(item["license_source_revision"], "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a")
-        self.assertEqual(item["license_file_parent"], item["pinned_source_revision"])
+        self.assertEqual(item["license_file_parent"], "07294f500ca8384015f6cc21311de7b6f093607d")
         self.assertEqual(item["license_spdx"], "MIT")
         self.assertEqual(item["diff_files"], ["LICENSE"])
         self.assertEqual(len(item["copyrights"]), 2)

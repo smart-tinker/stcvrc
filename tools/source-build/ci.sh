@@ -184,11 +184,21 @@ cd "$core"
 cp go.mod .ci-build.mod
 cp go.sum .ci-build.sum
 go mod edit -modfile=.ci-build.mod -replace=github.com/easytier/easytier/easytier-go=./third_party/easytier-go
+chacha_version="v0.1.6-0.20250812085457-7b981d42c3ba"
+go mod edit -modfile=.ci-build.mod -require="github.com/metacubex/chacha@$chacha_version"
+GOFLAGS="-modfile=$(native_path "$core/.ci-build.mod")"
+export GOFLAGS
+go mod download "github.com/metacubex/chacha@$chacha_version"
 GOFLAGS="-modfile=$(native_path "$core/.ci-build.mod") -mod=readonly -p=2"
 export GOFLAGS
 go mod verify
 go list -m all > "$root/output/modules.txt"
 grep -Fqx 'github.com/anchore/go-lzo v0.1.1' "$root/output/modules.txt"
+grep -Fqx "github.com/metacubex/chacha $chacha_version" "$root/output/modules.txt"
+if grep -Fq 'github.com/metacubex/chacha v0.1.5' "$root/output/modules.txt"; then
+  printf 'Old unlicensed chacha tag remains in the candidate graph.\n' >&2
+  exit 1
+fi
 if grep -q '^github.com/rasky/go-lzo ' "$root/output/modules.txt"; then
   printf 'Forbidden GPL-only LZO dependency in new candidate.\n' >&2
   exit 1
@@ -227,10 +237,10 @@ else
   python "$recipe/tools/network-lab/windows.py" | tee "$root/output/windows-loopback.txt"
 fi
 
-python - "$recipe" "$root/output" "$wasm" "$core/.ci-build.mod" "$easytier" <<'PY'
+python - "$recipe" "$root/output" "$wasm" "$core/.ci-build.mod" "$core/.ci-build.sum" "$easytier" <<'PY'
 import hashlib, json, os, subprocess, sys
 from pathlib import Path
-recipe, output, wasm, modfile, easytier = map(Path, sys.argv[1:])
+recipe, output, wasm, modfile, modsum, easytier = map(Path, sys.argv[1:])
 core = modfile.parent
 upstream = "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
 core_delta = subprocess.check_output(["git", "-C", str(core), "diff", "--name-only", upstream, "HEAD"], text=True).splitlines()
@@ -262,6 +272,8 @@ report = {
     "cargo_lock_sha256": digest(easytier/"Cargo.lock"),
     "wasm_sha256": digest(wasm),
     "modfile_sha256": digest(modfile),
+    "modsum_sha256": digest(modsum),
+    "chacha_module": {"path": "github.com/metacubex/chacha", "version": "v0.1.6-0.20250812085457-7b981d42c3ba", "source_commit": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"},
     "generated_easytier_files": {path: digest(easytier/path) for path in sorted(changed) if path != fixture_patch},
     "build_test_only_patches": {path: digest(easytier/path) for path in build_test_patches},
     "go_version": "1.26.11",

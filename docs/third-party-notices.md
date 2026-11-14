@@ -32,13 +32,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## github.com/metacubex/chacha v0.1.5
+## github.com/metacubex/chacha v0.1.6-0.20250812085457-7b981d42c3ba
 
-Pinned source: [commit 07294f500ca8384015f6cc21311de7b6f093607d](https://github.com/MetaCubeX/chacha/tree/07294f500ca8384015f6cc21311de7b6f093607d). This exact tag has no root LICENSE file; the automated scanner still reports `Unknown` for v0.1.5.
+The next fresh candidate proposes the exact Go pseudo-version for upstream commit [`7b981d42c3baca5a004e7b0ecfb9b67ee20e583a`](https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a). This commit is the direct child of the former `v0.1.5` tag and adds only the root `LICENSE`; the Go source files are unchanged. Its MIT text names Andreas Auernhammer (2016) and MetaCubeX (2025).
 
-License evidence: [upstream commit 7b981d42c3baca5a004e7b0ecfb9b67ee20e583a](https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a) has the exact pinned v0.1.5 commit as its parent and adds only the root `LICENSE` file. The source commit therefore makes no code changes; its license file states MIT and names Andreas Auernhammer (2016) and MetaCubex (2025). This records upstream evidence for human review, not a legal-compliance conclusion.
+CI must build this exact module version from fresh source, verify the selected module graph and Go checksums, and confirm the collector includes this pinned license text before a candidate notice package is accepted. The existing RC8 remains pinned to `v0.1.5`; this evidence does not change it or establish overall legal compliance.
 
-The exact notice text from that upstream commit is included here for review and future distribution packaging:
+The exact notice text from the pinned upstream commit is included here for review and candidate distribution packaging:
 
 ```text
 MIT License

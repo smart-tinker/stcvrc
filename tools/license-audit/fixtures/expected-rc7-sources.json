@@ -82,8 +82,8 @@
   ],
   "chacha_mit_evidence": {
     "module": "github.com/metacubex/chacha",
-    "version": "v0.1.5",
-    "pinned_source_revision": "07294f500ca8384015f6cc21311de7b6f093607d",
+    "version": "v0.1.6-0.20250812085457-7b981d42c3ba",
+    "pinned_source_revision": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
     "license_source_revision": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
     "license_spdx": "MIT",
     "license_path": "LICENSE",
