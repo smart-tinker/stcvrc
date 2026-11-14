@@ -172,8 +172,8 @@ SOFTWARE.""",
         chacha_section = chacha_section.split("\n## MetaCubeX source license evidence", 1)[0]
         self.assertIn("https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a", chacha_section)
         self.assertIn("does not change it or establish overall legal compliance", chacha_section)
-        fence = chr(96) * 3 + "text\\n"
-        license_text = chacha_section.split(fence, 1)[1].split("\\n" + chr(96) * 3, 1)[0]
+        fence = chr(96) * 3 + "text\n"
+        license_text = chacha_section.split(fence, 1)[1].split("\n" + chr(96) * 3, 1)[0]
         self.assertEqual(
             license_text,
             """MIT License
