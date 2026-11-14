@@ -207,7 +207,7 @@ go test -tags=with_gvisor -count=1 -timeout=240s github.com/easytier/easytier/ea
 go test -tags=with_gvisor -count=1 -timeout=240s ./transport/openvpn ./transport/v2ray-plugin ./adapter/outbound ./adapter/outboundgroup
 GOFLAGS='-mod=readonly -p=2' go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 govulncheck -tags=with_gvisor ./... | tee "$root/output/govulncheck.txt"
-version=1.19.33-STCVRC-rc.8
+version=1.19.33-STCVRC-rc.9
 build_time=2026-11-12T00:00:00Z
 ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
 export STCVRC_BUILD_LDFLAGS="$ldflags"
@@ -281,7 +281,7 @@ report = {
     "protoc_version": "35.1",
     "protoc_gen_go_version": "1.36.11",
     "binaryen_version": "131",
-    "version": "1.19.33-STCVRC-rc.8",
+    "version": "1.19.33-STCVRC-rc.9",
     "build_time": "2026-11-12T00:00:00Z",
     "artifacts": [
         {"name": name, "target": "windows/amd64" if name.endswith(".exe") else "linux/amd64", "sha256": digest(output/name), "size": (output/name).stat().st_size}

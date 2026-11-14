@@ -729,7 +729,7 @@ jobs:
           root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
           recipe="$(cygpath -u "$PR_SOURCE")"
           out="$root/output"
-          tag=stcvrc-1.19.33-rc.8
+          tag=stcvrc-1.19.33-rc.9
           repo=smart-tinker/stcvrc
           python - "$root" "$recipe" "$tag" <<'PY'
           import hashlib, json, os, re, shutil, sys
@@ -774,7 +774,7 @@ jobs:
           PY
           notes="$out/RC-NOTES.md"
           cat > "$notes" <<'EOF'
-          Unpublished STCVRC 1.19.33 RC8, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
+          Unpublished STCVRC 1.19.33 RC9, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
           The Windows core and embedded EasyTier WASM were rebuilt from exact public source.
           Core and WASM digests match the same workflow's successful native Windows GUI/service/TUN/DNS/update/recovery job.
           THIRD-PARTY-NOTICES.txt and THIRD-PARTY-SOURCES.json describe the actual Windows build graph, toolchains and embedded runtime assets.
@@ -791,7 +791,7 @@ jobs:
             upload=()
             for name in "${assets[@]}"; do upload+=("$out/$name"); done
             gh release create "$tag" "${upload[@]}" --repo "$repo" --draft --prerelease --target "$HEAD_SHA" \
-              --title 'STCVRC 1.19.33 RC8 — source-built candidate' --notes-file "$notes"
+              --title 'STCVRC 1.19.33 RC9 — source-built candidate' --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
           [[ "$release_id" =~ ^[0-9]+$ ]]
