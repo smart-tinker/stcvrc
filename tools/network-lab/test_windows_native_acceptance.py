@@ -281,6 +281,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_subscription_dns_update_resets_override_and_uses_new_profile_resolver(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Test-SubscriptionDnsOverrideAfterUpdate", source)
+        self.assertIn("Test-SubscriptionDnsOverrideAfterUpdate -DnsPort $dnsPort", source)
         scenario = source.split("function Test-SubscriptionDnsOverrideAfterUpdate", 1)[1].split(
             "function ", 1
         )[0]
