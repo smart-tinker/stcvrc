@@ -277,5 +277,23 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             self.assertEqual(len(set(ports)), 3)
             self.assertTrue(all(0 < int(port) <= 65535 for port in ports))
 
+
+    def test_subscription_dns_update_resets_override_and_uses_new_profile_resolver(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Test-SubscriptionDnsOverrideAfterUpdate", source)
+        scenario = source.split("function Test-SubscriptionDnsOverrideAfterUpdate", 1)[1].split(
+            "function ", 1
+        )[0]
+        for assertion in (
+            "Invoke-CvrCommand -Command 'import_profile'",
+            "Invoke-CvrCommand -Command 'update_profile'",
+            "Assert-ProfileDnsState -Uid $uid -Enabled $false",
+            "Set-Content",
+            "ExpectedResolver 'subscription'",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertIn("Test-SubscriptionDnsOverrideAfterUpdate", source)
+
 if __name__ == "__main__":
     unittest.main()
