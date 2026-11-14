@@ -103,7 +103,7 @@ class ManualGoOverrideRuntimeScopeTests(unittest.TestCase):
         version = "v0.1.6-0.20250812085457-7b981d42c3ba"
         commit = "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"
         license_parent = "07294f500ca8384015f6cc21311de7b6f093607d"
-        source = b"package chacha\\n"
+        source = b"package chacha\n"
         license_text = b"""MIT License
 
 Copyright (c) 2016 Andreas Auernhammer

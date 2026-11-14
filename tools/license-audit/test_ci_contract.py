@@ -140,10 +140,10 @@ class DistributionAuditContractTests(unittest.TestCase):
         self.assertTrue(path.is_file(), "public third-party notice file is missing")
         notices = path.read_text(encoding="utf-8")
         lzo_section = notices.split("## github.com/anchore/go-lzo v0.1.1", 1)[1]
-        lzo_section = lzo_section.split("\\n## github.com/metacubex/chacha", 1)[0]
+        lzo_section = lzo_section.split("\n## github.com/metacubex/chacha", 1)[0]
         self.assertIn("https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE", lzo_section)
-        fence = chr(96) * 3 + "text\\n"
-        license_text = lzo_section.split(fence, 1)[1].split("\\n" + chr(96) * 3, 1)[0]
+        fence = chr(96) * 3 + "text\n"
+        license_text = lzo_section.split(fence, 1)[1].split("\n" + chr(96) * 3, 1)[0]
         self.assertEqual(
             license_text,
             """MIT License
@@ -169,7 +169,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.""",
         )
         chacha_section = notices.split("## github.com/metacubex/chacha v0.1.6-0.20250812085457-7b981d42c3ba", 1)[1]
-        chacha_section = chacha_section.split("\\n## MetaCubeX source license evidence", 1)[0]
+        chacha_section = chacha_section.split("\n## MetaCubeX source license evidence", 1)[0]
         self.assertIn("https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a", chacha_section)
         self.assertIn("not a legal-compliance conclusion", chacha_section)
         self.assertNotIn("scanner still reports", chacha_section)
