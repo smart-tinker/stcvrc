@@ -249,5 +249,20 @@ SOFTWARE.""",
         self.assertEqual(source["binary"]["manifest_sha256"], candidate["release_assets"][0]["sha256"])
 
 
+    def test_candidate_build_pins_chacha_to_license_bearing_commit(self):
+        evidence_path = ROOT / "tools" / "license-audit" / "fixtures" / "expected-rc7-sources.json"
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))["chacha_mit_evidence"]
+        self.assertEqual(evidence["version"], "v0.1.6-0.20250812085457-7b981d42c3ba")
+        self.assertEqual(evidence["pinned_source_revision"], "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a")
+        self.assertEqual(evidence["license_source_revision"], "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a")
+
+        builder = (ROOT / "tools" / "source-build" / "ci.sh").read_text(encoding="utf-8")
+        self.assertIn('chacha_version="v0.1.6-0.20250812085457-7b981d42c3ba"', builder)
+        self.assertIn('go mod edit -modfile=.ci-build.mod -require="github.com/metacubex/chacha@$chacha_version"', builder)
+        self.assertIn('go mod download "github.com/metacubex/chacha@$chacha_version"', builder)
+        self.assertIn('grep -Fqx "github.com/metacubex/chacha $chacha_version" "$root/output/modules.txt"', builder)
+        self.assertIn('"modsum_sha256": digest(modsum)', builder)
+
+
 if __name__ == "__main__":
     unittest.main()
