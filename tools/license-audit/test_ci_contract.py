@@ -171,7 +171,7 @@ SOFTWARE.""",
         chacha_section = notices.split("## github.com/metacubex/chacha v0.1.6-0.20250812085457-7b981d42c3ba", 1)[1]
         chacha_section = chacha_section.split("\n## MetaCubeX source license evidence", 1)[0]
         self.assertIn("https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a", chacha_section)
-        self.assertIn("not a legal-compliance conclusion", chacha_section)
+        self.assertIn("does not change it or establish overall legal compliance", chacha_section)
         self.assertNotIn("scanner still reports", chacha_section)
 
     def test_codeql_disables_overlay_and_dependency_cache(self):
