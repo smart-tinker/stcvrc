@@ -315,11 +315,11 @@ class DraftRCAssemblyGateTests(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch'", condition)
         self.assertIn("github.ref == 'refs/heads/main'", condition)
 
-    def test_draft_rc_assembly_uses_new_rc8_tag_without_rewriting_history(self):
+    def test_draft_rc_assembly_uses_new_rc9_tag_without_rewriting_history(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
         assembly = workflow.split('  assemble-draft-rc:\n', 1)[1]
-        self.assertIn('tag=stcvrc-1.19.33-rc.8', assembly)
-        self.assertIn("STCVRC 1.19.33 RC8 — source-built candidate", assembly)
+        self.assertIn('tag=stcvrc-1.19.33-rc.9', assembly)
+        self.assertIn("STCVRC 1.19.33 RC9 — source-built candidate", assembly)
         self.assertIn('if [[ -z "$release_id" ]]; then', assembly)
         lookup = assembly.index('gh api "repos/$repo/git/matching-refs/tags/$tag"')
         create = assembly.index('gh release create')
