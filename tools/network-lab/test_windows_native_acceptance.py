@@ -296,5 +296,30 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 self.assertIn(assertion, scenario)
         self.assertIn("Test-SubscriptionDnsOverrideAfterUpdate", source)
 
+
+    def test_cvr_2510_overlay_reinstall_starts_with_running_gui(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Invoke-CvrOverlayReinstall", source)
+        overlay = source.split("function Invoke-CvrOverlayReinstall", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        for assertion in (
+            "Start-Process -FilePath $guiPath -PassThru",
+            "Get-Process -Id $gui.Id",
+            "$installerPaths['2.5.10']",
+            "'/UPDATE'",
+            "Expected the pinned CVR GUI process to exit during overlay",
+            "Get-InstalledCvrDirectory -ExpectedVersion '2.5.10'",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, overlay)
+        overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
+        self.assertIn(overlay_call, source)
+        update_stage = source.index("Install-CandidateCore -InstallDirectory $install2510")
+        overlay_position = source.index(overlay_call)
+        exercise_position = source.index("Invoke-NativePhase -Phase exercise")
+        self.assertLess(update_stage, overlay_position)
+        self.assertLess(overlay_position, exercise_position)
+
 if __name__ == "__main__":
     unittest.main()
