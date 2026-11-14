@@ -258,7 +258,7 @@ SOFTWARE.""",
 
     def test_next_draft_rc_uses_fresh_rc9_tag_and_matching_core_version(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        assembler = workflow.split("\\n  assemble-draft-rc:\\n", 1)[1].split("\\n  test-module:\\n", 1)[0]
+        assembler = workflow.split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
         builder = (ROOT / "tools" / "source-build" / "ci.sh").read_text(encoding="utf-8")
 
         self.assertIn("tag=stcvrc-1.19.33-rc.9", assembler)
