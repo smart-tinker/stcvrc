@@ -334,10 +334,19 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "private-key:",
             "Assert-LiveCoreIdentity",
             "Test-FixtureTraffic",
+            "-Route 'GLOBAL'",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
-        self.assertTrue((ROOT / "tools" / "network-lab" / "ssh_fixture.go").is_file())
+        helper = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
+        self.assertTrue(helper.is_file())
+
+
+        selector = source.split("function Select-FixtureProfile", 1)[1].split(
+            "function Assert-SelectedProfileReady", 1
+        )[0]
+        self.assertIn("[string]$Route = 'DIRECT'", selector)
+        self.assertIn("DOMAIN-SUFFIX,$AllowName,$Route", selector)
 
 
     def test_service_geo_update_is_synced_before_profile_validation(self):
@@ -360,7 +369,9 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
 
     def test_ssh_fixture_is_loopback_only_and_forwards_only_synthetic_http(self):
-        helper = (ROOT / "tools" / "network-lab" / "ssh_fixture.go").read_text(encoding="utf-8")
+        helper_path = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
+        self.assertTrue(helper_path.is_file())
+        helper = helper_path.read_text(encoding="utf-8")
         for assertion in (
             'net.Listen("tcp", "127.0.0.1:0")',
             'case "direct-tcpip":',
