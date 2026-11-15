@@ -353,6 +353,15 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("DOMAIN-SUFFIX,$AllowName,$Route", selector)
 
 
+    def test_ssh_fixture_key_is_inside_profile_config_root(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("$profileDirectory = Join-Path $appHome 'profiles'", scenario)
+        self.assertIn("$keyPath = Join-Path $profileDirectory", scenario)
+
+
     def test_ssh_key_lookup_avoids_locked_cache_db(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Get-ServiceRuntimeDirectories", source)
