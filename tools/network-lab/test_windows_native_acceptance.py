@@ -335,12 +335,17 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "Assert-LiveCoreIdentity",
             "Test-FixtureTraffic",
             "-Route 'GLOBAL'",
-            "[regex]::Matches($runtimeYaml, 'cvr-[0-9a-f]{64}')",
-            "$stagedKeyPath = $stagedKeys[0].FullName",
+            "$serviceConfigPath = Join-Path $runtimeDirectory 'config.yaml'",
+            "$serviceRuntimeYaml = [IO.File]::ReadAllText($serviceConfigPath)",
+            "[regex]::Matches($serviceRuntimeYaml, 'cvr-[0-9a-f]{64}')",
+            "$runtimeConfigs = @(",
+            "$runtimeMatch = $rewrittenConfigs[0]",
+            "$stagedKeyPath = Join-Path $runtimeDirectory $assetAlias",
             "SSH_FIXTURE_AUTH_OK",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
+        self.assertNotIn("$runtimeYaml = Get-RuntimeYaml", scenario)
         self.assertNotIn("ssh-private-key-", scenario)
         helper = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
         self.assertTrue(helper.is_file())
