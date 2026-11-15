@@ -463,7 +463,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             'net.Listen("tcp", "127.0.0.1:0")',
             'case "direct-tcpip":',
-            "ip[0] != 198 || ip[1] != 18",
+            "syntheticAddress := ip != nil && ip[0] == 198 && ip[1] == 18",
+            'if !syntheticAddress && req.DestAddr != "service-ssh-fixture.invalid" {',
             "req.Port != uint32(targetPort)",
             'net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort))',
             "SSH_FIXTURE_AUTH_OK",
