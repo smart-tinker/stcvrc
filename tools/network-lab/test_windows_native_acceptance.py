@@ -336,7 +336,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         polling = overlay.split("while ([DateTime]::UtcNow -lt $deadline)", 1)[1].split(
             "if ($installerProcess.HasExited) { break }", 1
         )[0]
-        gui_exit_observation = polling.split("if ($gui.HasExited)", 1)[1]
+        self.assertIn("$gui.HasExited", polling)
+        gui_exit_observation = polling.split("$gui.HasExited", 1)[1]
         for assertion in (
             "$guiExitTime = $gui.ExitTime.ToUniversalTime()",
             "$installerProcess.Refresh()",
