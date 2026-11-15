@@ -189,7 +189,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("get_core_startup_error", restart)
         self.assertIn("Get-NativeStateSnapshot", restart)
         self.assertEqual(source.count("Invoke-CvrCommand -Command 'restart_core'"), 1)
-        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 6)
+        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 5)
 
 
     def test_tun_cleanup_failure_preserves_primary_restart_failure(self):
@@ -364,7 +364,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "get_app_dir",
             "GeoSite.dat",
             "Join-Path $serviceData 'users'",
-            "patch_profiles_config",
+            "Select-FixtureProfile",
             "ReadAllBytes",
             "$originalAppBytes = [IO.File]::ReadAllBytes($appGeoPath)",
             "$originalAppWriteTime = [IO.File]::GetLastWriteTimeUtc($appGeoPath)",
@@ -378,6 +378,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
         self.assertNotIn("refusing to overwrite existing data", scenario)
+        selector = source.split("function Select-FixtureProfile", 1)[1].split("\\nfunction ", 1)[0]
+        self.assertIn("Invoke-CvrCommand -Command 'patch_profiles_config'", selector)
 
 
     def test_ssh_fixture_is_loopback_only_and_forwards_only_synthetic_http(self):
