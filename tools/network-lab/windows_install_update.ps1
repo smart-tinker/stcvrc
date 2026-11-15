@@ -176,13 +176,17 @@ function Invoke-CvrOverlayReinstall {
         while ([DateTime]::UtcNow -lt $deadline) {
             $installerProcess.Refresh()
             $gui.Refresh()
-            if (-not $installerProcess.HasExited -and $gui.HasExited) { $guiExitedDuringOverlay = $true }
+            if (-not $installerProcess.HasExited -and $gui.HasExited -and
+                $gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime()) {
+                $guiExitedDuringOverlay = $true
+            }
             if ($installerProcess.HasExited) { break }
             Start-Sleep -Milliseconds 50
         }
         $installerProcess.Refresh()
         $gui.Refresh()
         if ($gui.HasExited -and $installerProcess.HasExited -and
+            $gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime() -and
             $gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()) {
             $guiExitedDuringOverlay = $true
         }
