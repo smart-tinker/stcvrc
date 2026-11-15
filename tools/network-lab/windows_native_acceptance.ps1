@@ -40,6 +40,8 @@ if (Test-Path -LiteralPath $serviceCore -PathType Leaf) {
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Clean-runner precondition failed: a CVR service already exists.' }
 $failures = [Collections.Generic.List[string]]::new()
 $script:usedPorts = [Collections.Generic.HashSet[int]]::new()
+$script:fixtureSshKeyHash = $null
+$script:fixtureSshKeyAlias = $null
 function Add-Failure { param([string]$Message) $failures.Add($Message); Write-Host "ASSERTION FAILED: $Message" -ForegroundColor Red }
 function Get-FreeTcpPort {
     do {
@@ -47,6 +49,14 @@ function Get-FreeTcpPort {
         $listener.Start(); $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port; $listener.Stop()
     } while (-not $script:usedPorts.Add([int]$port))
     return $port
+}
+function Get-ServiceRuntimeDirectories {
+    param([string]$ServiceUsersPath)
+    if (-not (Test-Path -LiteralPath $ServiceUsersPath -PathType Container)) { return }
+    foreach ($userDirectory in @(Get-ChildItem -LiteralPath $ServiceUsersPath -Directory -ErrorAction Stop)) {
+        $runtimeDirectory = Join-Path $userDirectory.FullName 'runtime'
+        if (Test-Path -LiteralPath $runtimeDirectory -PathType Container) { Get-Item -LiteralPath $runtimeDirectory }
+    }
 }
 function Get-DefaultRouteSnapshot {
     @(Get-NetRoute -AddressFamily IPv4,IPv6 -ErrorAction Stop |
@@ -1134,6 +1144,8 @@ function Test-SshPrivateKeyInServiceMode {
     try {
         $fixture = Start-SshFixtureServer -KeyPath $keyPath -TargetPort $HttpPort
         $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $script:fixtureSshKeyHash = $keyHash
+        $script:fixtureSshKeyAlias = "cvr-$keyHash"
         $sshPort = [int]$fixture.Port
         $controllerPort = Get-FreeTcpPort
         $yaml = @"
@@ -1196,16 +1208,34 @@ rules:
         $runtimeYaml = Get-RuntimeYaml
         $assetMatches = [regex]::Matches($runtimeYaml, 'cvr-[0-9a-f]{64}')
         $privateKeyLines = @($runtimeYaml -split "`r?`n" | Where-Object { $_ -match '^\s*private-key:' })
-        if ($privateKeyLines.Count -ne 1 -or $privateKeyLines[0] -notmatch 'cvr-[0-9a-f]{64}' -or $assetMatches.Count -ne 1) {
-            throw 'Service runtime did not rewrite the local SSH key path to exactly one staged cvr SHA-256 asset alias.'
+        $expectedAssetAlias = "cvr-$keyHash"
+        $assetAlias = if ($assetMatches.Count -eq 1) { $assetMatches[0].Value } else { $expectedAssetAlias }
+        $script:fixtureSshKeyAlias = $assetAlias
+        $safePrivateKeyLines = @(
+            foreach ($line in $privateKeyLines) {
+                if ($line -match 'cvr-[0-9a-f]{64}') {
+                    "private-key: <service-runtime>/$($Matches[0])"
+                } elseif ($line -match [regex]::Escape($keyPath) -or $line -match [regex]::Escape($keyYamlPath)) {
+                    "private-key: '<fixture-key>'"
+                } else {
+                    'private-key: <other-or-empty>'
+                }
+            }
+        )
+        if ($privateKeyLines.Count -ne 1 -or $assetMatches.Count -ne 1 -or $assetAlias -cne $expectedAssetAlias) {
+            throw "Service runtime private-key rewrite failed; private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=$($assetMatches.Count); alias-hash-match=$($assetAlias -ceq $expectedAssetAlias)."
         }
-        $assetAlias = $assetMatches[0].Value
         if ($runtimeYaml.Contains($keyPath) -or $runtimeYaml.Contains($keyYamlPath)) { throw 'Service runtime retained the app-home SSH key source path instead of a staged alias.' }
 
         $serviceUsers = Join-Path $serviceData 'users'
         if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
-        $stagedKeys = @(Get-ChildItem -LiteralPath $serviceUsers -Filter $assetAlias -File -Recurse -ErrorAction Stop |
-            Where-Object { $_.Directory.Name -eq 'runtime' })
+        $runtimeDirectories = @(Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers | ForEach-Object { $_.FullName })
+        $stagedKeys = @(
+            foreach ($runtimeDirectory in $runtimeDirectories) {
+                $candidateKeyPath = Join-Path $runtimeDirectory $assetAlias
+                if (Test-Path -LiteralPath $candidateKeyPath -PathType Leaf) { Get-Item -LiteralPath $candidateKeyPath }
+            }
+        )
         if ($stagedKeys.Count -ne 1) { throw "Expected one staged service SSH key for alias $assetAlias, found $($stagedKeys.Count)." }
         $stagedKeyPath = $stagedKeys[0].FullName
         if ((Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $keyHash) {
@@ -1236,20 +1266,6 @@ rules:
         if ($fixture -and $fixture.Process -and -not $fixture.Process.HasExited) {
             Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue
             try { Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue } catch {}
-        }
-        if ((Test-Path -LiteralPath $keyPath -PathType Leaf)) {
-            try { $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant() } catch {}
-        }
-        $serviceUsers = Join-Path $serviceData 'users'
-        if ($keyHash -and (Test-Path -LiteralPath $serviceUsers -PathType Container)) {
-            foreach ($staged in @(Get-ChildItem -LiteralPath $serviceUsers -File -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.Directory.Name -eq 'runtime' })) {
-                try {
-                    if ((Get-FileHash -LiteralPath $staged.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -eq $keyHash) {
-                        Remove-Item -LiteralPath $staged.FullName -Force -ErrorAction Stop
-                    }
-                } catch { Add-Failure "SSH staged-key cleanup: $($_.Exception.Message)" }
-            }
         }
         if (Test-Path -LiteralPath $keyPath -PathType Leaf) {
             try { Remove-Item -LiteralPath $keyPath -Force -ErrorAction Stop }
@@ -1708,6 +1724,20 @@ try {
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $script:subscriptionDnsStatePath) { Remove-Item -LiteralPath $script:subscriptionDnsStatePath -Force }
     Start-Sleep -Seconds 2
+    if ($script:fixtureSshKeyHash -and $script:fixtureSshKeyAlias) {
+        try {
+            $serviceUsers = Join-Path $serviceData 'users'
+            foreach ($runtimeDirectory in @(Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers | ForEach-Object { $_.FullName })) {
+                $stagedKeyPath = Join-Path $runtimeDirectory $script:fixtureSshKeyAlias
+                if (-not (Test-Path -LiteralPath $stagedKeyPath -PathType Leaf)) { continue }
+                if ((Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $script:fixtureSshKeyHash) {
+                    Remove-Item -LiteralPath $stagedKeyPath -Force -ErrorAction Stop
+                } else {
+                    Add-Failure "SSH staged-key cleanup preserved unexpected content for alias $($script:fixtureSshKeyAlias)."
+                }
+            }
+        } catch { Add-Failure "SSH staged-key cleanup: $($_.Exception.Message)" }
+    }
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { Add-Failure 'Temporary CVR service remained after cleanup.' }
     foreach ($name in @('clash-verge','clash-verge-service','verge-mihomo','verge-mihomo-alpha')) { if (Get-Process -Name $name -ErrorAction SilentlyContinue) { Add-Failure "Temporary process remained: $name" } }
     foreach ($route in @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue)) { try { $route | Remove-NetRoute -Confirm:$false -ErrorAction Stop } catch { Add-Failure "Could not remove exact synthetic route: $($_.Exception.Message)" } }
