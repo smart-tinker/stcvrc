@@ -1029,35 +1029,36 @@ function Test-GeoDatabaseSyncThroughValidation {
     if (-not $appHome) { throw 'get_app_dir returned an empty app home.' }
     $appGeoPath = Join-Path $appHome 'GeoSite.dat'
     $serviceUsers = Join-Path $serviceData 'users'
-    if (Test-Path -LiteralPath $appGeoPath -PathType Leaf) {
-        throw 'The disposable runner app home already contains GeoSite.dat; refusing to overwrite existing data.'
+    if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
+    $runtimeFiles = @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'GeoSite.dat' -File -Recurse -ErrorAction Stop |
+        Where-Object { $_.Directory.Name -eq 'runtime' })
+    if ($runtimeFiles.Count -ne 1) { throw "Expected one service runtime GeoSite.dat, found $($runtimeFiles.Count)." }
+    $runtimeGeoPath = $runtimeFiles[0].FullName
+
+    $appGeoExisted = Test-Path -LiteralPath $appGeoPath -PathType Leaf
+    $originalAppBytes = $null
+    $originalAppText = $null
+    $originalAppWriteTime = $null
+    if ($appGeoExisted) {
+        $originalAppBytes = [IO.File]::ReadAllBytes($appGeoPath)
+        $originalAppText = [Convert]::ToBase64String($originalAppBytes)
+        $originalAppWriteTime = [IO.File]::GetLastWriteTimeUtc($appGeoPath)
     }
-    if (Test-Path -LiteralPath $serviceUsers -PathType Container) {
-        $preexisting = @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'GeoSite.dat' -File -Recurse -ErrorAction Stop |
-            Where-Object { $_.Directory.Name -eq 'runtime' })
-        if ($preexisting.Count) { throw 'The disposable runner already contains service GeoSite.dat; refusing to overwrite existing data.' }
-    }
+    $originalRuntimeBytes = [IO.File]::ReadAllBytes($runtimeGeoPath)
+    $originalRuntimeText = [Convert]::ToBase64String($originalRuntimeBytes)
+    $originalRuntimeWriteTime = [IO.File]::GetLastWriteTimeUtc($runtimeGeoPath)
+
     $seedBytes = [Text.Encoding]::UTF8.GetBytes('stcvrc-geo-seed-' + [Guid]::NewGuid().ToString('N'))
     $updatedBytes = [Text.Encoding]::UTF8.GetBytes('stcvrc-geo-service-update-' + [Guid]::NewGuid().ToString('N'))
     $seedText = [Convert]::ToBase64String($seedBytes)
     $updatedText = [Convert]::ToBase64String($updatedBytes)
-    $runtimeGeoPath = $null
     try {
-        [IO.File]::WriteAllBytes($appGeoPath, $seedBytes)
-        [void](Invoke-CvrRestartCore -Phase '2.5.10 GEO runtime staging')
-        Assert-LiveCoreIdentity
-        if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
-        $runtimeFiles = @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'GeoSite.dat' -File -Recurse -ErrorAction Stop |
-            Where-Object { $_.Directory.Name -eq 'runtime' })
-        if ($runtimeFiles.Count -ne 1) { throw "Expected one service runtime GeoSite.dat, found $($runtimeFiles.Count)." }
-        $runtimeGeoPath = $runtimeFiles[0].FullName
-        $seedReadback = [Convert]::ToBase64String([IO.File]::ReadAllBytes($runtimeGeoPath))
-        if ($seedReadback -cne $seedText) { throw 'Service runtime did not receive the app GeoSite.dat seed before the sync test.' }
-
+        if (-not $appGeoExisted) { [IO.File]::WriteAllBytes($appGeoPath, $seedBytes) }
         [IO.File]::WriteAllBytes($runtimeGeoPath, $updatedBytes)
         [IO.File]::SetLastWriteTimeUtc($appGeoPath, [DateTime]::UtcNow.AddHours(-2))
         [IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, [DateTime]::UtcNow.AddMinutes(-1))
-        # Select-FixtureProfile invokes patch_profiles_config, which syncs service GEO data before validation.
+
+        # Profile validation performs service-to-app GEO synchronization before loading the profile.
         Select-FixtureProfile -Uid $ProfileUid -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
         $appBytes = [IO.File]::ReadAllBytes($appGeoPath)
         if ([Convert]::ToBase64String($appBytes) -cne $updatedText) {
@@ -1065,29 +1066,48 @@ function Test-GeoDatabaseSyncThroughValidation {
         }
         Write-Host 'CVR 2.5.10 synced a synthetic changed GeoSite.dat marker from service runtime to app home before profile validation.'
     } finally {
-        if (Test-Path -LiteralPath $appGeoPath -PathType Leaf) {
-            try {
-                $appText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($appGeoPath))
-                if ($appText -ceq $seedText -or $appText -ceq $updatedText) {
+        try {
+            if ($appGeoExisted) {
+                if (-not (Test-Path -LiteralPath $appGeoPath -PathType Leaf)) {
+                    [IO.File]::WriteAllBytes($appGeoPath, $originalAppBytes)
+                    [IO.File]::SetLastWriteTimeUtc($appGeoPath, $originalAppWriteTime)
+                } else {
+                    $appCurrentText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($appGeoPath))
+                    if ($appCurrentText -ceq $updatedText) {
+                        [IO.File]::WriteAllBytes($appGeoPath, $originalAppBytes)
+                    } elseif ($appCurrentText -cne $originalAppText) {
+                        Add-Failure 'GEO app-home cleanup refused to overwrite bytes that differ from the original and synthetic marker.'
+                    }
+                    if ($appCurrentText -ceq $updatedText -or $appCurrentText -ceq $originalAppText) {
+                        [IO.File]::SetLastWriteTimeUtc($appGeoPath, $originalAppWriteTime)
+                    }
+                }
+            } elseif (Test-Path -LiteralPath $appGeoPath -PathType Leaf) {
+                $appCurrentText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($appGeoPath))
+                if ($appCurrentText -ceq $seedText -or $appCurrentText -ceq $updatedText) {
                     Remove-Item -LiteralPath $appGeoPath -Force -ErrorAction Stop
                 } else {
                     Add-Failure 'GEO app-home cleanup refused to remove bytes that differ from the synthetic markers.'
                 }
-            } catch { Add-Failure "GEO app-home cleanup: $($_.Exception.Message)" }
-        }
-        if (Test-Path -LiteralPath $serviceUsers -PathType Container) {
-            foreach ($item in @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'GeoSite.dat' -File -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.Directory.Name -eq 'runtime' })) {
-                try {
-                    $runtimeText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($item.FullName))
-                    if ($runtimeText -ceq $seedText -or $runtimeText -ceq $updatedText) {
-                        Remove-Item -LiteralPath $item.FullName -Force -ErrorAction Stop
-                    } else {
-                        Add-Failure 'GEO service-runtime cleanup refused to remove bytes that differ from the synthetic markers.'
-                    }
-                } catch { Add-Failure "GEO service-runtime cleanup: $($_.Exception.Message)" }
             }
-        }
+        } catch { Add-Failure "GEO app-home cleanup: $($_.Exception.Message)" }
+
+        try {
+            if (-not (Test-Path -LiteralPath $runtimeGeoPath -PathType Leaf)) {
+                [IO.File]::WriteAllBytes($runtimeGeoPath, $originalRuntimeBytes)
+                [IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, $originalRuntimeWriteTime)
+            } else {
+                $runtimeCurrentText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($runtimeGeoPath))
+                if ($runtimeCurrentText -ceq $updatedText) {
+                    [IO.File]::WriteAllBytes($runtimeGeoPath, $originalRuntimeBytes)
+                } elseif ($runtimeCurrentText -cne $originalRuntimeText) {
+                    Add-Failure 'GEO service-runtime cleanup refused to overwrite bytes that differ from the original and synthetic marker.'
+                }
+                if ($runtimeCurrentText -ceq $updatedText -or $runtimeCurrentText -ceq $originalRuntimeText) {
+                    [IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, $originalRuntimeWriteTime)
+                }
+            }
+        } catch { Add-Failure "GEO service-runtime cleanup: $($_.Exception.Message)" }
     }
 }
 
@@ -1106,12 +1126,14 @@ function Test-SshPrivateKeyInServiceMode {
     $fixtureName = 'service-ssh-fixture.invalid'
     $rejectName = 'service-ssh-reject.invalid'
     $keyPath = Join-Path $appHome ('stcvrc-ci-' + [Guid]::NewGuid().ToString('N') + '.pem')
-    $keyYamlPath = $keyPath.Replace('\', '/')
+    $keyYamlPath = $keyPath.Replace('\\', '/')
     $fixture = $null
     $sshUid = $null
     $keyHash = $null
+    $stagedKeyPath = $null
     try {
         $fixture = Start-SshFixtureServer -KeyPath $keyPath -TargetPort $HttpPort
+        $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $sshPort = [int]$fixture.Port
         $controllerPort = Get-FreeTcpPort
         $yaml = @"
@@ -1172,18 +1194,24 @@ rules:
         Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase '2.5.10 service SSH private-key fixture'
         Assert-LiveCoreIdentity
         $runtimeYaml = Get-RuntimeYaml
-        if (-not $runtimeYaml.Contains('private-key: ssh-private-key-')) { throw 'Service runtime did not rewrite the local SSH private-key path to its staged asset alias.' }
+        $assetMatches = [regex]::Matches($runtimeYaml, 'cvr-[0-9a-f]{64}')
+        $privateKeyLines = @($runtimeYaml -split "`r?`n" | Where-Object { $_ -match '^\s*private-key:' })
+        if ($privateKeyLines.Count -ne 1 -or $privateKeyLines[0] -notmatch 'cvr-[0-9a-f]{64}' -or $assetMatches.Count -ne 1) {
+            throw 'Service runtime did not rewrite the local SSH key path to exactly one staged cvr SHA-256 asset alias.'
+        }
+        $assetAlias = $assetMatches[0].Value
         if ($runtimeYaml.Contains($keyPath) -or $runtimeYaml.Contains($keyYamlPath)) { throw 'Service runtime retained the app-home SSH key source path instead of a staged alias.' }
 
         $serviceUsers = Join-Path $serviceData 'users'
         if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
-        $stagedKeys = @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'ssh-private-key-*' -File -Recurse -ErrorAction Stop |
+        $stagedKeys = @(Get-ChildItem -LiteralPath $serviceUsers -Filter $assetAlias -File -Recurse -ErrorAction Stop |
             Where-Object { $_.Directory.Name -eq 'runtime' })
-        if ($stagedKeys.Count -ne 1) { throw "Expected one staged service SSH key, found $($stagedKeys.Count)." }
-        $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ((Get-FileHash -LiteralPath $stagedKeys[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $keyHash) {
+        if ($stagedKeys.Count -ne 1) { throw "Expected one staged service SSH key for alias $assetAlias, found $($stagedKeys.Count)." }
+        $stagedKeyPath = $stagedKeys[0].FullName
+        if ((Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $keyHash) {
             throw 'The staged service SSH private key does not match the generated app-home key.'
         }
+
         Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile'
         $authDeadline = [DateTime]::UtcNow.AddSeconds(10)
         $authenticated = $false
@@ -1214,7 +1242,8 @@ rules:
         }
         $serviceUsers = Join-Path $serviceData 'users'
         if ($keyHash -and (Test-Path -LiteralPath $serviceUsers -PathType Container)) {
-            foreach ($staged in @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'ssh-private-key-*' -File -Recurse -ErrorAction SilentlyContinue)) {
+            foreach ($staged in @(Get-ChildItem -LiteralPath $serviceUsers -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.Directory.Name -eq 'runtime' })) {
                 try {
                     if ((Get-FileHash -LiteralPath $staged.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -eq $keyHash) {
                         Remove-Item -LiteralPath $staged.FullName -Force -ErrorAction Stop
@@ -1232,7 +1261,6 @@ rules:
         }
     }
 }
-
 function Test-RejectedFixture {
     param(
         [string]$FixtureName,
