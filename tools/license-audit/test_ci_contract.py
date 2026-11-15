@@ -338,6 +338,7 @@ SOFTWARE.""",
         self.assertIn("LGPL-3.0", audit)
         self.assertIn("Owner accepted retaining this exact RC9 packet in the unpublished draft only", audit)
         self.assertIn("This approval neither authorizes publication nor declares legal compliance", audit)
+        self.assertIn("Historical releases retain an unverified EasyTier source-to-WASM mapping", audit)
         self.assertIn("stcvrc-1.19.33-rc.9", release)
         self.assertIn("43743504334", release)
         self.assertNotIn("Fresh RC8 inputs", audit)
