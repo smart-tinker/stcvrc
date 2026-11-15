@@ -387,6 +387,22 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Join-Path $runtimeDirectory $script:fixtureSshKeyAlias", cleanup[staged_key_cleanup:])
         self.assertIn("Hash.ToLowerInvariant() -ceq $script:fixtureSshKeyHash", cleanup[staged_key_cleanup:])
 
+    def test_ssh_service_alias_is_independent_of_key_content_hash(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\\nfunction ", 1
+        )[0]
+        for assertion in (
+            "$privateKeyAliasMatches = [regex]::Matches($privateKeyLines[0], 'cvr-[0-9a-f]{64}')",
+            "$privateKeyAliasMatches.Count -ne 1",
+            "Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256",
+            "Hash.ToLowerInvariant() -ne $keyHash",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertNotIn("$assetAlias -cne $expectedAssetAlias", scenario)
+
+
     def test_ssh_alias_failure_reports_only_redacted_private_key_lines(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
