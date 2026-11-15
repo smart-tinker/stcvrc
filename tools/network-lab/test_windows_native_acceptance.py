@@ -345,8 +345,6 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$runtimeConfigs = @(",
             "$runtimeMatch = $rewrittenConfigs[0]",
             "$stagedKeyPath = Join-Path $runtimeDirectory $assetAlias",
-            "SSH_FIXTURE_AUTH_OK",
-            "sshFixtureAuthenticated=",
             "sshFixtureDiagnostics=",
             "Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue",
             "Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue",
@@ -356,6 +354,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 self.assertIn(assertion, scenario)
         self.assertNotIn("$runtimeYaml = Get-RuntimeYaml", scenario)
         self.assertNotIn("ssh-private-key-", scenario)
+        self.assertNotIn("SSH_FIXTURE_AUTH_OK", scenario)
+        self.assertNotIn("[IO.File]::ReadAllText($fixture.StdoutPath)", scenario)
         helper = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
         self.assertTrue(helper.is_file())
 
@@ -471,7 +471,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             'if !syntheticAddress && req.DestAddr != "service-ssh-fixture.invalid" {',
             "req.Port != uint32(targetPort)",
             'net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort))',
-            "SSH_FIXTURE_AUTH_OK",
+            "PublicKeyCallback:",
+            'bytes.Equal(key.Marshal(), clientSigner.PublicKey().Marshal())',
             "SSH_FIXTURE_AUTH_REJECTED",
             "SSH_FIXTURE_HANDSHAKE_REJECTED",
             "SSH_FIXTURE_UNSUPPORTED_CHANNEL",
@@ -483,6 +484,9 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, helper)
+
+
+        self.assertNotIn("SSH_FIXTURE_AUTH_OK", helper)
 
 
 if __name__ == "__main__":
