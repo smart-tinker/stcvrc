@@ -1,34 +1,20 @@
 # STCVRC dependency licenses and source provenance
 
-This record distinguishes the historical 1.19.29, 1.19.33 RC1/RC2 and RC7 core records from the fresh-source RC8 package contract. The stock Clash Verge Rev UI/installer is not redistributed here. Profiles, credentials, certificates, and runtime/deployment state are out of scope.
+This record separates historical 1.19.29, 1.19.33 RC1/RC2, RC7 and RC8 records from the fresh-source RC9 package. The stock Clash Verge Rev UI/installer is not redistributed here. Profiles, credentials, certificates, and runtime/deployment state are out of scope.
 
-The machine-readable pins, reference asset hashes, source commits, toolchains and build flags are in [license-provenance.json](license-provenance.json).
+The machine-readable pins, asset hashes, source commits, toolchains and build flags are in [license-provenance.json](license-provenance.json).
 
-## Fresh RC8 inputs and review packet
+## Fresh RC9 inputs and review packet
 
-The current recipe is [tools/source-build/ci.sh](../tools/source-build/ci.sh). It rebuilds
-[the selected STCVRC source](https://github.com/smart-tinker/stcvrc/tree/a884ad53a3999dd35acab979e0bb040c47f6dbc9)
-against Mihomo v1.19.33 and regenerates EasyTier Go bindings and WASM from
-[EasyTier 3463190](https://github.com/EasyTier/EasyTier/tree/3463190838eb642ba8324c6a4011acdea52495a8).
-The actual core graph is tested with that local module replacement. No previous
-STCVRC executable or embedded WASM is a build input.
+The current recipe is [tools/source-build/ci.sh](../tools/source-build/ci.sh). It starts from fresh checkouts, rebuilds the selected [STCVRC source](https://github.com/smart-tinker/stcvrc/tree/a884ad53a3999dd35acab979e0bb040c47f6dbc9) against Mihomo v1.19.33, and regenerates EasyTier Go bindings and WASM from [EasyTier commit 3463190](https://github.com/EasyTier/EasyTier/tree/3463190838eb642ba8324c6a4011acdea52495a8). The actual core graph is tested with that locally built source replacement. No previous STCVRC executable or embedded WASM is a build input; official CVR 2.5.8 and 2.5.10 installers are migration/recovery inputs only.
 
-The manual main-branch assembler targets a new `stcvrc-1.19.33-rc.8` draft only.
-Its review packet contains the fresh Windows EXE, `RC-MANIFEST.json`,
-`SOURCE-BUILD.json`, `THIRD-PARTY-NOTICES.txt`,
-`THIRD-PARTY-SOURCES.json`, `LICENSE` and `SHA256SUMS`.
-The manifest records measured bytes, exact sources, changed source blobs,
-toolchains, flags and the successful native-job identity. A second fresh native
-Windows build must match that EXE/WASM before assembly. The tag metadata and
-actual Git tag ref are checked separately. See [the CI layout and assembly
-contract](RELEASING.md).
+[Manual assembly run 43743504334](https://github.com/smart-tinker/stcvrc/actions/runs/43743504334) passed all eight jobs on main commit `3d3b0ec8ee1f11086277eec5f57436c0d9446d01`. It created GitHub draft release ID 446278043 with metadata tag `stcvrc-1.19.33-rc.9`. The release remains unpublished; the corresponding Git tag ref was absent when checked. All seven uploaded files were read back byte-for-byte and hashed. The run created zero Actions artifacts.
 
-The MIT decoder and CVR 2.5.10 choices were already approved. Human acceptance of
-the resulting exact notice/source packet is separate from those implementation
-choices. Historical GPL-2.0-only LZO and unavailable RC7 WASM-source evidence are
-recorded limitations, not facts retroactively cleared by a fresh RC8 build.
-The actual successful run and draft-asset readback are linked from
-[issue #7](https://github.com/smart-tinker/stcvrc/issues/7) when available.
+The fresh package records core source commit `a884ad53a3999dd35acab979e0bb040c47f6dbc9`, upstream Mihomo commit `3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8`, EasyTier source commit `3463190838eb642ba8324c6a4011acdea52495a8`, generated WASM SHA-256 `e6e817db48cfd817026ba3c2adf24ed90a44e262fa8e00b58e2519a508cb6441`, and Windows core SHA-256 `1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e`. It uses the MIT LZO decoder `github.com/anchore/go-lzo v0.1.1` and the MIT-license-bearing chacha pin `github.com/metacubex/chacha v0.1.6-0.20250812085457-7b981d42c3ba`.
+
+The review packet contains `verge-mihomo.exe`, `RC-MANIFEST.json`, `SOURCE-BUILD.json`, `THIRD-PARTY-NOTICES.txt`, `THIRD-PARTY-SOURCES.json`, `LICENSE` and `SHA256SUMS`. Their GitHub asset SHA-256 values are recorded in the JSON manifest below. The fresh build and package assembly do not establish a blanket legal-compliance conclusion.
+
+The embedded EasyTier Go/WASM components are identified as LGPL-3.0 / LGPL-3.0-only at the exact source revision. The recipe publicly identifies those sources and regenerates the embedded WASM before rebuilding the application. The remaining owner review concerns the distribution mechanics for this embedded LGPL component. This audit records source, build, notice and asset evidence; it does not decide legal sufficiency. Historical releases and their provenance limits remain separate, and none was changed.
 
 ## Source and build mapping
 
@@ -40,7 +26,7 @@ The actual successful run and draft-asset readback are linked from
 
 The accepted .29 code delta changes the OpenVPN adapter/configuration/executor and OpenVPN transport paths, plus the PassRule API-compatibility adapter and focused tests. Exact changed paths are pinned in the JSON and compared with upstream in CI. The .33 source manifest lists its patch files and hashes; CI verifies each file and checks that these are exactly the source-code differences from upstream.
 
-The existing RC7 draft remains a historical candidate: it uses source commit `086a62c3ce9a77f650786ae2eae92b68909d49e1` and the permissive `github.com/anchore/go-lzo v0.1.1` decoder. Its binary is not an input to the fresh source-build or notice collector. The accepted 1.19.29 and historical RC2 `go-lzo` records remain a separate GPL-2.0-only risk.
+The existing RC7 draft remains a historical candidate: it uses source commit `086a62c3ce9a77f650786ae2eae92b68909d49e1` and the permissive `github.com/anchore/go-lzo v0.1.1` decoder. RC9 is the current fresh-source candidate and its own asset/source hashes are recorded separately. Its binary is not an input to the fresh source-build or notice collector. The accepted 1.19.29 and historical RC2 `go-lzo` records remain a separate GPL-2.0-only risk.
 
 The current 1.19.33 source.json patchSource record remains unverified: it names base 88dcbf7f (the v1.19.32-era base), while the candidate's declared upstream is 3f27ef39 (v1.19.33). The referenced public commit 9ccecd85 resolves to a STCVRC commit whose changed files are under the v1.19.32 candidate-preparation tree, not a Mihomo source-patch commit. CI reports this mismatch rather than treating the record as verified. The exact RC2 .33 source tree and patch-file digests were checked against upstream; the historical origin claim for the patch archive remains unverified.
 
@@ -48,7 +34,7 @@ For a new candidate, the collector runs after the source-builder in the same dis
 
 ## Distributed release assets
 
-All released asset names and GitHub API SHA256 digests for both versions are recorded in the JSON manifest. Release sidecars (manifests, build information, and checksum files) are provenance records, not additional executable dependencies. The UI installer is excluded.
+Recorded release asset names and GitHub API SHA-256 digests are in the JSON manifest. Release sidecars (manifests, build information, and checksum files) are provenance records, not additional executable dependencies. The UI installer is excluded.
 
 ## License inventory
 
@@ -92,10 +78,10 @@ The pinned source LICENSE files for these MetaCubeX fork modules are identical G
 
 The remaining material gaps are:
 
-- The existing RC8 still contains `github.com/metacubex/chacha@v0.1.5`, whose exact tag has no root `LICENSE`; its two package rows remain an evidence gap in that draft. PR #46 proposes a fresh candidate pin to `v0.1.6-0.20250812085457-7b981d42c3ba`, resolving to upstream commit [`7b981d42c3baca5a004e7b0ecfb9b67ee20e583a`](https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a), the direct child of v0.1.5 that adds only an MIT `LICENSE`. CI must verify the selected module version, checksums, and generated notice package before this is treated as resolved for the new candidate. It does not retroactively change RC8 or establish overall legal compliance.
+- RC8 remains unchanged and retains `github.com/metacubex/chacha@v0.1.5`, whose exact tag has no root `LICENSE`. The fresh RC9 source build instead pins `v0.1.6-0.20250812085457-7b981d42c3ba`, resolving to [`7b981d42c3baca5a004e7b0ecfb9b67ee20e583a`](https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a), with its MIT `LICENSE`; exact RC9 module, notice and asset hashes are captured by run 43743504334 and the current provenance record. This applies only to the fresh RC9 build and does not retroactively change RC8 or establish overall legal compliance.
 - The accepted .29 and historical .33 RC2 builds still use github.com/rasky/go-lzo at 96a758eda86e, classified as GPL-2.0; the pinned [LICENSE.gpl](https://github.com/rasky/go-lzo/blob/96a758eda86e/LICENSE.gpl) is GPL version 2 text. The unpublished .33 MIT-LZO candidate replaces it with github.com/anchore/go-lzo v0.1.1; replacing an already published line still requires acceptance and a new release decision.
 - `github.com/easytier/easytier/easytier-go` at `3d0c9c3ca5e2` carries [LGPL-3.0](https://github.com/EasyTier/EasyTier/blob/3d0c9c3ca5e2/easytier-go/LICENSE). Its README says the Go adapter embeds an EasyTier Core WASM. At that exact module commit, [provenance.go](https://github.com/EasyTier/EasyTier/blob/3d0c9c3ca5e2c0b680383dedf5898f6c7eef9253/easytier-go/internal/artifact/provenance.go) names source commit `63519db2b5f2a6a1b9b7f20905f036dab54eb829` and WASM SHA-256 `8b82f37d62fba2ffe8e256386096fddf448d4261d51c495d5bd97cd11bbb24a0`. GitHub's public commit API returned `No commit found for SHA` for that source commit, so the WASM source cannot currently be fetched from the recorded provenance ref for an independent rebuild. The generator at the exact module source builds from a clean EasyTier checkout, but the source input remains unavailable at the recorded ref. Its use in the distributed executable and applicable notice/source/relink terms still need review.
-- The old RC7 draft has no generated full notice/source package. The collector added here must pass against the fresh source-built candidate before its output can be assembled into a new draft.
+- RC7 had no generated full notice/source package. The collector passed on the fresh RC9 source-built candidate before its output was assembled into the RC9 draft.
 - Candidate `source.json` records patch base `88dcbf7f` (.32), while the checked .33 upstream is `3f27ef39`. CI verifies the 14 .33 files and exact .33 source delta independently, but the declared patch-origin link remains unproven.
 
 Issue #7 remains open. No license violation or overall compliance conclusion is asserted.
