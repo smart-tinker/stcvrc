@@ -39,6 +39,14 @@ class DistributionAuditContractTests(unittest.TestCase):
                 "go_version": "1.26.11",
                 "go_sha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
             },
+            "candidate-1.19.33-rc.9": {
+                "release_tag": "stcvrc-1.19.33-rc.9",
+                "asset_sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
+                "source_commit": "a884ad53a3999dd35acab979e0bb040c47f6dbc9",
+                "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+                "go_version": "1.26.11",
+                "go_sha256": "71ae086f0137e665f855a811cc119152b6a783e0bbc1b906e709f46d80141eb0",
+            },
         }
         self.assertEqual(set(variants), set(expected))
         self.assertEqual(manifest["scope"], "core-binaries-only")
