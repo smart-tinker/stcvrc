@@ -1220,7 +1220,7 @@ rules:
                     [pscustomobject]@{
                         Directory = $runtimeDirectory
                         Yaml = $serviceRuntimeYaml
-                        PrivateKeyLines = @($serviceRuntimeYaml -split "`r? `n" | Where-Object { $_ -match '^\s*private-key:' })
+                        PrivateKeyLines = @($serviceRuntimeYaml -split '\r?\n' | Where-Object { $_ -match '^\s*private-key:' })
                         AssetMatches = [regex]::Matches($serviceRuntimeYaml, 'cvr-[0-9a-f]{64}')
                     }
                 }
