@@ -1134,7 +1134,7 @@ dns:
   proxy-server-nameserver:
     - udp://127.0.0.1:$ProfileDnsPort
   nameserver-policy:
-    $fixtureName: udp://127.0.0.1:$ProfileDnsPort
+    ${fixtureName}: udp://127.0.0.1:$ProfileDnsPort
 proxies:
   - name: service-ssh-fixture
     type: ssh
