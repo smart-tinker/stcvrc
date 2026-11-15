@@ -72,6 +72,7 @@ func run(keyPath string, targetPort int, readyPath string) error {
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(meta ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			if meta.User() != fixtureUser || !bytes.Equal(key.Marshal(), clientSigner.PublicKey().Marshal()) {
+				fmt.Fprintln(os.Stderr, "SSH_FIXTURE_AUTH_REJECTED")
 				return nil, errors.New("fixture accepts only its generated public key")
 			}
 			authOnce.Do(func() { fmt.Fprintln(os.Stdout, "SSH_FIXTURE_AUTH_OK") })
@@ -103,6 +104,7 @@ func serve(conn net.Conn, config *ssh.ServerConfig, targetPort int) {
 	defer conn.Close()
 	serverConn, channels, requests, err := ssh.NewServerConn(conn, config)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, "SSH_FIXTURE_HANDSHAKE_REJECTED")
 		return
 	}
 	defer serverConn.Close()
@@ -111,26 +113,31 @@ func serve(conn net.Conn, config *ssh.ServerConfig, targetPort int) {
 		switch incoming.ChannelType() {
 		case "direct-tcpip":
 		default:
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_UNSUPPORTED_CHANNEL")
 			_ = incoming.Reject(ssh.UnknownChannelType, "fixture allows only direct-tcpip")
 			continue
 		}
 		var req directTCPIP
 		if err := ssh.Unmarshal(incoming.ExtraData(), &req); err != nil {
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_INVALID_CHANNEL")
 			_ = incoming.Reject(ssh.ConnectionFailed, "invalid direct-tcpip request")
 			continue
 		}
 		ip := net.ParseIP(req.DestAddr).To4()
 		if ip == nil || ip[0] != 198 || ip[1] != 18 || req.Port != uint32(targetPort) {
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_TARGET_REJECTED")
 			_ = incoming.Reject(ssh.Prohibited, "fixture destination is outside the synthetic HTTP target")
 			continue
 		}
 		target, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort)))
 		if err != nil {
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_HTTP_TARGET_UNAVAILABLE")
 			_ = incoming.Reject(ssh.ConnectionFailed, "loopback HTTP target is unavailable")
 			continue
 		}
 		channel, channelRequests, err := incoming.Accept()
 		if err != nil {
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_CHANNEL_ACCEPT_FAILED")
 			_ = target.Close()
 			continue
 		}

@@ -342,6 +342,9 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$runtimeMatch = $rewrittenConfigs[0]",
             "$stagedKeyPath = Join-Path $runtimeDirectory $assetAlias",
             "SSH_FIXTURE_AUTH_OK",
+            "sshFixtureAuthenticated=",
+            "sshFixtureDiagnostics=",
+            "Get-Content -LiteralPath $fixture.StderrPath -Tail 8",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
@@ -462,6 +465,13 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "req.Port != uint32(targetPort)",
             'net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort))',
             "SSH_FIXTURE_AUTH_OK",
+            "SSH_FIXTURE_AUTH_REJECTED",
+            "SSH_FIXTURE_HANDSHAKE_REJECTED",
+            "SSH_FIXTURE_UNSUPPORTED_CHANNEL",
+            "SSH_FIXTURE_INVALID_CHANNEL",
+            "SSH_FIXTURE_TARGET_REJECTED",
+            "SSH_FIXTURE_HTTP_TARGET_UNAVAILABLE",
+            "SSH_FIXTURE_CHANNEL_ACCEPT_FAILED",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, helper)

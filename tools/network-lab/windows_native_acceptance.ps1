@@ -1270,7 +1270,13 @@ rules:
             throw 'The staged service SSH private key does not match the generated app-home key.'
         }
 
-        Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile'
+        try {
+            Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile'
+        } catch {
+            $fixtureAuthOutput = if (Test-Path -LiteralPath $fixture.StdoutPath -PathType Leaf) { [IO.File]::ReadAllText($fixture.StdoutPath) } else { '' }
+            $fixtureDiagnostics = if (Test-Path -LiteralPath $fixture.StderrPath -PathType Leaf) { @(Get-Content -LiteralPath $fixture.StderrPath -Tail 8) } else { @() }
+            throw "$($_.Exception.Message); sshFixtureAuthenticated=$($fixtureAuthOutput.Contains('SSH_FIXTURE_AUTH_OK')); sshFixtureDiagnostics=$($fixtureDiagnostics -join ',')"
+        }
         $authDeadline = [DateTime]::UtcNow.AddSeconds(10)
         $authenticated = $false
         while ([DateTime]::UtcNow -lt $authDeadline) {
