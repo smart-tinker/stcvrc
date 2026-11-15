@@ -39,6 +39,14 @@ class DistributionAuditContractTests(unittest.TestCase):
                 "go_version": "1.26.11",
                 "go_sha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
             },
+            "candidate-1.19.33-rc.9": {
+                "release_tag": "stcvrc-1.19.33-rc.9",
+                "asset_sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
+                "source_commit": "a884ad53a3999dd35acab979e0bb040c47f6dbc9",
+                "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+                "go_version": "1.26.11",
+                "go_sha256": "71ae086f0137e665f855a811cc119152b6a783e0bbc1b906e709f46d80141eb0",
+            },
         }
         self.assertEqual(set(variants), set(expected))
         self.assertEqual(manifest["scope"], "core-binaries-only")
@@ -293,6 +301,78 @@ SOFTWARE.""",
         self.assertNotIn("rc.8", assembler)
         self.assertIn("version=1.19.33-STCVRC-rc.9", builder)
         self.assertIn('"version": "1.19.33-STCVRC-rc.9"', builder)
+
+
+    def test_current_rc9_packet_is_in_the_provenance_record(self):
+        provenance = json.loads(
+            (ROOT / "docs" / "license-provenance.json").read_text(encoding="utf-8")
+        )
+        variants = {item["id"]: item for item in provenance["variants"]}
+        rc9 = variants["candidate-1.19.33-rc.9"]
+        self.assertEqual(rc9["distribution_status"], "draft-prerelease")
+        self.assertEqual(rc9["release_id"], 446278043)
+        self.assertEqual(rc9["release_tag"], "stcvrc-1.19.33-rc.9")
+        self.assertEqual(rc9["tag_ref_status"], "absent while draft (checked 2026-11-15)")
+        self.assertEqual(rc9["release_assembly_run"], "https://github.com/smart-tinker/stcvrc/actions/runs/43743504334")
+        self.assertEqual(rc9["main_commit"], "3d3b0ec8ee1f11086277eec5f57436c0d9446d01")
+        self.assertEqual(rc9["core_source_commit"], "a884ad53a3999dd35acab979e0bb040c47f6dbc9")
+        self.assertEqual(rc9["upstream_commit"], "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8")
+        self.assertEqual(rc9["easytier_source_commit"], "3463190838eb642ba8324c6a4011acdea52495a8")
+        self.assertEqual(rc9["asset_sha256"], "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e")
+        self.assertEqual(rc9["wasm_sha256"], "e6e817db48cfd817026ba3c2adf24ed90a44e262fa8e00b58e2519a508cb6441")
+        self.assertEqual(
+            {item["name"]: item["sha256"] for item in rc9["release_assets"]},
+            {
+                "LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+                "RC-MANIFEST.json": "4ea1d6d3944388df416b43af0a6d81f2cfee197b29188805acc384289b83eb15",
+                "SHA256SUMS": "b6b8a368aee8cc19be1ca08835f8f1dd3f13cc2947d5efba91a48d22c6114dbe",
+                "SOURCE-BUILD.json": "f2d96b385f057e7b941868391367ca176f37a7076cc5446ba6f16396645300dd",
+                "THIRD-PARTY-NOTICES.txt": "1573b3d8a1074aa273c1d33e5aafe2e66b61dcc54c5eb290375ea0df89f02a7f",
+                "THIRD-PARTY-SOURCES.json": "63c786ee6b8b44c526db77cf19e10654ecf8a929e0f0e7854b1502fe817bd2db",
+                "verge-mihomo.exe": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
+            },
+        )
+        self.assertEqual(
+            rc9["lzo_decoder"],
+            {
+                "module": "github.com/anchore/go-lzo",
+                "version": "v0.1.1",
+                "license": "MIT",
+                "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE",
+            },
+        )
+        self.assertEqual(
+            rc9["chacha"],
+            {
+                "module": "github.com/metacubex/chacha",
+                "version": "v0.1.6-0.20250812085457-7b981d42c3ba",
+                "source_commit": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
+                "license": "MIT",
+                "license_url": "https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
+            },
+        )
+        self.assertEqual(
+            rc9["easytier_license_inventory"],
+            {
+                "go_module": "LGPL-3.0",
+                "rust_crates": [
+                    "easytier-core: LGPL-3.0-only",
+                    "easytier-proto: LGPL-3.0-only",
+                ],
+                "source_commit": "3463190838eb642ba8324c6a4011acdea52495a8",
+            },
+        )
+        audit = (ROOT / "docs" / "license-audit.md").read_text(encoding="utf-8")
+        release = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+        self.assertIn("RC9", audit)
+        self.assertIn("LGPL-3.0", audit)
+        self.assertIn("Owner accepted retaining this exact RC9 packet in the unpublished draft only", audit)
+        self.assertIn("This approval neither authorizes publication nor declares legal compliance", audit)
+        self.assertIn("Historical releases retain an unverified EasyTier source-to-WASM mapping", audit)
+        self.assertIn("stcvrc-1.19.33-rc.9", release)
+        self.assertIn("43743504334", release)
+        self.assertNotIn("Fresh RC8 inputs", audit)
+        self.assertNotIn("targets a new `stcvrc-1.19.33-rc.8` draft", audit)
 
 
 if __name__ == "__main__":
