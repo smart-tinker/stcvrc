@@ -1126,7 +1126,7 @@ function Test-SshPrivateKeyInServiceMode {
     $fixtureName = 'service-ssh-fixture.invalid'
     $rejectName = 'service-ssh-reject.invalid'
     $keyPath = Join-Path $appHome ('stcvrc-ci-' + [Guid]::NewGuid().ToString('N') + '.pem')
-    $keyYamlPath = $keyPath.Replace('\\', '/')
+    $keyYamlPath = $keyPath.Replace('\', '/')
     $fixture = $null
     $sshUid = $null
     $keyHash = $null
