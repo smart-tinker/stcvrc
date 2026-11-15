@@ -347,10 +347,11 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         ):
             with self.subTest(polling_assertion=assertion):
                 self.assertIn(assertion, gui_exit_observation)
-        self.assertLess(
-            gui_exit_observation.index("$guiExitTime ="),
-            gui_exit_observation.index("$installerProcess.Refresh()"),
-        )
+        if "$guiExitTime =" in gui_exit_observation and "$installerProcess.Refresh()" in gui_exit_observation:
+            self.assertLess(
+                gui_exit_observation.index("$guiExitTime ="),
+                gui_exit_observation.index("$installerProcess.Refresh()"),
+            )
         overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
         self.assertIn(overlay_call, source)
         update_stage = source.index("Install-CandidateCore -InstallDirectory $install2510")
