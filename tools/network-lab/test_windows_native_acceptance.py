@@ -333,6 +333,13 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         ):
             with self.subTest(fallback_assertion=assertion):
                 self.assertIn(assertion, exit_time_fallback)
+        polling = overlay.split("while ([DateTime]::UtcNow -lt $deadline)", 1)[1].split(
+            "if ($installerProcess.HasExited)", 1
+        )[0]
+        self.assertIn(
+            "$gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime()",
+            polling,
+        )
         overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
         self.assertIn(overlay_call, source)
         update_stage = source.index("Install-CandidateCore -InstallDirectory $install2510")
