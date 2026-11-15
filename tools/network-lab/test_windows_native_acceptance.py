@@ -321,5 +321,43 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertLess(update_stage, overlay_position)
         self.assertLess(overlay_position, exercise_position)
 
+    def test_service_ssh_key_file_is_used_by_authenticated_loopback_traffic(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Test-SshPrivateKeyInServiceMode", source)
+        self.assertIn("Test-SshPrivateKeyInServiceMode -DnsPort $dnsPort -HttpPort $httpPort", source)
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\\nfunction ", 1
+        )[0]
+        for assertion in (
+            "Start-SshFixtureServer",
+            "Invoke-CvrCommand -Command 'get_app_dir'",
+            "private-key:",
+            "Assert-LiveCoreIdentity",
+            "Test-FixtureTraffic",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertTrue((ROOT / "tools" / "network-lab" / "ssh_fixture.go").is_file())
+
+
+    def test_service_geo_update_is_synced_before_profile_validation(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Test-GeoDatabaseSyncThroughValidation", source)
+        self.assertIn("Test-GeoDatabaseSyncThroughValidation -ProfileUid $uidA", source)
+        scenario = source.split("function Test-GeoDatabaseSyncThroughValidation", 1)[1].split(
+            "\\nfunction ", 1
+        )[0]
+        for assertion in (
+            "get_app_dir",
+            "GeoSite.dat",
+            "clash-verge-service",
+            "SetLastWriteTimeUtc",
+            "patch_profiles_config",
+            "ReadAllBytes",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+
+
 if __name__ == "__main__":
     unittest.main()
