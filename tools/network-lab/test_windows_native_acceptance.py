@@ -359,10 +359,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 gui_exit_observation.index("$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()"),
             )
         self.assertIn(
-            "if ($guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and\\n"
-            "                    (-not $installerProcess.HasExited -or\\n"
-            "                    $guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())) {\\n"
-            "                    $guiExitedDuringOverlay = $true\\n"
+            "if ($guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and\n"
+            "                    (-not $installerProcess.HasExited -or\n"
+            "                    $guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())) {\n"
+            "                    $guiExitedDuringOverlay = $true\n"
             "                }",
             gui_exit_observation,
         )
