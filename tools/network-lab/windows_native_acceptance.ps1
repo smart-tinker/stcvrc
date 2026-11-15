@@ -1135,7 +1135,10 @@ function Test-SshPrivateKeyInServiceMode {
     $profileName = 'native-service-ssh-fixture'
     $fixtureName = 'service-ssh-fixture.invalid'
     $rejectName = 'service-ssh-reject.invalid'
-    $keyPath = Join-Path $appHome ('stcvrc-ci-' + [Guid]::NewGuid().ToString('N') + '.pem')
+    # CVR stages local SSH assets relative to the profile YAML's parent directory.
+    $profileDirectory = Join-Path $appHome 'profiles'
+    if (-not (Test-Path -LiteralPath $profileDirectory -PathType Container)) { throw 'The CVR profile config directory is absent.' }
+    $keyPath = Join-Path $profileDirectory ('stcvrc-ci-' + [Guid]::NewGuid().ToString('N') + '.pem')
     $keyYamlPath = $keyPath.Replace('\', '/')
     $fixture = $null
     $sshUid = $null
