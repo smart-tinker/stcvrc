@@ -316,7 +316,7 @@ SOFTWARE.""",
         self.assertEqual(rc9["core_source_commit"], "a884ad53a3999dd35acab979e0bb040c47f6dbc9")
         self.assertEqual(rc9["upstream_commit"], "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8")
         self.assertEqual(rc9["easytier_source_commit"], "3463190838eb642ba8324c6a4011acdea52495a8")
-        self.assertEqual(rc9["core_sha256"], "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e")
+        self.assertEqual(rc9["asset_sha256"], "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e")
         self.assertEqual(rc9["wasm_sha256"], "e6e817db48cfd817026ba3c2adf24ed90a44e262fa8e00b58e2519a508cb6441")
         self.assertEqual(
             {item["name"]: item["sha256"] for item in rc9["release_assets"]},
