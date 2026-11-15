@@ -319,6 +319,20 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, overlay)
+        exit_time_fallback = overlay.split(
+            "if ($gui.HasExited -and $installerProcess.HasExited -and", 1
+        )
+        self.assertEqual(len(exit_time_fallback), 2)
+        exit_time_fallback = exit_time_fallback[1].split(
+            "if (-not $installerProcess.HasExited)", 1
+        )[0]
+        for assertion in (
+            "$gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime()",
+            "$gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()",
+            "$guiExitedDuringOverlay = $true",
+        ):
+            with self.subTest(fallback_assertion=assertion):
+                self.assertIn(assertion, exit_time_fallback)
         overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
         self.assertIn(overlay_call, source)
         update_stage = source.index("Install-CandidateCore -InstallDirectory $install2510")
