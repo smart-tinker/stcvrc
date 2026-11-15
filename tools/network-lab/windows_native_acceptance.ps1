@@ -1208,7 +1208,6 @@ rules:
         Select-FixtureProfile -Uid $sshUid -AllowName $fixtureName -RejectName $rejectName -Route 'GLOBAL'
         Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase '2.5.10 service SSH private-key fixture'
         Assert-LiveCoreIdentity
-        $expectedAssetAlias = "cvr-$keyHash"
         $serviceUsers = Join-Path $serviceData 'users'
         if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
         $runtimeDirectories = @(Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers | ForEach-Object { $_.FullName })
@@ -1247,17 +1246,21 @@ rules:
             }
         )
         if ($rewrittenConfigs.Count -ne 1) {
-            throw "Service runtime private-key rewrite failed; runtime-config-count=$($runtimeConfigs.Count); rewritten-config-count=$($rewrittenConfigs.Count); private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=0; alias-hash-match=False."
+            throw "Service runtime private-key rewrite failed; runtime-config-count=$($runtimeConfigs.Count); rewritten-config-count=$($rewrittenConfigs.Count); private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=0; private-key-alias-count=unavailable."
         }
         $runtimeMatch = $rewrittenConfigs[0]
         $runtimeDirectory = [string]$runtimeMatch.Directory
         $serviceRuntimeYaml = [string]$runtimeMatch.Yaml
         $privateKeyLines = @($runtimeMatch.PrivateKeyLines)
         $assetMatches = [regex]::Matches($serviceRuntimeYaml, 'cvr-[0-9a-f]{64}')
+        if ($privateKeyLines.Count -ne 1 -or $assetMatches.Count -ne 1) {
+            throw "Service runtime private-key rewrite failed; private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=$($assetMatches.Count); private-key-alias-count=unavailable."
+        }
         $assetAlias = $assetMatches[0].Value
+        $privateKeyAliasMatches = [regex]::Matches($privateKeyLines[0], 'cvr-[0-9a-f]{64}')
         $script:fixtureSshKeyAlias = $assetAlias
-        if ($privateKeyLines.Count -ne 1 -or $assetMatches.Count -ne 1 -or $assetAlias -cne $expectedAssetAlias) {
-            throw "Service runtime private-key rewrite failed; private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=$($assetMatches.Count); alias-hash-match=$($assetAlias -ceq $expectedAssetAlias)."
+        if ($privateKeyAliasMatches.Count -ne 1 -or $privateKeyAliasMatches[0].Value -cne $assetAlias) {
+            throw "Service runtime private-key rewrite failed; private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=$($assetMatches.Count); private-key-alias-count=$($privateKeyAliasMatches.Count)."
         }
         if ($serviceRuntimeYaml.Contains($keyPath) -or $serviceRuntimeYaml.Contains($keyYamlPath)) { throw 'Service runtime retained the app-home SSH key source path instead of a staged alias.' }
 
