@@ -189,7 +189,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("get_core_startup_error", restart)
         self.assertIn("Get-NativeStateSnapshot", restart)
         self.assertEqual(source.count("Invoke-CvrCommand -Command 'restart_core'"), 1)
-        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 5)
+        self.assertEqual(source.count("Invoke-CvrRestartCore -Phase"), 6)
 
 
     def test_tun_cleanup_failure_preserves_primary_restart_failure(self):
