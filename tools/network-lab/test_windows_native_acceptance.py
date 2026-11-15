@@ -471,7 +471,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "SSH_FIXTURE_HANDSHAKE_REJECTED",
             "SSH_FIXTURE_UNSUPPORTED_CHANNEL",
             "SSH_FIXTURE_INVALID_CHANNEL",
-            "SSH_FIXTURE_TARGET_REJECTED",
+            "SSH_FIXTURE_TARGET_ADDRESS_REJECTED",
+            "SSH_FIXTURE_TARGET_PORT_REJECTED",
             "SSH_FIXTURE_HTTP_TARGET_UNAVAILABLE",
             "SSH_FIXTURE_CHANNEL_ACCEPT_FAILED",
         ):
