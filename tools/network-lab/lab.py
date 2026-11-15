@@ -21,10 +21,28 @@ TARGET = f"http://{HOST}:{PORTS['direct']}"
 
 
 def select_ports():
-    """Avoid TIME_WAIT from a preceding invocation, including on Windows."""
+    """Reserve TCP ports and a UDP-capable Mihomo mixed port."""
     global TARGET
     with contextlib.ExitStack() as stack:
         for name in PORTS:
+            if name == "core":
+                for _ in range(32):
+                    candidate = contextlib.ExitStack()
+                    try:
+                        udp = candidate.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+                        udp.bind((HOST, 0))
+                        port = udp.getsockname()[1]
+                        tcp = candidate.enter_context(socket.socket())
+                        tcp.bind((HOST, port))
+                    except OSError:
+                        candidate.close()
+                        continue
+                    stack.enter_context(candidate)
+                    PORTS[name] = port
+                    break
+                else:
+                    raise OSError("Could not reserve a TCP/UDP port for the mixed listener")
+                continue
             reservation = stack.enter_context(socket.socket())
             reservation.bind((HOST, 0))
             PORTS[name] = reservation.getsockname()[1]
