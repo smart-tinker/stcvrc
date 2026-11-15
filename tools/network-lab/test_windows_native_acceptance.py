@@ -341,6 +341,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             "$guiExitTime = $gui.ExitTime.ToUniversalTime()",
             "$installerProcess.Refresh()",
+            "$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and",
             "(-not $installerProcess.HasExited -or",
             "$guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())",
             "$guiExitedDuringOverlay = $true",
@@ -351,6 +352,11 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             self.assertLess(
                 gui_exit_observation.index("$guiExitTime ="),
                 gui_exit_observation.index("$installerProcess.Refresh()"),
+            )
+        if "$installerProcess.Refresh()" in gui_exit_observation and "$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()" in gui_exit_observation:
+            self.assertLess(
+                gui_exit_observation.index("$installerProcess.Refresh()"),
+                gui_exit_observation.index("$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()"),
             )
         overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
         self.assertIn(overlay_call, source)
