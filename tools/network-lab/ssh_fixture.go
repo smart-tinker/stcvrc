@@ -20,7 +20,7 @@ import (
 
 const fixtureUser = "stcvrc-fixture"
 
-// This disposable fixture can forward only synthetic 198.18/16 traffic to loopback HTTP.
+// This fixture accepts only synthetic 198.18/16 traffic or its exact SSH hostname, then forwards to loopback HTTP.
 type directTCPIP struct {
 	DestAddr   string
 	Port       uint32
@@ -124,9 +124,10 @@ func serve(conn net.Conn, config *ssh.ServerConfig, targetPort int) {
 			continue
 		}
 		ip := net.ParseIP(req.DestAddr).To4()
-		if ip == nil || ip[0] != 198 || ip[1] != 18 {
+		syntheticAddress := ip != nil && ip[0] == 198 && ip[1] == 18
+		if !syntheticAddress && req.DestAddr != "service-ssh-fixture.invalid" {
 			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_TARGET_ADDRESS_REJECTED")
-			_ = incoming.Reject(ssh.Prohibited, "fixture destination is outside the synthetic HTTP address range")
+			_ = incoming.Reject(ssh.Prohibited, "fixture destination is outside the synthetic HTTP target")
 			continue
 		}
 		if req.Port != uint32(targetPort) {
