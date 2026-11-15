@@ -150,7 +150,7 @@ function Invoke-CvrOverlayReinstall {
     param([string]$InstallDirectory)
     $started = [DateTime]::UtcNow
     $guiPath = Join-Path $InstallDirectory 'clash-verge.exe'
-    $guiProcess = $null
+    $gui = $null
     $installerProcess = $null
     $overlayInterval = $null
     try {
@@ -345,10 +345,10 @@ if ($script:nativeFailures.Count -or $recoveryFailure) { throw "Native acceptanc
 
         $overlayInterval = [PSCustomObject]@{ phase='overlay'; startUtc=$started; endUtc=[DateTime]::MaxValue }
         $script:overlayIntervals.Add($overlayInterval)
-        $guiProcess = Start-Process -FilePath $guiPath -PassThru
-        $runningGui = Get-Process -Id $guiProcess.Id -ErrorAction SilentlyContinue
+        $gui = Start-Process -FilePath $guiPath -PassThru
+        $runningGui = Get-Process -Id $gui.Id -ErrorAction SilentlyContinue
         if (-not $runningGui) { throw 'Pinned CVR GUI process exited before overlay started.' }
-        $guiRecord = Get-CimInstance Win32_Process -Filter "ProcessId = $($guiProcess.Id)" -ErrorAction SilentlyContinue
+        $guiRecord = Get-CimInstance Win32_Process -Filter "ProcessId = $($gui.Id)" -ErrorAction SilentlyContinue
         $actualGuiPath = if ($guiRecord.ExecutablePath) { [IO.Path]::GetFullPath([string]$guiRecord.ExecutablePath).TrimEnd([char]92) } else { '' }
         if ($actualGuiPath -ine [IO.Path]::GetFullPath($guiPath).TrimEnd([char]92)) {
             throw "Running GUI process did not match the pinned install path: $actualGuiPath"
@@ -359,13 +359,13 @@ if ($script:nativeFailures.Count -or $recoveryFailure) { throw "Native acceptanc
         $guiExitedDuringOverlay = $false
         while ([DateTime]::UtcNow -lt $deadline) {
             $installerProcess.Refresh()
-            $guiProcess.Refresh()
-            if (-not $installerProcess.HasExited -and $guiProcess.HasExited) { $guiExitedDuringOverlay = $true }
+            $gui.Refresh()
+            if (-not $installerProcess.HasExited -and $gui.HasExited) { $guiExitedDuringOverlay = $true }
             if ($installerProcess.HasExited) { break }
             Start-Sleep -Milliseconds 50
         }
         $installerProcess.Refresh()
-        $guiProcess.Refresh()
+        $gui.Refresh()
         if (-not $installerProcess.HasExited) { throw 'CVR 2.5.10 overlay installer exceeded 120 seconds.' }
         if ($installerProcess.ExitCode -ne 0) { throw "CVR 2.5.10 overlay installer exited with code $($installerProcess.ExitCode)." }
         if (-not $guiExitedDuringOverlay) { throw 'Expected the pinned CVR GUI process to exit during overlay.' }
@@ -386,17 +386,17 @@ if ($script:nativeFailures.Count -or $recoveryFailure) { throw "Native acceptanc
                 Write-Host "Could not stop overlay installer process $($installerProcess.Id): $($_.Exception.Message)" -ForegroundColor Red
             }
         }
-        if ($guiProcess) {
+        if ($gui) {
             try {
-                $guiProcess.Refresh()
-                if (-not $guiProcess.HasExited) {
-                    $record = Get-CimInstance Win32_Process -Filter "ProcessId = $($guiProcess.Id)" -ErrorAction SilentlyContinue
+                $gui.Refresh()
+                if (-not $gui.HasExited) {
+                    $record = Get-CimInstance Win32_Process -Filter "ProcessId = $($gui.Id)" -ErrorAction SilentlyContinue
                     if ($record.ExecutablePath -and [IO.Path]::GetFullPath([string]$record.ExecutablePath).TrimEnd([char]92) -ieq [IO.Path]::GetFullPath($guiPath).TrimEnd([char]92)) {
-                        Stop-Process -Id $guiProcess.Id -Force -ErrorAction SilentlyContinue
+                        Stop-Process -Id $gui.Id -Force -ErrorAction SilentlyContinue
                     }
                 }
             } catch {
-                Write-Host "Could not stop overlay GUI process $($guiProcess.Id): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "Could not stop overlay GUI process $($gui.Id): $($_.Exception.Message)" -ForegroundColor Red
             }
         }
         if ($overlayInterval) { $overlayInterval.endUtc = [DateTime]::UtcNow }
