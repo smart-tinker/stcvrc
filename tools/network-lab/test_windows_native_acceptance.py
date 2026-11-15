@@ -378,7 +378,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
         self.assertNotIn("refusing to overwrite existing data", scenario)
-        selector = source.split("function Select-FixtureProfile", 1)[1].split("\\nfunction ", 1)[0]
+        selector = source.split("function Select-FixtureProfile", 1)[1].split("\nfunction ", 1)[0]
         self.assertIn("Invoke-CvrCommand -Command 'patch_profiles_config'", selector)
 
 
