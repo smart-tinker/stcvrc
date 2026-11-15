@@ -357,16 +357,26 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Get-ServiceRuntimeDirectories", source)
         scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
-            "\\nfunction ", 1
+            "\nfunction ", 1
         )[0]
         self.assertIn("Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers", scenario)
-        self.assertNotIn("-Recurse", scenario)
+        self.assertNotIn("Get-ChildItem -LiteralPath $serviceUsers -File -Recurse", scenario)
+        self.assertNotIn("Get-ChildItem -LiteralPath $serviceUsers -Filter $assetAlias -File -Recurse", scenario)
         self.assertIn("Join-Path $runtimeDirectory $assetAlias", scenario)
+
+        cleanup_start = source.rindex("} finally {\n    if ($script:cdp)")
+        cleanup = source[cleanup_start:]
+        process_stop = cleanup.index("foreach ($name in @('clash-verge'")
+        staged_key_cleanup = cleanup.index("if ($script:fixtureSshKeyHash -and $script:fixtureSshKeyAlias)")
+        self.assertLess(process_stop, staged_key_cleanup)
+        self.assertIn("Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers", cleanup[staged_key_cleanup:])
+        self.assertIn("Join-Path $runtimeDirectory $script:fixtureSshKeyAlias", cleanup[staged_key_cleanup:])
+        self.assertIn("Hash.ToLowerInvariant() -ceq $script:fixtureSshKeyHash", cleanup[staged_key_cleanup:])
 
     def test_ssh_alias_failure_reports_only_redacted_private_key_lines(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
-            "\\nfunction ", 1
+            "\nfunction ", 1
         )[0]
         for assertion in (
             "[regex]::Escape($keyPath)",
@@ -374,6 +384,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "'<fixture-key>'",
             "$safePrivateKeyLines",
             "private-key-lines=$($safePrivateKeyLines -join ' | ')",
+            "$assetAlias -cne $expectedAssetAlias",
+            "alias-hash-match=",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
