@@ -326,7 +326,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("function Test-SshPrivateKeyInServiceMode", source)
         self.assertIn("Test-SshPrivateKeyInServiceMode -DnsPort $dnsPort -HttpPort $httpPort", source)
         scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
-            "\\nfunction ", 1
+            "\nfunction ", 1
         )[0]
         for assertion in (
             "Start-SshFixtureServer",
@@ -345,18 +345,32 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("function Test-GeoDatabaseSyncThroughValidation", source)
         self.assertIn("Test-GeoDatabaseSyncThroughValidation -ProfileUid $uidA", source)
         scenario = source.split("function Test-GeoDatabaseSyncThroughValidation", 1)[1].split(
-            "\\nfunction ", 1
+            "\nfunction ", 1
         )[0]
         for assertion in (
             "get_app_dir",
             "GeoSite.dat",
-            "clash-verge-service",
+            "Join-Path $serviceData 'users'",
             "SetLastWriteTimeUtc",
             "patch_profiles_config",
             "ReadAllBytes",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
+
+
+    def test_ssh_fixture_is_loopback_only_and_forwards_only_synthetic_http(self):
+        helper = (ROOT / "tools" / "network-lab" / "ssh_fixture.go").read_text(encoding="utf-8")
+        for assertion in (
+            'net.Listen("tcp", "127.0.0.1:0")',
+            'case "direct-tcpip":',
+            "ip[0] != 198 || ip[1] != 18",
+            "req.Port != uint32(targetPort)",
+            'net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort))',
+            "SSH_FIXTURE_AUTH_OK",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, helper)
 
 
 if __name__ == "__main__":
