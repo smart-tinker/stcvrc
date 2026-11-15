@@ -353,6 +353,32 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("DOMAIN-SUFFIX,$AllowName,$Route", selector)
 
 
+    def test_ssh_key_lookup_avoids_locked_cache_db(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Get-ServiceRuntimeDirectories", source)
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\\nfunction ", 1
+        )[0]
+        self.assertIn("Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers", scenario)
+        self.assertNotIn("-Recurse", scenario)
+        self.assertIn("Join-Path $runtimeDirectory $assetAlias", scenario)
+
+    def test_ssh_alias_failure_reports_only_redacted_private_key_lines(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\\nfunction ", 1
+        )[0]
+        for assertion in (
+            "[regex]::Escape($keyPath)",
+            "[regex]::Escape($keyYamlPath)",
+            "'<fixture-key>'",
+            "$safePrivateKeyLines",
+            "private-key-lines=$($safePrivateKeyLines -join ' | ')",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+
+
     def test_service_geo_update_is_synced_before_profile_validation(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Test-GeoDatabaseSyncThroughValidation", source)
