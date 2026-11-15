@@ -344,6 +344,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "SSH_FIXTURE_AUTH_OK",
             "sshFixtureAuthenticated=",
             "sshFixtureDiagnostics=",
+            "Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue",
+            "Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue",
             "Get-Content -LiteralPath $fixture.StderrPath -Tail 8",
         ):
             with self.subTest(assertion=assertion):

@@ -1273,9 +1273,20 @@ rules:
         try {
             Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile'
         } catch {
-            $fixtureAuthOutput = if (Test-Path -LiteralPath $fixture.StdoutPath -PathType Leaf) { [IO.File]::ReadAllText($fixture.StdoutPath) } else { '' }
-            $fixtureDiagnostics = if (Test-Path -LiteralPath $fixture.StderrPath -PathType Leaf) { @(Get-Content -LiteralPath $fixture.StderrPath -Tail 8) } else { @() }
-            throw "$($_.Exception.Message); sshFixtureAuthenticated=$($fixtureAuthOutput.Contains('SSH_FIXTURE_AUTH_OK')); sshFixtureDiagnostics=$($fixtureDiagnostics -join ',')"
+            $fixtureTrafficFailure = $_.Exception.Message
+            try {
+                $fixture.Process.Refresh()
+                if (-not $fixture.Process.HasExited) {
+                    Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue
+                    try { Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue } catch {}
+                }
+                $fixtureAuthOutput = if (Test-Path -LiteralPath $fixture.StdoutPath -PathType Leaf) { [IO.File]::ReadAllText($fixture.StdoutPath) } else { '' }
+                $fixtureDiagnostics = if (Test-Path -LiteralPath $fixture.StderrPath -PathType Leaf) { @(Get-Content -LiteralPath $fixture.StderrPath -Tail 8) } else { @() }
+            } catch {
+                $fixtureAuthOutput = ''
+                $fixtureDiagnostics = @('SSH_FIXTURE_DIAGNOSTICS_UNAVAILABLE')
+            }
+            throw "$fixtureTrafficFailure; sshFixtureAuthenticated=$($fixtureAuthOutput.Contains('SSH_FIXTURE_AUTH_OK')); sshFixtureDiagnostics=$($fixtureDiagnostics -join ',')"
         }
         $authDeadline = [DateTime]::UtcNow.AddSeconds(10)
         $authenticated = $false
