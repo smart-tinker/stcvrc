@@ -917,7 +917,7 @@ function Assert-SelectedSidecarProfileReady {
     Assert-SystemRoutesRemainScoped -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase $Phase
 }
 function Test-FixtureTraffic {
-    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
+    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app','subscription')][string]$ExpectedResolver,[switch]$SkipResolverLogAssertion)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     try {
@@ -929,8 +929,11 @@ function Test-FixtureTraffic {
         $dnsEndpointText = '{0}:{1}' -f $dnsEndpoint.address, $dnsEndpoint.port
         throw "$failure; expectedResolver=$ExpectedResolver; dnsEndpoint=$dnsEndpointText; fakeAddress=$fake; httpEndpoint=127.0.0.1:$HttpPort; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
     }
-    if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
-    Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
+    # Fake-IP A answers are allocated locally before any upstream resolver lookup.
+    if ($ExpectedResolver -and -not $SkipResolverLogAssertion) {
+        Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver
+    }
+    Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver; resolver-log-asserted=$(-not $SkipResolverLogAssertion)."
 }
 
 function Test-SubscriptionDnsOverrideAfterUpdate {
@@ -1271,7 +1274,7 @@ rules:
         }
 
         try {
-            Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile'
+            Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile' -SkipResolverLogAssertion
         } catch {
             $fixtureTrafficFailure = $_.Exception.Message
             try {
