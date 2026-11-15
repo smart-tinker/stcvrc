@@ -99,6 +99,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         fixture = source.split("function Test-FixtureTraffic", 1)[1].split("function Test-RejectedFixture", 1)[0]
         self.assertLess(fixture.index("Invoke-TunHttp"), fixture.index("Assert-DnsResolver"))
+        self.assertIn("[switch]$SkipResolverLogAssertion", fixture)
+        self.assertIn("if ($ExpectedResolver -and -not $SkipResolverLogAssertion)", fixture)
+        ssh_scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("-SkipResolverLogAssertion", ssh_scenario)
         self.assertIn("Get-DnsReceiveDiagnostics", source)
         recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split("\n    } else {", 1)[0]
         self.assertIn("Assert-SelectedProfileReady", recovery)
