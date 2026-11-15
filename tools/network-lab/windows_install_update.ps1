@@ -182,6 +182,10 @@ function Invoke-CvrOverlayReinstall {
         }
         $installerProcess.Refresh()
         $gui.Refresh()
+        if ($gui.HasExited -and $installerProcess.HasExited -and
+            $gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()) {
+            $guiExitedDuringOverlay = $true
+        }
         if (-not $installerProcess.HasExited) { throw 'CVR 2.5.10 overlay installer exceeded 120 seconds.' }
         if ($installerProcess.ExitCode -ne 0) { throw "CVR 2.5.10 overlay installer exited with code $($installerProcess.ExitCode)." }
         if (-not $guiExitedDuringOverlay) { throw 'Expected the pinned CVR GUI process to exit during overlay.' }
