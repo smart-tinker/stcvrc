@@ -16,8 +16,12 @@ Draft and prerelease are independent flags. A draft can already carry the prerel
 
 Do not rename or move historical tags. The accepted stable release is [`v1.19.29-stcvrc.1`](https://github.com/smart-tinker/stcvrc/releases/tag/v1.19.29-stcvrc.1). The current 1.19.33 candidate uses the repository's existing `stcvrc-1.19.33-rc.N` naming.
 
-The fresh-source assembler targets a new `stcvrc-1.19.33-rc.8` draft. It does not
-overwrite RC7 or any existing tag or asset. The repository rules allow creating
+As of 2026-11-15, the fresh-source assembler created draft RC9 from main commit
+`3d3b0ec8ee1f11086277eec5f57436c0d9446d01` in [run 43743504334](https://github.com/smart-tinker/stcvrc/actions/runs/43743504334).
+The release metadata names `stcvrc-1.19.33-rc.9`; the release remains unpublished
+and its Git tag ref was absent when checked. The run read back all seven assets
+byte-for-byte, verified their SHA-256 values, and created zero Actions artifacts.
+RC8 and earlier releases remain unchanged. The repository rules allow creating
 new `stcvrc-*` tags and prevent updating or deleting existing ones.
 
 Core and EasyTier sources, generated WASM, exact downstream blobs, toolchains,
