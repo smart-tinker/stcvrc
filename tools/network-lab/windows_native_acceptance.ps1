@@ -40,6 +40,8 @@ if (Test-Path -LiteralPath $serviceCore -PathType Leaf) {
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Clean-runner precondition failed: a CVR service already exists.' }
 $failures = [Collections.Generic.List[string]]::new()
 $script:usedPorts = [Collections.Generic.HashSet[int]]::new()
+$script:fixtureSshKeyHash = $null
+$script:fixtureSshKeyAlias = $null
 function Add-Failure { param([string]$Message) $failures.Add($Message); Write-Host "ASSERTION FAILED: $Message" -ForegroundColor Red }
 function Get-FreeTcpPort {
     do {
@@ -47,6 +49,14 @@ function Get-FreeTcpPort {
         $listener.Start(); $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port; $listener.Stop()
     } while (-not $script:usedPorts.Add([int]$port))
     return $port
+}
+function Get-ServiceRuntimeDirectories {
+    param([string]$ServiceUsersPath)
+    if (-not (Test-Path -LiteralPath $ServiceUsersPath -PathType Container)) { return }
+    foreach ($userDirectory in @(Get-ChildItem -LiteralPath $ServiceUsersPath -Directory -ErrorAction Stop)) {
+        $runtimeDirectory = Join-Path $userDirectory.FullName 'runtime'
+        if (Test-Path -LiteralPath $runtimeDirectory -PathType Container) { Get-Item -LiteralPath $runtimeDirectory }
+    }
 }
 function Get-DefaultRouteSnapshot {
     @(Get-NetRoute -AddressFamily IPv4,IPv6 -ErrorAction Stop |
@@ -277,7 +287,7 @@ function Assert-GlobalUiModesOff {
 }
 
 function Invoke-DnsQuery {
-    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     $labels = @()
     foreach ($label in $Name.Split('.')) { $encoded = [Text.Encoding]::ASCII.GetBytes($label); $labels += [byte]$encoded.Length; $labels += $encoded }
     $labels += [byte]0
@@ -580,7 +590,7 @@ function Get-DnsReceiveDiagnostics {
     return (ConvertTo-Json -InputObject $diagnostics -Compress -Depth 10)
 }
 function Assert-VerifiedRuntimeDnsListener {
-    param([string]$Address, [int]$Port, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$Address, [int]$Port, [string]$FixtureName, [ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     Assert-LiveCoreIdentity
     $expectedPid = [int]$script:verifiedCorePid
     if ($expectedPid -le 0) { throw 'The verified service core has no process ID for DNS listener ownership.' }
@@ -600,7 +610,7 @@ function Assert-VerifiedRuntimeDnsListener {
     Write-Host "Verified runtime DNS UDP endpoint $endpointText is owned by source-matched service core PID $expectedPid."
 }
 function Get-VerifiedRuntimeDnsEndpoint {
-    param([int]$FixtureExpectedPort, [string]$FixtureName, [ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([int]$FixtureExpectedPort, [string]$FixtureName, [ValidateSet('profile','app','subscription')][string]$ExpectedResolver)
     $null = Get-RuntimeYaml
     $listen = [string]$script:lastRuntimeDnsListen
     $match = [regex]::Match($listen, '^(?<address>127\.0\.0\.1|\[::1\]):(?<port>[1-9][0-9]{0,4})$')
@@ -808,7 +818,7 @@ function Assert-ProfileDnsState {
     if ([bool]$state.enabled -ne $Enabled) { throw "$Phase expected profile DNS override enabled=$Enabled, got $($state.enabled)." }
 }
 function Assert-DnsResolver {
-    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app')][string]$Resolver)
+    param([string]$Name, [string]$Address, [int]$Port, [ValidateSet('profile','app','subscription')][string]$Resolver)
     $expected = "$Resolver|$($Name.ToLowerInvariant())"
     $deadline = [DateTime]::UtcNow.AddSeconds(4)
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -859,7 +869,7 @@ function Select-FixtureNode {
     Assert-FixtureNodeSelection -ProfileName $ProfileName -ExpectedNode $Node -Phase 'proxy switch'
 }
 function Select-FixtureProfile {
-    param([string]$Uid, [string]$AllowName, [string]$RejectName)
+    param([string]$Uid, [string]$AllowName, [string]$RejectName, [string]$Route = 'DIRECT')
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     $attempt = 0
     $outcome = $null
@@ -882,7 +892,7 @@ function Select-FixtureProfile {
         Start-Sleep -Milliseconds 500
     }
     try {
-        $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,DIRECT"
+        $yaml = Wait-RuntimeRule -Rule "DOMAIN-SUFFIX,$AllowName,$Route"
         if (-not $yaml.Contains("DOMAIN-SUFFIX,$RejectName,REJECT")) { throw "Loaded profile lacks the reject rule for $RejectName." }
     } catch {
         throw "Profile selection validated (uid=$Uid, attempts=$attempt), but loaded runtime rules were not confirmed: $($_.Exception.Message) snapshot=$(Get-NativeStateSnapshot -Phase 'runtime rule wait')."
@@ -907,7 +917,7 @@ function Assert-SelectedSidecarProfileReady {
     Assert-SystemRoutesRemainScoped -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase $Phase
 }
 function Test-FixtureTraffic {
-    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app')][string]$ExpectedResolver)
+    param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app','subscription')][string]$ExpectedResolver,[switch]$SkipResolverLogAssertion)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
     try {
@@ -919,8 +929,387 @@ function Test-FixtureTraffic {
         $dnsEndpointText = '{0}:{1}' -f $dnsEndpoint.address, $dnsEndpoint.port
         throw "$failure; expectedResolver=$ExpectedResolver; dnsEndpoint=$dnsEndpointText; fakeAddress=$fake; httpEndpoint=127.0.0.1:$HttpPort; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
     }
-    if ($ExpectedResolver) { Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver }
-    Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver."
+    # Fake-IP A answers are allocated locally before any upstream resolver lookup.
+    if ($ExpectedResolver -and -not $SkipResolverLogAssertion) {
+        Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver
+    }
+    Write-Host "TUN/DNS fixture passed: $FixtureName -> $fake -> local HTTP; resolver=$ExpectedResolver; resolver-log-asserted=$(-not $SkipResolverLogAssertion)."
+}
+
+function Test-SubscriptionDnsOverrideAfterUpdate {
+    param([int]$DnsPort,[int]$HttpPort,[string]$RestoreProfileUid,[string[]]$OriginalDefaults,[string[]]$OriginalDns)
+    $url="http://127.0.0.1:$HttpPort/native-subscription-dns.yaml"
+    [void](Invoke-CvrCommand -Command 'import_profile' -Payload @{ url=$url; option=@{} })
+    $profiles=Invoke-CvrCommand -Command 'get_profiles'
+    $matches=@($profiles.items | Where-Object { [string]$_.url -eq $url })
+    if ($matches.Count -ne 1 -or -not $matches[0].uid) { throw "Expected one imported DNS subscription at $url." }
+    $uid=[string]$matches[0].uid
+    $name=[string]$matches[0].name
+    Select-FixtureProfile -Uid $uid -AllowName 'native-subscription-a.invalid' -RejectName 'native-subscription-b.invalid'
+    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase 'subscription DNS initial source'
+    $initialYaml=[string](Invoke-CvrCommand -Command 'read_profile_file' -Payload @{ index=$uid })
+    if (-not $initialYaml.Contains("udp://127.0.0.1:$script:profileDnsPort")) { throw 'Initial subscription did not contain the profile DNS resolver.' }
+    [void](Set-FixtureDnsOverride -Uid $uid -Enabled $false -Confirm $false)
+    $sourceBefore=Set-FixtureDnsOverride -Uid $uid -Enabled $true -Confirm $false
+    [void](Set-FixtureDnsOverride -Uid $uid -Enabled $true -Confirm $true)
+    Assert-ProfileDnsState -Uid $uid -Enabled $true -Phase 'subscription DNS override before refresh'
+    Test-FixtureTraffic -FixtureName 'subscription-before.native-subscription-a.invalid' -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'app'
+
+    Set-Content -LiteralPath $script:subscriptionDnsStatePath -Value ([string]$script:subscriptionDnsPort) -NoNewline -Encoding ascii
+    [void](Invoke-CvrCommand -Command 'update_profile' -Payload @{ index=$uid; option=$null })
+    $updatedProfile=Get-FixtureProfile -Name $name
+    $updatedYaml=[string](Invoke-CvrCommand -Command 'read_profile_file' -Payload @{ index=$uid })
+    if (-not $updatedYaml.Contains("udp://127.0.0.1:$script:subscriptionDnsPort")) { throw 'Subscription update did not persist the changed DNS resolver.' }
+    $sourceAfter=Set-FixtureDnsOverride -Uid $uid -Enabled $true -Confirm $false
+    if (-not $sourceAfter -or $sourceAfter -eq $sourceBefore) { throw 'Changed subscription DNS did not produce a new source-bound override confirmation.' }
+    Assert-ProfileDnsState -Uid $uid -Enabled $false -Phase 'subscription DNS update'
+    Test-FixtureTraffic -FixtureName 'subscription-after.native-subscription-a.invalid' -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'subscription'
+    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase 'subscription DNS update'
+    Select-FixtureProfile -Uid $RestoreProfileUid -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+    Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase 'subscription DNS restore'
+    Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase 'subscription DNS restore'
+    Write-Host "CVR 2.5.10 reset the DNS override after subscription DNS changed; profile traffic used subscription resolver on port $script:subscriptionDnsPort."
+}
+
+function Start-SshFixtureServer {
+    param([string]$KeyPath, [int]$TargetPort)
+    $buildRoot = Join-Path $env:RUNNER_TEMP 'stcvrc-source-built'
+    $coreSource = Join-Path $buildRoot 'core'
+    $go = Join-Path $buildRoot 'go\bin\go.exe'
+    $fixtureSource = Join-Path $env:PR_SOURCE 'tools\network-lab\ssh_fixture.go'
+    if (-not (Test-Path -LiteralPath $go -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $coreSource 'go.mod') -PathType Leaf)) {
+        throw 'The exact source-build Go tool or core module is missing for the loopback SSH fixture.'
+    }
+    if (-not (Test-Path -LiteralPath $fixtureSource -PathType Leaf)) { throw 'The loopback SSH fixture source is missing.' }
+
+    $fixtureRoot = Join-Path $env:RUNNER_TEMP ('stcvrc-ssh-fixture-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $fixtureRoot | Out-Null
+    $fixtureExe = Join-Path $fixtureRoot 'ssh-fixture.exe'
+    $envNames = @('GOPATH','GOMODCACHE','GOCACHE','GOBIN','GOTOOLCHAIN','GOENV','GOWORK','GOTELEMETRY','CGO_ENABLED','GOAMD64','GOMAXPROCS','GOFLAGS')
+    $savedEnv = @{}
+    foreach ($name in $envNames) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+    try {
+        $env:GOPATH = Join-Path $buildRoot 'gopath'
+        $env:GOMODCACHE = Join-Path $buildRoot 'gomodcache'
+        $env:GOCACHE = Join-Path $buildRoot 'gocache'
+        $env:GOBIN = Join-Path $buildRoot 'bin'
+        $env:GOTOOLCHAIN = 'local'
+        $env:GOENV = 'off'
+        $env:GOWORK = 'off'
+        $env:GOTELEMETRY = 'off'
+        $env:CGO_ENABLED = '0'
+        $env:GOAMD64 = 'v1'
+        $env:GOMAXPROCS = '2'
+        $env:GOFLAGS = '-mod=readonly -p=2'
+        $buildArgs = @('-C', $coreSource, 'build', '-mod=readonly', '-trimpath', '-o', $fixtureExe, $fixtureSource)
+        & $go @buildArgs
+        if ($LASTEXITCODE -ne 0) { throw "Fresh-source SSH fixture build failed with exit code $LASTEXITCODE." }
+    } finally {
+        foreach ($name in $envNames) {
+            if ($null -eq $savedEnv[$name]) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+            else { [Environment]::SetEnvironmentVariable($name, [string]$savedEnv[$name], 'Process') }
+        }
+    }
+
+    $readyPath = Join-Path $fixtureRoot 'ready.txt'
+    $stdoutPath = Join-Path $fixtureRoot 'stdout.log'
+    $stderrPath = Join-Path $fixtureRoot 'stderr.log'
+    $process = Start-Process -FilePath $fixtureExe -ArgumentList @("--key-file=$KeyPath", "--target-port=$TargetPort", "--ready-file=$readyPath") -WorkingDirectory $fixtureRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $readyPath -PathType Leaf)) {
+        if ($process.HasExited) {
+            $stderr = if (Test-Path -LiteralPath $stderrPath) { [IO.File]::ReadAllText($stderrPath) } else { '' }
+            throw "Loopback SSH fixture exited before ready (code $($process.ExitCode)): $stderr"
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) {
+        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+        $stderr = if (Test-Path -LiteralPath $stderrPath) { [IO.File]::ReadAllText($stderrPath) } else { '' }
+        throw "Loopback SSH fixture did not become ready: $stderr"
+    }
+    $port = 0
+    if (-not [int]::TryParse([IO.File]::ReadAllText($readyPath).Trim(), [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw 'Loopback SSH fixture returned an invalid listener port.'
+    }
+    return [pscustomobject]@{ Root=$fixtureRoot; Process=$process; Port=$port; StdoutPath=$stdoutPath; StderrPath=$stderrPath }
+}
+
+function Test-GeoDatabaseSyncThroughValidation {
+    param([string]$ProfileUid)
+    $appHome = [string](Invoke-CvrCommand -Command 'get_app_dir')
+    if (-not $appHome) { throw 'get_app_dir returned an empty app home.' }
+    $appGeoPath = Join-Path $appHome 'GeoSite.dat'
+    $serviceUsers = Join-Path $serviceData 'users'
+    if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
+    $runtimeFiles = @(Get-ChildItem -LiteralPath $serviceUsers -Filter 'GeoSite.dat' -File -Recurse -ErrorAction Stop |
+        Where-Object { $_.Directory.Name -eq 'runtime' })
+    if ($runtimeFiles.Count -ne 1) { throw "Expected one service runtime GeoSite.dat, found $($runtimeFiles.Count)." }
+    $runtimeGeoPath = $runtimeFiles[0].FullName
+
+    $appGeoExisted = Test-Path -LiteralPath $appGeoPath -PathType Leaf
+    $originalAppBytes = $null
+    $originalAppText = $null
+    $originalAppWriteTime = $null
+    if ($appGeoExisted) {
+        $originalAppBytes = [IO.File]::ReadAllBytes($appGeoPath)
+        $originalAppText = [Convert]::ToBase64String($originalAppBytes)
+        $originalAppWriteTime = [IO.File]::GetLastWriteTimeUtc($appGeoPath)
+    }
+    $originalRuntimeBytes = [IO.File]::ReadAllBytes($runtimeGeoPath)
+    $originalRuntimeText = [Convert]::ToBase64String($originalRuntimeBytes)
+    $originalRuntimeWriteTime = [IO.File]::GetLastWriteTimeUtc($runtimeGeoPath)
+
+    $seedBytes = [Text.Encoding]::UTF8.GetBytes('stcvrc-geo-seed-' + [Guid]::NewGuid().ToString('N'))
+    $updatedBytes = [Text.Encoding]::UTF8.GetBytes('stcvrc-geo-service-update-' + [Guid]::NewGuid().ToString('N'))
+    $seedText = [Convert]::ToBase64String($seedBytes)
+    $updatedText = [Convert]::ToBase64String($updatedBytes)
+    try {
+        if (-not $appGeoExisted) { [IO.File]::WriteAllBytes($appGeoPath, $seedBytes) }
+        [IO.File]::WriteAllBytes($runtimeGeoPath, $updatedBytes)
+        [IO.File]::SetLastWriteTimeUtc($appGeoPath, [DateTime]::UtcNow.AddHours(-2))
+        [IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, [DateTime]::UtcNow.AddMinutes(-1))
+
+        # Profile validation performs service-to-app GEO synchronization before loading the profile.
+        Select-FixtureProfile -Uid $ProfileUid -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+        $appBytes = [IO.File]::ReadAllBytes($appGeoPath)
+        if ([Convert]::ToBase64String($appBytes) -cne $updatedText) {
+            throw 'Profile validation did not sync the newer service runtime GeoSite.dat bytes to app home.'
+        }
+        Write-Host 'CVR 2.5.10 synced a synthetic changed GeoSite.dat marker from service runtime to app home before profile validation.'
+    } finally {
+        try {
+            if ($appGeoExisted) {
+                if (-not (Test-Path -LiteralPath $appGeoPath -PathType Leaf)) {
+                    [IO.File]::WriteAllBytes($appGeoPath, $originalAppBytes)
+                    [IO.File]::SetLastWriteTimeUtc($appGeoPath, $originalAppWriteTime)
+                } else {
+                    $appCurrentText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($appGeoPath))
+                    if ($appCurrentText -ceq $updatedText) {
+                        [IO.File]::WriteAllBytes($appGeoPath, $originalAppBytes)
+                    } elseif ($appCurrentText -cne $originalAppText) {
+                        Add-Failure 'GEO app-home cleanup refused to overwrite bytes that differ from the original and synthetic marker.'
+                    }
+                    if ($appCurrentText -ceq $updatedText -or $appCurrentText -ceq $originalAppText) {
+                        [IO.File]::SetLastWriteTimeUtc($appGeoPath, $originalAppWriteTime)
+                    }
+                }
+            } elseif (Test-Path -LiteralPath $appGeoPath -PathType Leaf) {
+                $appCurrentText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($appGeoPath))
+                if ($appCurrentText -ceq $seedText -or $appCurrentText -ceq $updatedText) {
+                    Remove-Item -LiteralPath $appGeoPath -Force -ErrorAction Stop
+                } else {
+                    Add-Failure 'GEO app-home cleanup refused to remove bytes that differ from the synthetic markers.'
+                }
+            }
+        } catch { Add-Failure "GEO app-home cleanup: $($_.Exception.Message)" }
+
+        try {
+            if (-not (Test-Path -LiteralPath $runtimeGeoPath -PathType Leaf)) {
+                [IO.File]::WriteAllBytes($runtimeGeoPath, $originalRuntimeBytes)
+                [IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, $originalRuntimeWriteTime)
+            } else {
+                $runtimeCurrentText = [Convert]::ToBase64String([IO.File]::ReadAllBytes($runtimeGeoPath))
+                if ($runtimeCurrentText -ceq $updatedText) {
+                    [IO.File]::WriteAllBytes($runtimeGeoPath, $originalRuntimeBytes)
+                } elseif ($runtimeCurrentText -cne $originalRuntimeText) {
+                    Add-Failure 'GEO service-runtime cleanup refused to overwrite bytes that differ from the original and synthetic marker.'
+                }
+                if ($runtimeCurrentText -ceq $updatedText -or $runtimeCurrentText -ceq $originalRuntimeText) {
+                    [IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, $originalRuntimeWriteTime)
+                }
+            }
+        } catch { Add-Failure "GEO service-runtime cleanup: $($_.Exception.Message)" }
+    }
+}
+
+function Test-SshPrivateKeyInServiceMode {
+    param(
+        [int]$DnsPort,
+        [int]$HttpPort,
+        [int]$ProfileDnsPort,
+        [string]$RestoreProfileUid,
+        [string[]]$OriginalDefaults,
+        [string[]]$OriginalDns
+    )
+    $appHome = [string](Invoke-CvrCommand -Command 'get_app_dir')
+    if (-not $appHome) { throw 'get_app_dir returned an empty app home.' }
+    $profileName = 'native-service-ssh-fixture'
+    $fixtureName = 'service-ssh-fixture.invalid'
+    $rejectName = 'service-ssh-reject.invalid'
+    # CVR stages local SSH assets relative to the profile YAML's parent directory.
+    $profileDirectory = Join-Path $appHome 'profiles'
+    if (-not (Test-Path -LiteralPath $profileDirectory -PathType Container)) { throw 'The CVR profile config directory is absent.' }
+    $keyPath = Join-Path $profileDirectory ('stcvrc-ci-' + [Guid]::NewGuid().ToString('N') + '.pem')
+    $keyYamlPath = $keyPath.Replace('\', '/')
+    $fixture = $null
+    $sshUid = $null
+    $keyHash = $null
+    $stagedKeyPath = $null
+    try {
+        $fixture = Start-SshFixtureServer -KeyPath $keyPath -TargetPort $HttpPort
+        $keyHash = (Get-FileHash -LiteralPath $keyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $script:fixtureSshKeyHash = $keyHash
+        $script:fixtureSshKeyAlias = "cvr-$keyHash"
+        $sshPort = [int]$fixture.Port
+        $controllerPort = Get-FreeTcpPort
+        $yaml = @"
+mode: rule
+log-level: info
+allow-lan: false
+bind-address: 127.0.0.1
+external-controller: 127.0.0.1:$controllerPort
+ipv6: false
+dns:
+  enable: true
+  listen: 127.0.0.1:$DnsPort
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 127.0.0.1
+  nameserver:
+    - udp://127.0.0.1:$ProfileDnsPort
+  proxy-server-nameserver:
+    - udp://127.0.0.1:$ProfileDnsPort
+  nameserver-policy:
+    ${fixtureName}: udp://127.0.0.1:$ProfileDnsPort
+proxies:
+  - name: service-ssh-fixture
+    type: ssh
+    server: 127.0.0.1
+    port: $sshPort
+    username: stcvrc-fixture
+    private-key: '$keyYamlPath'
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    proxies:
+      - service-ssh-fixture
+tun:
+  enable: true
+  device: STCVRC-CI
+  stack: gvisor
+  auto-route: true
+  auto-detect-interface: false
+  strict-route: false
+  route-address:
+    - 198.18.0.0/16
+rules:
+  - DOMAIN-SUFFIX,$fixtureName,GLOBAL
+  - DOMAIN-SUFFIX,$rejectName,REJECT
+  - MATCH,REJECT
+"@
+        $item = @{ type='local'; name=$profileName; desc='Disposable synthetic SSH service fixture'; url=$null; option=$null }
+        [void](Invoke-CvrCommand -Command 'create_profile' -Payload @{ item=$item; fileData=$yaml })
+        $profiles = Invoke-CvrCommand -Command 'get_profiles'
+        $matches = @($profiles.items | Where-Object { $_.name -eq $profileName })
+        if ($matches.Count -ne 1 -or -not $matches[0].uid) { throw "Expected one persisted service SSH fixture profile; found $($matches.Count)." }
+        $sshUid = [string]$matches[0].uid
+
+        Select-FixtureProfile -Uid $sshUid -AllowName $fixtureName -RejectName $rejectName -Route 'GLOBAL'
+        Assert-SelectedProfileReady -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase '2.5.10 service SSH private-key fixture'
+        Assert-LiveCoreIdentity
+        $serviceUsers = Join-Path $serviceData 'users'
+        if (-not (Test-Path -LiteralPath $serviceUsers -PathType Container)) { throw "Service runtime users directory is absent: $serviceUsers" }
+        $runtimeDirectories = @(Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers | ForEach-Object { $_.FullName })
+        $runtimeConfigs = @(
+            foreach ($runtimeDirectory in $runtimeDirectories) {
+                $serviceConfigPath = Join-Path $runtimeDirectory 'config.yaml'
+                if (Test-Path -LiteralPath $serviceConfigPath -PathType Leaf) {
+                    $serviceRuntimeYaml = [IO.File]::ReadAllText($serviceConfigPath)
+                    [pscustomobject]@{
+                        Directory = $runtimeDirectory
+                        Yaml = $serviceRuntimeYaml
+                        PrivateKeyLines = @($serviceRuntimeYaml -split '\r?\n' | Where-Object { $_ -match '^\s*private-key:' })
+                        AssetMatches = [regex]::Matches($serviceRuntimeYaml, 'cvr-[0-9a-f]{64}')
+                    }
+                }
+            }
+        )
+        $rewrittenConfigs = @(
+            foreach ($runtimeConfig in $runtimeConfigs) {
+                if ($runtimeConfig.PrivateKeyLines.Count -ne 1) { continue }
+                if ($runtimeConfig.AssetMatches.Count -ne 1) { continue }
+                $runtimeConfig
+            }
+        )
+        $safePrivateKeyLines = @(
+            foreach ($runtimeConfig in $runtimeConfigs) {
+                foreach ($line in $runtimeConfig.PrivateKeyLines) {
+                    if ($line -match 'cvr-[0-9a-f]{64}') {
+                        "private-key: <service-runtime>/$($Matches[0])"
+                    } elseif ($line -match [regex]::Escape($keyPath) -or $line -match [regex]::Escape($keyYamlPath)) {
+                        "private-key: '<fixture-key>'"
+                    } else {
+                        'private-key: <other-or-empty>'
+                    }
+                }
+            }
+        )
+        if ($rewrittenConfigs.Count -ne 1) {
+            throw "Service runtime private-key rewrite failed; runtime-config-count=$($runtimeConfigs.Count); rewritten-config-count=$($rewrittenConfigs.Count); private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=0; private-key-alias-count=unavailable."
+        }
+        $runtimeMatch = $rewrittenConfigs[0]
+        $runtimeDirectory = [string]$runtimeMatch.Directory
+        $serviceRuntimeYaml = [string]$runtimeMatch.Yaml
+        $privateKeyLines = @($runtimeMatch.PrivateKeyLines)
+        $assetMatches = [regex]::Matches($serviceRuntimeYaml, 'cvr-[0-9a-f]{64}')
+        if ($privateKeyLines.Count -ne 1 -or $assetMatches.Count -ne 1) {
+            throw "Service runtime private-key rewrite failed; private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=$($assetMatches.Count); private-key-alias-count=unavailable."
+        }
+        $assetAlias = $assetMatches[0].Value
+        $privateKeyAliasMatches = [regex]::Matches($privateKeyLines[0], 'cvr-[0-9a-f]{64}')
+        $script:fixtureSshKeyAlias = $assetAlias
+        if ($privateKeyAliasMatches.Count -ne 1 -or $privateKeyAliasMatches[0].Value -cne $assetAlias) {
+            throw "Service runtime private-key rewrite failed; private-key-lines=$($safePrivateKeyLines -join ' | '); alias-count=$($assetMatches.Count); private-key-alias-count=$($privateKeyAliasMatches.Count)."
+        }
+        if ($serviceRuntimeYaml.Contains($keyPath) -or $serviceRuntimeYaml.Contains($keyYamlPath)) { throw 'Service runtime retained the app-home SSH key source path instead of a staged alias.' }
+
+        $stagedKeyPath = Join-Path $runtimeDirectory $assetAlias
+        if (-not (Test-Path -LiteralPath $stagedKeyPath -PathType Leaf)) { throw "Expected one staged service SSH key for alias $assetAlias." }
+        if ((Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $keyHash) {
+            throw 'The staged service SSH private key does not match the generated app-home key.'
+        }
+
+        try {
+            Test-FixtureTraffic -FixtureName $fixtureName -DnsPort $DnsPort -HttpPort $HttpPort -ExpectedResolver 'profile' -SkipResolverLogAssertion
+        } catch {
+            $fixtureTrafficFailure = $_.Exception.Message
+            try {
+                $fixture.Process.Refresh()
+                if (-not $fixture.Process.HasExited) {
+                    Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue
+                    try { Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue } catch {}
+                }
+                $fixtureDiagnostics = if (Test-Path -LiteralPath $fixture.StderrPath -PathType Leaf) { @(Get-Content -LiteralPath $fixture.StderrPath -Tail 8) } else { @() }
+            } catch {
+                $fixtureDiagnostics = @('SSH_FIXTURE_DIAGNOSTICS_UNAVAILABLE')
+            }
+            throw "$fixtureTrafficFailure; sshFixtureDiagnostics=$($fixtureDiagnostics -join ',')"
+        }
+        Write-Host 'CVR 2.5.10 service core carried synthetic HTTP traffic through exact-key loopback SSH authentication.'
+    } finally {
+        if ($sshUid) {
+            try {
+                Select-FixtureProfile -Uid $RestoreProfileUid -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
+                [void](Invoke-CvrCommand -Command 'delete_profile' -Payload @{ index=$sshUid })
+            } catch { Add-Failure "SSH fixture profile cleanup: $($_.Exception.Message)" }
+        }
+        if ($fixture -and $fixture.Process -and -not $fixture.Process.HasExited) {
+            Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue
+            try { Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue } catch {}
+        }
+        if (Test-Path -LiteralPath $keyPath -PathType Leaf) {
+            try { Remove-Item -LiteralPath $keyPath -Force -ErrorAction Stop }
+            catch { Add-Failure "SSH source-key cleanup: $($_.Exception.Message)" }
+        }
+        if ($fixture -and $fixture.Root -and (Test-Path -LiteralPath $fixture.Root -PathType Container)) {
+            try { Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction Stop }
+            catch { Add-Failure "SSH fixture directory cleanup: $($_.Exception.Message)" }
+        }
+    }
 }
 function Test-RejectedFixture {
     param(
@@ -930,7 +1319,7 @@ function Test-RejectedFixture {
         [int]$HttpPort,
         [string[]]$OriginalDefaults,
         [string[]]$OriginalDns,
-        [ValidateSet('profile','app')][string]$ExpectedResolver,
+        [ValidateSet('profile','app','subscription')][string]$ExpectedResolver,
         [string]$Phase
     )
     $beforeControlName = 'pre-' + [Guid]::NewGuid().ToString('N') + '.' + $AllowedControlName
@@ -1029,6 +1418,11 @@ $devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get
 $dnsPort=[int]$nativePortPlan.coreDnsPort; $profileDnsPort=[int]$nativePortPlan.profileDnsPort; $appDnsPort=[int]$nativePortPlan.appDnsPort
 $script:dnsPort=$dnsPort; $script:profileDnsPort=$profileDnsPort; $script:appDnsPort=$appDnsPort
 $proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
+$subscriptionDnsPort=Get-FreeTcpPort; $subscriptionControllerPort=Get-FreeTcpPort
+$script:subscriptionDnsPort=$subscriptionDnsPort
+$script:subscriptionDnsStatePath=Join-Path $env:RUNNER_TEMP "stcvrc-native-subscription-dns-$Phase.txt"
+if (Test-Path -LiteralPath $script:subscriptionDnsStatePath) { throw 'Refusing a preexisting subscription DNS fixture state file.' }
+Set-Content -LiteralPath $script:subscriptionDnsStatePath -Value ([string]$profileDnsPort) -NoNewline -Encoding ascii
 $script:dnsLogPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-dns-$Phase.log"
 if (Test-Path -LiteralPath $script:dnsLogPath) { Remove-Item -LiteralPath $script:dnsLogPath -Force }
 $serverPath=Join-Path $env:RUNNER_TEMP 'stcvrc-native-fixture-server.py'
@@ -1043,11 +1437,74 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 HTTP_PORT=int(os.environ["STCVRC_NATIVE_HTTP_PORT"])
 PROFILE_DNS_PORT=int(os.environ["STCVRC_NATIVE_PROFILE_DNS_PORT"])
 APP_DNS_PORT=int(os.environ["STCVRC_NATIVE_APP_DNS_PORT"])
+SUBSCRIPTION_DNS_PORT=int(os.environ["STCVRC_NATIVE_SUBSCRIPTION_DNS_PORT"])
+SUBSCRIPTION_CONTROLLER_PORT=int(os.environ["STCVRC_NATIVE_SUBSCRIPTION_CONTROLLER_PORT"])
+CORE_DNS_PORT=int(os.environ["STCVRC_NATIVE_CORE_DNS_PORT"])
+PROXY_PORT_A=int(os.environ["STCVRC_NATIVE_PROXY_PORT_A"])
+PROXY_PORT_B=int(os.environ["STCVRC_NATIVE_PROXY_PORT_B"])
+SUBSCRIPTION_DNS_STATE=os.environ["STCVRC_NATIVE_SUBSCRIPTION_DNS_STATE"]
 DNS_LOG=os.environ["STCVRC_NATIVE_DNS_LOG"]
 LOG_LOCK=threading.Lock()
 class Handler(BaseHTTPRequestHandler):
     protocol_version="HTTP/1.1"
     def do_GET(self):
+        if self.path == "/native-subscription-dns.yaml":
+            with open(SUBSCRIPTION_DNS_STATE,encoding="ascii") as state:
+                upstream_port=state.read().strip()
+            body=f"""mode: rule
+log-level: info
+allow-lan: false
+bind-address: 127.0.0.1
+external-controller: 127.0.0.1:{SUBSCRIPTION_CONTROLLER_PORT}
+ipv6: false
+dns:
+  enable: true
+  listen: 127.0.0.1:{CORE_DNS_PORT}
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 127.0.0.1
+  nameserver:
+    - udp://127.0.0.1:{upstream_port}
+  proxy-server-nameserver:
+    - udp://127.0.0.1:{upstream_port}
+  nameserver-policy:
+    proxy-fixture.invalid: udp://127.0.0.1:{upstream_port}
+proxies:
+  - name: fixture-node-a
+    type: socks5
+    server: 127.0.0.1
+    port: {PROXY_PORT_A}
+  - name: fixture-node-b
+    type: socks5
+    server: 127.0.0.1
+    port: {PROXY_PORT_B}
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    proxies:
+      - fixture-node-a
+      - fixture-node-b
+tun:
+  enable: true
+  device: STCVRC-CI
+  stack: gvisor
+  auto-route: true
+  auto-detect-interface: false
+  strict-route: false
+  route-address:
+    - 198.18.0.0/16
+rules:
+  - DOMAIN-SUFFIX,native-subscription-a.invalid,DIRECT
+  - DOMAIN-SUFFIX,native-subscription-b.invalid,REJECT
+  - MATCH,GLOBAL
+""".encode("ascii")
+            self.send_response(200); self.send_header("Content-Type","application/yaml")
+            self.send_header("Content-Length",str(len(body))); self.send_header("Connection","close")
+            self.end_headers(); self.wfile.write(body)
+            print("SUBSCRIPTION port="+upstream_port,flush=True)
+            return
         host=self.headers.get("Host","").split(":",1)[0]
         body=("native-fixture:"+host).encode("ascii","strict")
         self.send_response(200); self.send_header("Content-Type","text/plain")
@@ -1073,12 +1530,19 @@ def dns_server(port,label):
         sock.sendto(response,peer)
 threading.Thread(target=dns_server,args=(PROFILE_DNS_PORT,"profile"),daemon=True).start()
 threading.Thread(target=dns_server,args=(APP_DNS_PORT,"app"),daemon=True).start()
+threading.Thread(target=dns_server,args=(SUBSCRIPTION_DNS_PORT,"subscription"),daemon=True).start()
 HTTPServer(("127.0.0.1",HTTP_PORT),Handler).serve_forever()
 '@
 [IO.File]::WriteAllText($serverPath,$serverCode,[Text.UTF8Encoding]::new($false))
 $env:STCVRC_NATIVE_HTTP_PORT=[string]$httpPort
 $env:STCVRC_NATIVE_PROFILE_DNS_PORT=[string]$profileDnsPort
 $env:STCVRC_NATIVE_APP_DNS_PORT=[string]$appDnsPort
+$env:STCVRC_NATIVE_SUBSCRIPTION_DNS_PORT=[string]$subscriptionDnsPort
+$env:STCVRC_NATIVE_SUBSCRIPTION_CONTROLLER_PORT=[string]$subscriptionControllerPort
+$env:STCVRC_NATIVE_CORE_DNS_PORT=[string]$dnsPort
+$env:STCVRC_NATIVE_PROXY_PORT_A=[string]$proxyPortA
+$env:STCVRC_NATIVE_PROXY_PORT_B=[string]$proxyPortB
+$env:STCVRC_NATIVE_SUBSCRIPTION_DNS_STATE=$script:subscriptionDnsStatePath
 $env:STCVRC_NATIVE_DNS_LOG=$script:dnsLogPath
 $python=(Get-Command python.exe -ErrorAction Stop).Source
 $serverArgs=@('-u', ('"' + $serverPath + '"'))
@@ -1220,6 +1684,7 @@ try {
             $dnsFile=[string](Invoke-CvrCommand -Command 'get_dns_config_content')
             if (-not $dnsFile.Contains("127.0.0.1:$appDnsPort")) { throw 'CVR did not persist the synthetic app DNS configuration.' }
 
+            Test-SubscriptionDnsOverrideAfterUpdate -DnsPort $dnsPort -HttpPort $httpPort -RestoreProfileUid $uidA -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns
             [void](Set-FixtureDnsOverride -Uid $uidA -Enabled $false -Confirm $false)
             Assert-ProfileDnsState -Uid $uidA -Enabled $false -Phase 'profile A DNS off'
             Test-FixtureTraffic -FixtureName 'dns-off.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'profile'
@@ -1262,6 +1727,15 @@ try {
             Write-Host 'DNS override on/off/confirmation, per-profile separation, GLOBAL selector restore, and TUN/DNS/HTTP all passed on the fresh custom core.'
         } catch { Add-Failure "2.5.10 DNS/profile/TUN acceptance: $($_.Exception.Message)" }
 
+        if ($uidA) {
+            try {
+                Test-GeoDatabaseSyncThroughValidation -ProfileUid $uidA
+            } catch { Add-Failure "2.5.10 GEO service synchronization: $($_.Exception.Message)" }
+            try {
+                Test-SshPrivateKeyInServiceMode -DnsPort $dnsPort -HttpPort $httpPort -ProfileDnsPort $profileDnsPort -RestoreProfileUid $uidA -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns
+            } catch { Add-Failure "2.5.10 service SSH private-key use: $($_.Exception.Message)" }
+        }
+
         if ($script:cdp.State -eq [Net.WebSockets.WebSocketState]::Open) {
             try {
                 [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$false } })
@@ -1282,7 +1756,22 @@ try {
     if ($gui -and -not $gui.HasExited) { & taskkill.exe /PID $gui.Id /T /F | Out-Null }
     foreach ($name in @('clash-verge','clash-verge-service','verge-mihomo','verge-mihomo-alpha')) { Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $script:subscriptionDnsStatePath) { Remove-Item -LiteralPath $script:subscriptionDnsStatePath -Force }
     Start-Sleep -Seconds 2
+    if ($script:fixtureSshKeyHash -and $script:fixtureSshKeyAlias) {
+        try {
+            $serviceUsers = Join-Path $serviceData 'users'
+            foreach ($runtimeDirectory in @(Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers | ForEach-Object { $_.FullName })) {
+                $stagedKeyPath = Join-Path $runtimeDirectory $script:fixtureSshKeyAlias
+                if (-not (Test-Path -LiteralPath $stagedKeyPath -PathType Leaf)) { continue }
+                if ((Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $script:fixtureSshKeyHash) {
+                    Remove-Item -LiteralPath $stagedKeyPath -Force -ErrorAction Stop
+                } else {
+                    Add-Failure "SSH staged-key cleanup preserved unexpected content for alias $($script:fixtureSshKeyAlias)."
+                }
+            }
+        } catch { Add-Failure "SSH staged-key cleanup: $($_.Exception.Message)" }
+    }
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { Add-Failure 'Temporary CVR service remained after cleanup.' }
     foreach ($name in @('clash-verge','clash-verge-service','verge-mihomo','verge-mihomo-alpha')) { if (Get-Process -Name $name -ErrorAction SilentlyContinue) { Add-Failure "Temporary process remained: $name" } }
     foreach ($route in @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue)) { try { $route | Remove-NetRoute -Confirm:$false -ErrorAction Stop } catch { Add-Failure "Could not remove exact synthetic route: $($_.Exception.Message)" } }
@@ -1292,7 +1781,12 @@ $summary=@(
     '## Bounded native CVR 2.5.10 acceptance',
     '- Requires an actual GUI window and invokes the installed Tauri commands through its WebView2 page.',
     '- Checks ready service mode, SCM service, live core path and SHA against the fresh source build.',
-    '- Runs generic synthetic DNS/HTTP fixtures through explicit 198.18.0.0/16 TUN routing and verifies profile A-to-B-to-A reload/recovery.',
+    '- Runs generic synthetic DNS/HTTP fixtures, including a remote subscription DNS update that must clear the profile override and use the new resolver.',
+    '- Verifies SSH private-key staging in service mode using authenticated loopback SSH and a synthetic HTTP target.',
+    '- Verifies GEO sync handoff with random synthetic bytes before validation; it does not parse a valid GEO database or test geo rules.',
+    '- Authenticates a generic SSH key-file profile through the service-owned core and loopback-only synthetic HTTP forwarding.',
+    '- Checks service-to-app GEO sync with synthetic marker bytes before validation; it does not prove real GEO database parsing or rule matching.',
+    '- Verifies explicit 198.18.0.0/16 TUN routing and profile A-to-B-to-A reload/recovery.',
     '- Compares system default routes and physical DNS before/after; removes only the exact temporary synthetic route.',
     '- No production profiles, external VPN, secrets, paid runners, Actions cache or artifacts.'
 )

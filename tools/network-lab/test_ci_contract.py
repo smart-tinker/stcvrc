@@ -323,7 +323,7 @@ class CIContractTests(unittest.TestCase):
 
     def test_draft_assembly_uses_exact_native_tested_bytes_and_complete_package(self):
         assembly = WORKFLOWS["test.yml"].split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
-        self.assertIn("tag=stcvrc-1.19.33-rc.8", assembly)
+        self.assertIn("tag=stcvrc-1.19.33-rc.9", assembly)
         self.assertIn("runs-on: windows-2022", assembly)
         for gate in ("source", "vulnerability-scan", "profile-contract", "cvr-2-5-10-package", "cvr-windows-payload", "test-module", "license-audit"):
             self.assertIn("      - " + gate, assembly)

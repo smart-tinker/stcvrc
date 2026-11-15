@@ -99,6 +99,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         fixture = source.split("function Test-FixtureTraffic", 1)[1].split("function Test-RejectedFixture", 1)[0]
         self.assertLess(fixture.index("Invoke-TunHttp"), fixture.index("Assert-DnsResolver"))
+        self.assertIn("[switch]$SkipResolverLogAssertion", fixture)
+        self.assertIn("if ($ExpectedResolver -and -not $SkipResolverLogAssertion)", fixture)
+        ssh_scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("-SkipResolverLogAssertion", ssh_scenario)
         self.assertIn("Get-DnsReceiveDiagnostics", source)
         recovery = source.split("elseif ($Phase -eq 'recovery')", 1)[1].split("\n    } else {", 1)[0]
         self.assertIn("Assert-SelectedProfileReady", recovery)
@@ -276,6 +280,263 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             ports = [plan[name] for name in ("coreDnsPort", "profileDnsPort", "appDnsPort")]
             self.assertEqual(len(set(ports)), 3)
             self.assertTrue(all(0 < int(port) <= 65535 for port in ports))
+
+
+    def test_subscription_dns_update_resets_override_and_uses_new_profile_resolver(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Test-SubscriptionDnsOverrideAfterUpdate", source)
+        self.assertIn("Test-SubscriptionDnsOverrideAfterUpdate -DnsPort $dnsPort", source)
+        scenario = source.split("function Test-SubscriptionDnsOverrideAfterUpdate", 1)[1].split(
+            "function ", 1
+        )[0]
+        for assertion in (
+            "Invoke-CvrCommand -Command 'import_profile'",
+            "Invoke-CvrCommand -Command 'update_profile'",
+            "Assert-ProfileDnsState -Uid $uid -Enabled $false",
+            "Set-Content",
+            "ExpectedResolver 'subscription'",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertIn("Test-SubscriptionDnsOverrideAfterUpdate", source)
+
+
+    def test_cvr_2510_overlay_reinstall_starts_with_running_gui(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Invoke-CvrOverlayReinstall", source)
+        overlay = source.split("function Invoke-CvrOverlayReinstall", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        for assertion in (
+            "Start-Process -FilePath $guiPath -PassThru",
+            "Get-Process -Id $gui.Id",
+            "$installerPaths['2.5.10']",
+            "'/UPDATE'",
+            "Expected the pinned CVR GUI process to exit during overlay",
+            "if ($gui.HasExited -and $installerProcess.HasExited -and",
+            "$gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()",
+            "Get-InstalledCvrDirectory -ExpectedVersion '2.5.10'",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, overlay)
+        exit_time_fallback = overlay.split(
+            "if ($gui.HasExited -and $installerProcess.HasExited -and", 1
+        )
+        self.assertEqual(len(exit_time_fallback), 2)
+        exit_time_fallback = exit_time_fallback[1].split(
+            "if (-not $installerProcess.HasExited)", 1
+        )[0]
+        for assertion in (
+            "$gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime()",
+            "$gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()",
+            "$guiExitedDuringOverlay = $true",
+        ):
+            with self.subTest(fallback_assertion=assertion):
+                self.assertIn(assertion, exit_time_fallback)
+        polling = overlay.split("while ([DateTime]::UtcNow -lt $deadline)", 1)[1].split(
+            "if ($installerProcess.HasExited) { break }", 1
+        )[0]
+        self.assertIn("$gui.HasExited", polling)
+        gui_exit_observation = polling.split("$gui.HasExited", 1)[1]
+        for assertion in (
+            "$guiExitTime = $gui.ExitTime.ToUniversalTime()",
+            "$installerProcess.Refresh()",
+            "$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and",
+            "(-not $installerProcess.HasExited -or",
+            "$guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())",
+            "$guiExitedDuringOverlay = $true",
+        ):
+            with self.subTest(polling_assertion=assertion):
+                self.assertIn(assertion, gui_exit_observation)
+        if "$guiExitTime =" in gui_exit_observation and "$installerProcess.Refresh()" in gui_exit_observation:
+            self.assertLess(
+                gui_exit_observation.index("$guiExitTime ="),
+                gui_exit_observation.index("$installerProcess.Refresh()"),
+            )
+        if "$installerProcess.Refresh()" in gui_exit_observation and "$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()" in gui_exit_observation:
+            self.assertLess(
+                gui_exit_observation.index("$installerProcess.Refresh()"),
+                gui_exit_observation.index("$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()"),
+            )
+        self.assertIn(
+            "if ($guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and\n"
+            "                    (-not $installerProcess.HasExited -or\n"
+            "                    $guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())) {\n"
+            "                    $guiExitedDuringOverlay = $true\n"
+            "                }",
+            gui_exit_observation,
+        )
+        overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
+        self.assertIn(overlay_call, source)
+        update_stage = source.index("Install-CandidateCore -InstallDirectory $install2510")
+        overlay_position = source.index(overlay_call)
+        exercise_position = source.index("Invoke-NativePhase -Phase exercise")
+        self.assertLess(update_stage, overlay_position)
+        self.assertLess(overlay_position, exercise_position)
+
+    def test_service_ssh_key_file_is_used_by_authenticated_loopback_traffic(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Test-SshPrivateKeyInServiceMode", source)
+        self.assertIn("Test-SshPrivateKeyInServiceMode -DnsPort $dnsPort -HttpPort $httpPort", source)
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        for assertion in (
+            "Start-SshFixtureServer",
+            "Invoke-CvrCommand -Command 'get_app_dir'",
+            "private-key:",
+            "Assert-LiveCoreIdentity",
+            "Test-FixtureTraffic",
+            "-Route 'GLOBAL'",
+            "$serviceConfigPath = Join-Path $runtimeDirectory 'config.yaml'",
+            "$serviceRuntimeYaml = [IO.File]::ReadAllText($serviceConfigPath)",
+            "[regex]::Matches($serviceRuntimeYaml, 'cvr-[0-9a-f]{64}')",
+            "$runtimeConfigs = @(",
+            "$runtimeMatch = $rewrittenConfigs[0]",
+            "$stagedKeyPath = Join-Path $runtimeDirectory $assetAlias",
+            "sshFixtureDiagnostics=",
+            "Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue",
+            "Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue",
+            "Get-Content -LiteralPath $fixture.StderrPath -Tail 8",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertNotIn("$runtimeYaml = Get-RuntimeYaml", scenario)
+        self.assertNotIn("ssh-private-key-", scenario)
+        self.assertNotIn("SSH_FIXTURE_AUTH_OK", scenario)
+        self.assertNotIn("[IO.File]::ReadAllText($fixture.StdoutPath)", scenario)
+        helper = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
+        self.assertTrue(helper.is_file())
+
+
+        selector = source.split("function Select-FixtureProfile", 1)[1].split(
+            "function Assert-SelectedProfileReady", 1
+        )[0]
+        self.assertIn("[string]$Route = 'DIRECT'", selector)
+        self.assertIn("DOMAIN-SUFFIX,$AllowName,$Route", selector)
+
+
+    def test_ssh_fixture_key_is_inside_profile_config_root(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("$profileDirectory = Join-Path $appHome 'profiles'", scenario)
+        self.assertIn("$keyPath = Join-Path $profileDirectory", scenario)
+
+
+    def test_ssh_key_lookup_avoids_locked_cache_db(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Get-ServiceRuntimeDirectories", source)
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        self.assertIn("Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers", scenario)
+        self.assertNotIn("Get-ChildItem -LiteralPath $serviceUsers -File -Recurse", scenario)
+        self.assertNotIn("Get-ChildItem -LiteralPath $serviceUsers -Filter $assetAlias -File -Recurse", scenario)
+        self.assertIn("Join-Path $runtimeDirectory $assetAlias", scenario)
+
+        cleanup_start = source.rindex("} finally {\n    if ($script:cdp)")
+        cleanup = source[cleanup_start:]
+        process_stop = cleanup.index("foreach ($name in @('clash-verge'")
+        staged_key_cleanup = cleanup.index("if ($script:fixtureSshKeyHash -and $script:fixtureSshKeyAlias)")
+        self.assertLess(process_stop, staged_key_cleanup)
+        self.assertIn("Get-ServiceRuntimeDirectories -ServiceUsersPath $serviceUsers", cleanup[staged_key_cleanup:])
+        self.assertIn("Join-Path $runtimeDirectory $script:fixtureSshKeyAlias", cleanup[staged_key_cleanup:])
+        self.assertIn("Hash.ToLowerInvariant() -ceq $script:fixtureSshKeyHash", cleanup[staged_key_cleanup:])
+
+    def test_ssh_service_alias_is_independent_of_key_content_hash(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        for assertion in (
+            "$privateKeyAliasMatches = [regex]::Matches($privateKeyLines[0], 'cvr-[0-9a-f]{64}')",
+            "$privateKeyAliasMatches.Count -ne 1",
+            "$privateKeyAliasMatches[0].Value -cne $assetAlias",
+            "Get-FileHash -LiteralPath $stagedKeyPath -Algorithm SHA256",
+            "Hash.ToLowerInvariant() -ne $keyHash",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertNotIn("$assetAlias -cne $expectedAssetAlias", scenario)
+
+
+    def test_ssh_alias_failure_reports_only_redacted_private_key_lines(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        scenario = source.split("function Test-SshPrivateKeyInServiceMode", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        for assertion in (
+            "[regex]::Escape($keyPath)",
+            "[regex]::Escape($keyYamlPath)",
+            "'<fixture-key>'",
+            "$safePrivateKeyLines",
+            "private-key-lines=$($safePrivateKeyLines -join ' | ')",
+            "$privateKeyAliasMatches",
+            "private-key-alias-count=$($privateKeyAliasMatches.Count)",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+
+
+    def test_service_geo_update_is_synced_before_profile_validation(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("function Test-GeoDatabaseSyncThroughValidation", source)
+        self.assertIn("Test-GeoDatabaseSyncThroughValidation -ProfileUid $uidA", source)
+        scenario = source.split("function Test-GeoDatabaseSyncThroughValidation", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        for assertion in (
+            "get_app_dir",
+            "GeoSite.dat",
+            "Join-Path $serviceData 'users'",
+            "Select-FixtureProfile",
+            "ReadAllBytes",
+            "$originalAppBytes = [IO.File]::ReadAllBytes($appGeoPath)",
+            "$originalAppWriteTime = [IO.File]::GetLastWriteTimeUtc($appGeoPath)",
+            "$originalRuntimeBytes = [IO.File]::ReadAllBytes($runtimeGeoPath)",
+            "$originalRuntimeWriteTime = [IO.File]::GetLastWriteTimeUtc($runtimeGeoPath)",
+            "[IO.File]::WriteAllBytes($appGeoPath, $originalAppBytes)",
+            "[IO.File]::WriteAllBytes($runtimeGeoPath, $originalRuntimeBytes)",
+            "[IO.File]::SetLastWriteTimeUtc($appGeoPath, $originalAppWriteTime)",
+            "[IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, $originalRuntimeWriteTime)",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, scenario)
+        self.assertNotIn("refusing to overwrite existing data", scenario)
+        selector = source.split("function Select-FixtureProfile", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("Invoke-CvrCommand -Command 'patch_profiles_config'", selector)
+
+
+    def test_ssh_fixture_is_loopback_only_and_forwards_only_synthetic_http(self):
+        helper_path = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
+        self.assertTrue(helper_path.is_file())
+        helper = helper_path.read_text(encoding="utf-8")
+        for assertion in (
+            'net.Listen("tcp", "127.0.0.1:0")',
+            'case "direct-tcpip":',
+            "syntheticAddress := ip != nil && ip[0] == 198 && ip[1] == 18",
+            'if !syntheticAddress && req.DestAddr != "service-ssh-fixture.invalid" {',
+            "req.Port != uint32(targetPort)",
+            'net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort))',
+            "PublicKeyCallback:",
+            'bytes.Equal(key.Marshal(), clientSigner.PublicKey().Marshal())',
+            "SSH_FIXTURE_AUTH_REJECTED",
+            "SSH_FIXTURE_HANDSHAKE_REJECTED",
+            "SSH_FIXTURE_UNSUPPORTED_CHANNEL",
+            "SSH_FIXTURE_INVALID_CHANNEL",
+            "SSH_FIXTURE_TARGET_ADDRESS_REJECTED",
+            "SSH_FIXTURE_TARGET_PORT_REJECTED",
+            "SSH_FIXTURE_HTTP_TARGET_UNAVAILABLE",
+            "SSH_FIXTURE_CHANNEL_ACCEPT_FAILED",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, helper)
+
+
+        self.assertNotIn("SSH_FIXTURE_AUTH_OK", helper)
+
 
 if __name__ == "__main__":
     unittest.main()

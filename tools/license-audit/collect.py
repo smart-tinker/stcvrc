@@ -633,7 +633,9 @@ def _manual_go_overrides(modules, runtime_module_paths, build, root):
     selected = modules.get(chacha["module"])
     if not isinstance(selected, dict) or selected.get("Version") != chacha["version"] or selected.get("Replace"):
         raise AuditIncomplete("chacha source version does not match the reviewed license-only child")
-    source_commit = _github_json(f"{CHACHA_API}/commits/{chacha['version']}")
+    if not chacha["version"].endswith("-" + chacha["pinned_source_revision"][:12]):
+        raise AuditIncomplete("chacha pseudo-version does not identify the pinned source commit")
+    source_commit = _github_json(f"{CHACHA_API}/commits/{chacha['pinned_source_revision']}")
     if source_commit.get("sha") != chacha["pinned_source_revision"]:
         raise AuditIncomplete("chacha module version does not resolve to the pinned source commit")
     source_dir = _module_dir(selected, "chacha@" + chacha["version"])

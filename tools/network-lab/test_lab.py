@@ -40,6 +40,18 @@ class LabTests(unittest.TestCase):
             lab.PORTS.update(original_ports)
             lab.TARGET = original_target
 
+    def test_selected_core_port_is_available_for_udp(self):
+        original_ports, original_target = lab.PORTS.copy(), lab.TARGET
+        try:
+            with mock.patch.object(lab.socket, "socket", wraps=socket.socket) as socket_factory:
+                lab.select_ports()
+            self.assertIn(mock.call(socket.AF_INET, socket.SOCK_DGRAM), socket_factory.call_args_list)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
+                reservation.bind((lab.HOST, lab.PORTS["core"]))
+        finally:
+            lab.PORTS.update(original_ports)
+            lab.TARGET = original_target
+
     def setUp(self):
         self.configs = lab.configs("/temporary/lab", "TEST CA", "test-uuid", {"A": 20001, "B": 20002})
 

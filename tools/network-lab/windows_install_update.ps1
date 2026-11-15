@@ -145,6 +145,96 @@ function Invoke-CvrInstaller {
     }
 }
 
+function Invoke-CvrOverlayReinstall {
+    param([string]$InstallDirectory)
+    $started = [DateTime]::UtcNow
+    $guiPath = Join-Path $InstallDirectory 'clash-verge.exe'
+    $gui = $null
+    $installerProcess = $null
+    $overlayInterval = $null
+    try {
+        if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf)) { throw 'Pinned CVR 2.5.10 GUI is missing before overlay.' }
+        $expectedGuiSha = ([string]$env:CVR_2510_GUI_SHA256).ToLowerInvariant()
+        $actualGuiSha = (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($expectedGuiSha.Length -ne 64 -or $expectedGuiSha -notmatch '^[0-9a-f]+$' -or $actualGuiSha -ne $expectedGuiSha) {
+            throw 'Pinned CVR 2.5.10 GUI SHA256 mismatch before overlay.'
+        }
+
+        $overlayInterval = [PSCustomObject]@{ phase='overlay'; startUtc=$started; endUtc=[DateTime]::MaxValue }
+        $script:overlayIntervals.Add($overlayInterval)
+        $gui = Start-Process -FilePath $guiPath -PassThru
+        if (-not (Get-Process -Id $gui.Id -ErrorAction SilentlyContinue)) { throw 'Pinned CVR GUI process exited before overlay started.' }
+        $guiRecord = Get-CimInstance Win32_Process -Filter "ProcessId = $($gui.Id)" -ErrorAction SilentlyContinue
+        if (-not $guiRecord -or -not $guiRecord.ExecutablePath) { throw 'Could not verify the running CVR GUI executable path.' }
+        $actualGuiPath = [IO.Path]::GetFullPath([string]$guiRecord.ExecutablePath).TrimEnd([char]92)
+        $expectedGuiPath = [IO.Path]::GetFullPath($guiPath).TrimEnd([char]92)
+        if ($actualGuiPath -ine $expectedGuiPath) { throw "Running GUI process did not match the pinned install path: $actualGuiPath" }
+
+        $installerProcess = Start-Process -FilePath $installerPaths['2.5.10'] -ArgumentList @('/S', '/P', '/UPDATE', '/NS') -PassThru -WindowStyle Hidden
+        $deadline = [DateTime]::UtcNow.AddSeconds(120)
+        $guiExitedDuringOverlay = $false
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $installerProcess.Refresh()
+            $gui.Refresh()
+            if ($gui.HasExited) {
+                $guiExitTime = $gui.ExitTime.ToUniversalTime()
+                $installerProcess.Refresh()
+                if ($guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and
+                    (-not $installerProcess.HasExited -or
+                    $guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())) {
+                    $guiExitedDuringOverlay = $true
+                }
+            }
+            if ($installerProcess.HasExited) { break }
+            Start-Sleep -Milliseconds 50
+        }
+        $installerProcess.Refresh()
+        $gui.Refresh()
+        if ($gui.HasExited -and $installerProcess.HasExited -and
+            $gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime() -and
+            $gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()) {
+            $guiExitedDuringOverlay = $true
+        }
+        if (-not $installerProcess.HasExited) { throw 'CVR 2.5.10 overlay installer exceeded 120 seconds.' }
+        if ($installerProcess.ExitCode -ne 0) { throw "CVR 2.5.10 overlay installer exited with code $($installerProcess.ExitCode)." }
+        if (-not $guiExitedDuringOverlay) { throw 'Expected the pinned CVR GUI process to exit during overlay.' }
+
+        $verifiedDirectory = Get-InstalledCvrDirectory -ExpectedVersion '2.5.10'
+        if ($verifiedDirectory -ne $InstallDirectory) { throw 'CVR 2.5.10 overlay changed the install directory.' }
+        Assert-NoService
+        Assert-NoCvrProcesses
+        Write-Host 'CVR 2.5.10 overlay completed while the pinned GUI process was running; app exited and installer identity remained valid.'
+    } finally {
+        if ($installerProcess) {
+            try {
+                $installerProcess.Refresh()
+                if (-not $installerProcess.HasExited) {
+                    & taskkill.exe /PID $installerProcess.Id /T /F | Out-Null
+                    $installerProcess.Refresh()
+                    if (-not $installerProcess.HasExited) { Stop-Process -Id $installerProcess.Id -Force -ErrorAction SilentlyContinue }
+                }
+            } catch {
+                Write-Host "Could not stop overlay installer process $($installerProcess.Id): $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        if ($gui) {
+            try {
+                $gui.Refresh()
+                if (-not $gui.HasExited) {
+                    $record = Get-CimInstance Win32_Process -Filter "ProcessId = $($gui.Id)" -ErrorAction SilentlyContinue
+                    if ($record.ExecutablePath -and [IO.Path]::GetFullPath([string]$record.ExecutablePath).TrimEnd([char]92) -ieq [IO.Path]::GetFullPath($guiPath).TrimEnd([char]92)) {
+                        Stop-Process -Id $gui.Id -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            } catch {
+                Write-Host "Could not stop overlay GUI process $($gui.Id): $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        if ($overlayInterval) { $overlayInterval.endUtc = [DateTime]::UtcNow }
+        $script:phaseBoundaries.Add([PSCustomObject]@{ phase='overlay-reinstall'; startUtc=$started; endUtc=[DateTime]::UtcNow })
+    }
+}
+
 function Install-CandidateCore {
     param([string]$InstallDirectory, [string]$Phase)
     $started = [DateTime]::UtcNow
@@ -171,6 +261,7 @@ function Install-CandidateCore {
 }
 
 $script:nativeIntervals = [Collections.Generic.List[object]]::new()
+$script:overlayIntervals = [Collections.Generic.List[object]]::new()
 $script:phaseBoundaries = [Collections.Generic.List[object]]::new()
 $script:nativeFailures = [Collections.Generic.List[string]]::new()
 $nativeScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_acceptance.ps1'
@@ -243,6 +334,8 @@ Invoke-NativePhase -Phase seed -InstallDirectory $install258
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
 Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update'
+Invoke-CvrOverlayReinstall -InstallDirectory $install2510
+Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay'
 Invoke-NativePhase -Phase exercise -InstallDirectory $install2510
 
 # The native phase normally removes its exact service, process tree and synthetic route.
@@ -283,6 +376,7 @@ $processEvents = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction 
 Unregister-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue
 $processEvents | Remove-Event -ErrorAction SilentlyContinue
 $coreEvents = [Collections.Generic.List[object]]::new()
+$coreStartIntervals = $script:nativeIntervals.ToArray() + $script:overlayIntervals.ToArray()
 foreach ($event in $processEvents) {
     $newEvent = $event.SourceEventArgs.NewEvent
     $processName = [string]$newEvent.ProcessName
@@ -294,7 +388,7 @@ foreach ($event in $processEvents) {
     }
     try { $created = [DateTime]::FromFileTimeUtc([Int64]$rawTime) }
     catch { $script:nativeFailures.Add("Could not decode process start time for ${processName}: ${rawTime}"); continue }
-    $decision = Get-CoreStartDecision -ProcessName $processName -CreatedUtc $created -Intervals $script:nativeIntervals
+    $decision = Get-CoreStartDecision -ProcessName $processName -CreatedUtc $created -Intervals $coreStartIntervals
     $coreEvents.Add([PSCustomObject]@{ name=$processName; pid=$newEvent.ProcessID; timeUtc=$created; allowedPhase=$decision.phase; decision=$decision.reason })
     if (-not $decision.allowed) {
         $script:nativeFailures.Add("Rejected core process start ($($decision.reason)): $processName pid=$($newEvent.ProcessID) at $($created.ToString('o')).")
@@ -313,7 +407,7 @@ $summary = @(
     '- No production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
 foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }
-foreach ($interval in $script:nativeIntervals) { $summary += "- Allowed native core interval $($interval.phase): $($interval.startUtc.ToString('o')) .. $($interval.endUtc.ToString('o'))." }
+foreach ($interval in $coreStartIntervals) { $summary += "- Allowed core-start interval $($interval.phase): $($interval.startUtc.ToString('o')) .. $($interval.endUtc.ToString('o'))." }
 foreach ($event in $coreEvents) {
     $eventPhase = if ($event.allowedPhase) { $event.allowedPhase } else { 'none' }
     $summary += "- Core process event $($event.name) pid=$($event.pid) at $($event.timeUtc.ToString('o')); native phase=$eventPhase."
