@@ -313,6 +313,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$installerPaths['2.5.10']",
             "'/UPDATE'",
             "Expected the pinned CVR GUI process to exit during overlay",
+            "if ($gui.HasExited -and $installerProcess.HasExited -and",
+            "$gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()",
             "Get-InstalledCvrDirectory -ExpectedVersion '2.5.10'",
         ):
             with self.subTest(assertion=assertion):
