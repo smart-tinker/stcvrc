@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -68,14 +67,12 @@ func run(keyPath string, targetPort int, readyPath string) error {
 	if err != nil {
 		return fmt.Errorf("create host signer: %w", err)
 	}
-	var authOnce sync.Once
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(meta ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			if meta.User() != fixtureUser || !bytes.Equal(key.Marshal(), clientSigner.PublicKey().Marshal()) {
 				fmt.Fprintln(os.Stderr, "SSH_FIXTURE_AUTH_REJECTED")
 				return nil, errors.New("fixture accepts only its generated public key")
 			}
-			authOnce.Do(func() { fmt.Fprintln(os.Stdout, "SSH_FIXTURE_AUTH_OK") })
 			return &ssh.Permissions{}, nil
 		},
 	}
