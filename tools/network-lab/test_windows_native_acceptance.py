@@ -334,11 +334,21 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(fallback_assertion=assertion):
                 self.assertIn(assertion, exit_time_fallback)
         polling = overlay.split("while ([DateTime]::UtcNow -lt $deadline)", 1)[1].split(
-            "if ($installerProcess.HasExited)", 1
+            "if ($installerProcess.HasExited) { break }", 1
         )[0]
-        self.assertIn(
-            "$gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime()",
-            polling,
+        gui_exit_observation = polling.split("if ($gui.HasExited)", 1)[1]
+        for assertion in (
+            "$guiExitTime = $gui.ExitTime.ToUniversalTime()",
+            "$installerProcess.Refresh()",
+            "(-not $installerProcess.HasExited -or",
+            "$guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())",
+            "$guiExitedDuringOverlay = $true",
+        ):
+            with self.subTest(polling_assertion=assertion):
+                self.assertIn(assertion, gui_exit_observation)
+        self.assertLess(
+            gui_exit_observation.index("$guiExitTime ="),
+            gui_exit_observation.index("$installerProcess.Refresh()"),
         )
         overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
         self.assertIn(overlay_call, source)
