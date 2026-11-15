@@ -335,9 +335,13 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "Assert-LiveCoreIdentity",
             "Test-FixtureTraffic",
             "-Route 'GLOBAL'",
+            "[regex]::Matches($runtimeYaml, 'cvr-[0-9a-f]{64}')",
+            "$stagedKeyPath = $stagedKeys[0].FullName",
+            "SSH_FIXTURE_AUTH_OK",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
+        self.assertNotIn("ssh-private-key-", scenario)
         helper = ROOT / "tools" / "network-lab" / "ssh_fixture.go"
         self.assertTrue(helper.is_file())
 
@@ -360,12 +364,20 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "get_app_dir",
             "GeoSite.dat",
             "Join-Path $serviceData 'users'",
-            "SetLastWriteTimeUtc",
             "patch_profiles_config",
             "ReadAllBytes",
+            "$originalAppBytes = [IO.File]::ReadAllBytes($appGeoPath)",
+            "$originalAppWriteTime = [IO.File]::GetLastWriteTimeUtc($appGeoPath)",
+            "$originalRuntimeBytes = [IO.File]::ReadAllBytes($runtimeGeoPath)",
+            "$originalRuntimeWriteTime = [IO.File]::GetLastWriteTimeUtc($runtimeGeoPath)",
+            "[IO.File]::WriteAllBytes($appGeoPath, $originalAppBytes)",
+            "[IO.File]::WriteAllBytes($runtimeGeoPath, $originalRuntimeBytes)",
+            "[IO.File]::SetLastWriteTimeUtc($appGeoPath, $originalAppWriteTime)",
+            "[IO.File]::SetLastWriteTimeUtc($runtimeGeoPath, $originalRuntimeWriteTime)",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, scenario)
+        self.assertNotIn("refusing to overwrite existing data", scenario)
 
 
     def test_ssh_fixture_is_loopback_only_and_forwards_only_synthetic_http(self):
