@@ -231,6 +231,99 @@
         "transport/openvpn/rekey_test.go": "87117ad10a903e79a5210ee45a41e67faa15674f"
       },
       "release_assembly_run": "https://github.com/smart-tinker/stcvrc/actions/runs/43183195076"
+    },
+    {
+      "id": "candidate-1.19.33-rc.9",
+      "distribution_status": "draft-prerelease",
+      "release_id": 446278043,
+      "release_tag": "stcvrc-1.19.33-rc.9",
+      "release_url": "https://github.com/smart-tinker/stcvrc/releases/tag/untagged-ccf14fade9a1ad076d47",
+      "release_assembly_run": "https://github.com/smart-tinker/stcvrc/actions/runs/43743504334",
+      "main_commit": "3d3b0ec8ee1f11086277eec5f57436c0d9446d01",
+      "tag_ref_status": "absent while draft (checked 2026-11-15)",
+      "asset": "verge-mihomo.exe",
+      "asset_sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
+      "release_assets": [
+        {
+          "name": "LICENSE",
+          "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+        },
+        {
+          "name": "RC-MANIFEST.json",
+          "sha256": "4ea1d6d3944388df416b43af0a6d81f2cfee197b29188805acc384289b83eb15"
+        },
+        {
+          "name": "SHA256SUMS",
+          "sha256": "b6b8a368aee8cc19be1ca08835f8f1dd3f13cc2947d5efba91a48d22c6114dbe"
+        },
+        {
+          "name": "SOURCE-BUILD.json",
+          "sha256": "f2d96b385f057e7b941868391367ca176f37a7076cc5446ba6f16396645300dd"
+        },
+        {
+          "name": "THIRD-PARTY-NOTICES.txt",
+          "sha256": "1573b3d8a1074aa273c1d33e5aafe2e66b61dcc54c5eb290375ea0df89f02a7f"
+        },
+        {
+          "name": "THIRD-PARTY-SOURCES.json",
+          "sha256": "63c786ee6b8b44c526db77cf19e10654ecf8a929e0f0e7854b1502fe817bd2db"
+        },
+        {
+          "name": "verge-mihomo.exe",
+          "sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e"
+        }
+      ],
+      "source_commit": "a884ad53a3999dd35acab979e0bb040c47f6dbc9",
+      "core_source_commit": "a884ad53a3999dd35acab979e0bb040c47f6dbc9",
+      "upstream_tag": "v1.19.33",
+      "upstream_commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+      "easytier_source_commit": "3463190838eb642ba8324c6a4011acdea52495a8",
+      "wasm_sha256": "e6e817db48cfd817026ba3c2adf24ed90a44e262fa8e00b58e2519a508cb6441",
+      "third_party_notices_sha256": "1573b3d8a1074aa273c1d33e5aafe2e66b61dcc54c5eb290375ea0df89f02a7f",
+      "third_party_sources_sha256": "63c786ee6b8b44c526db77cf19e10654ecf8a929e0f0e7854b1502fe817bd2db",
+      "go_version": "1.26.11",
+      "go_sha256": "71ae086f0137e665f855a811cc119152b6a783e0bbc1b906e709f46d80141eb0",
+      "lzo_decoder": {
+        "module": "github.com/anchore/go-lzo",
+        "version": "v0.1.1",
+        "license": "MIT",
+        "license_url": "https://github.com/anchore/go-lzo/blob/v0.1.1/LICENSE"
+      },
+      "chacha": {
+        "module": "github.com/metacubex/chacha",
+        "version": "v0.1.6-0.20250812085457-7b981d42c3ba",
+        "source_commit": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a",
+        "license": "MIT",
+        "license_url": "https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"
+      },
+      "easytier_license_inventory": {
+        "go_module": "LGPL-3.0",
+        "rust_crates": [
+          "easytier-core: LGPL-3.0-only",
+          "easytier-proto: LGPL-3.0-only"
+        ],
+        "source_commit": "3463190838eb642ba8324c6a4011acdea52495a8"
+      },
+      "build": {
+        "source": "fresh-checkout",
+        "host": "windows/amd64",
+        "target": "windows/amd64",
+        "goamd64": "v1",
+        "cgo_enabled": 0,
+        "tags": [
+          "with_gvisor"
+        ],
+        "version": "1.19.33-STCVRC-rc.9",
+        "build_time": "2026-11-12T00:00:00Z",
+        "flags": [
+          "-mod=readonly",
+          "-p=2",
+          "-tags=with_gvisor",
+          "-trimpath",
+          "-buildvcs=false",
+          "-ldflags=-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=1.19.33-STCVRC-rc.9 -X github.com/metacubex/mihomo/constant.BuildTime=2026-11-12T00:00:00Z"
+        ]
+      }
     }
   ],
   "historical_release_instances": {
