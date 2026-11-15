@@ -124,9 +124,14 @@ func serve(conn net.Conn, config *ssh.ServerConfig, targetPort int) {
 			continue
 		}
 		ip := net.ParseIP(req.DestAddr).To4()
-		if ip == nil || ip[0] != 198 || ip[1] != 18 || req.Port != uint32(targetPort) {
-			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_TARGET_REJECTED")
-			_ = incoming.Reject(ssh.Prohibited, "fixture destination is outside the synthetic HTTP target")
+		if ip == nil || ip[0] != 198 || ip[1] != 18 {
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_TARGET_ADDRESS_REJECTED")
+			_ = incoming.Reject(ssh.Prohibited, "fixture destination is outside the synthetic HTTP address range")
+			continue
+		}
+		if req.Port != uint32(targetPort) {
+			fmt.Fprintln(os.Stderr, "SSH_FIXTURE_TARGET_PORT_REJECTED")
+			_ = incoming.Reject(ssh.Prohibited, "fixture port is not the synthetic HTTP target")
 			continue
 		}
 		target, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(targetPort)))
