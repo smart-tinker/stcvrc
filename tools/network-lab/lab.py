@@ -110,17 +110,35 @@ def configs(directory, certificate, identity, backends):
     return result
 
 
-def request(port=None, proxy=True, timeout=1):
+class RequestFailure(Exception):
+    def __init__(self, phase, exception_type, status):
+        self.phase = phase
+        self.exception_type = exception_type
+        self.status = status
+        received_status = f", status={status}" if status is not None else ""
+        super().__init__(f"HTTP request failed during {phase}: {exception_type}{received_status}")
+
+
+def request(port=None, proxy=True, timeout=1, strict=False):
     if port is None:
         port = PORTS["core"]
     connection = http.client.HTTPConnection(HOST, port, timeout=timeout)
+    phase = "connect"
+    status = None
     try:
+        connection.connect()
+        phase = "request"
         connection.request("GET", TARGET + "/probe" if proxy else "/probe",
                            headers={"Connection": "close"})
+        phase = "response headers"
         response = connection.getresponse()
+        status = response.status
+        phase = "response body"
         body = response.read(128).decode("ascii", errors="replace")
-        return response.status, body
-    except (OSError, http.client.HTTPException):
+        return status, body
+    except (OSError, http.client.HTTPException) as error:
+        if strict:
+            raise RequestFailure(phase, type(error).__name__, status) from None
         return None, None
     finally:
         connection.close()
@@ -143,12 +161,21 @@ def wait_for(expected, timeout=15, start=None):
     raise AssertionError(f"Did not reach {expected} within {timeout}s")
 
 
+def add_process_log_tail(error, log_path):
+    try:
+        tail = log_path.read_text(errors="replace").splitlines()[-40:]
+    except OSError:
+        tail = []
+    if tail:
+        error.add_note("Core/Xray process log tail:\n" + "\n".join(tail))
+
+
 def check_both_down(client):
     for _ in range(3):
         if client.poll() is not None:
             raise AssertionError("Client exited during the both-down check")
         # Candidate retries failed upstream dials within a five-second TCP budget.
-        status, _ = request(timeout=10)
+        status, _ = request(timeout=10, strict=True)
         if client.poll() is not None:
             raise AssertionError("Client exited during the both-down check")
         # Candidate listener/http/proxy.go returns 502 when upstream dialing fails.
@@ -168,7 +195,11 @@ def check_tls_rejection(log_path, client):
             time.sleep(0.1)
     else:
         raise AssertionError("Client listener did not start for TLS-negative check")
-    check_both_down(client)
+    try:
+        check_both_down(client)
+    except Exception as error:
+        add_process_log_tail(error, log_path)
+        raise
     evidence = "certificate is valid for stcvrc-lab.invalid, not wrong-stcvrc-lab.invalid"
     if evidence not in log_path.read_text(errors="replace"):
         raise AssertionError("No explicit TLS hostname rejection found")
@@ -267,12 +298,7 @@ def run(core, xray, openssl, check_tls_hostname=False):
             try:
                 return wait_for(expected, start=started_at)
             except Exception as error:
-                try:
-                    tail = (directory / "process.log").read_text(errors="replace").splitlines()[-40:]
-                except OSError:
-                    tail = []
-                if tail:
-                    error.add_note("Core/Xray process log tail:\\n" + "\\n".join(tail))
+                add_process_log_tail(error, directory / "process.log")
                 raise
 
         initial_start = time.monotonic()
@@ -289,7 +315,11 @@ def run(core, xray, openssl, check_tls_hostname=False):
         results["failback_A_seconds"] = wait_for_with_log("A", recovery_start)
         stop(a)
         stop(b)
-        check_both_down(client)
+        try:
+            check_both_down(client)
+        except Exception as error:
+            add_process_log_tail(error, directory / "process.log")
+            raise
         results["both_down_requests_failed"] = 3
         print(json.dumps(results, sort_keys=True))
 
