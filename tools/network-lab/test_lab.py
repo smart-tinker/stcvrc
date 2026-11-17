@@ -239,7 +239,10 @@ class LabTests(unittest.TestCase):
                     self.assertEqual(response.status, status)
                     self.assertEqual(response.read(), b"")
                 finally:
-                    connection.    def test_add_process_log_tail_reads_bounded_suffix(self):
+                    connection.close()
+
+
+    def test_add_process_log_tail_reads_bounded_suffix(self):
         class TrackedLog(io.BytesIO):
             def __init__(self, data):
                 super().__init__(data)
