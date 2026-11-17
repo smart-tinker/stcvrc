@@ -240,11 +240,14 @@ class LabTests(unittest.TestCase):
 
     def test_tls_negative_reports_truncated_502_diagnostics(self):
         class TruncatedResponse(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
             def do_GET(self):
                 self.send_response(502)
-                self.send_header("Content-Length", "12")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.send_header("Connection", "close")
                 self.end_headers()
-                self.wfile.write(b"short")
+                self.wfile.write(b"5\\r\\nshort\\r\\n")
                 self.wfile.flush()
 
             def log_message(self, *_):
