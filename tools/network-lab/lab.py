@@ -134,7 +134,7 @@ def request(port=None, proxy=True, timeout=1, strict=False):
         response = connection.getresponse()
         status = response.status
         phase = "response body"
-        body = response.read(128).decode("ascii", errors="replace")
+        body = (response.read() if strict else response.read(128)).decode("ascii", errors="replace")
         return status, body
     except (OSError, http.client.HTTPException) as error:
         if strict:
@@ -163,7 +163,10 @@ def wait_for(expected, timeout=15, start=None):
 
 def add_process_log_tail(error, log_path):
     try:
-        tail = log_path.read_text(errors="replace").splitlines()[-40:]
+        with log_path.open("rb") as log_file:
+            log_file.seek(0, 2)
+            log_file.seek(max(0, log_file.tell() - 16 * 1024))
+            tail = log_file.read(16 * 1024).decode("utf-8", errors="replace").splitlines()[-40:]
     except OSError:
         tail = []
     if tail:
