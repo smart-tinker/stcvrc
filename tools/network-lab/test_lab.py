@@ -157,7 +157,7 @@ class LabTests(unittest.TestCase):
         client.poll.return_value = None
         with mock.patch.object(lab, "request", return_value=(502, "")) as request:
             lab.check_both_down(client)
-            self.assertEqual(request.call_args_list, [mock.call(timeout=10)] * 3)
+            self.assertEqual(request.call_args_list, [mock.call(timeout=10, strict=True)] * 3)
         for status in (None, 200, 503):
             with self.subTest(status=status), mock.patch.object(lab, "request", return_value=(status, "")):
                 with self.assertRaises(AssertionError):
@@ -183,6 +183,7 @@ class LabTests(unittest.TestCase):
 
     def test_tls_rejection_does_not_accept_either_endpoint_or_direct(self):
         logs = mock.Mock()
+        logs.read_text.return_value = ""
         client = mock.Mock()
         client.poll.return_value = None
         for body in ("A", "B", "DIRECT"):
@@ -191,11 +192,13 @@ class LabTests(unittest.TestCase):
                     lab.check_tls_rejection(logs, client)
 
     def test_tls_rejection_does_not_pass_after_client_exit(self):
+        logs = mock.Mock()
+        logs.read_text.return_value = ""
         client = mock.Mock()
         client.poll.side_effect = [None, None, 1]
         with mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(502, "")):
             with self.assertRaisesRegex(AssertionError, "Client exited"):
-                lab.check_tls_rejection(mock.Mock(), client)
+                lab.check_tls_rejection(logs, client)
 
     def test_backend_negative_control_really_returns_direct(self):
         with lab.backend("DIRECT") as port:
