@@ -334,7 +334,6 @@ class LabTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
-imeout=2)
 
 if __name__ == "__main__":
     unittest.main()
