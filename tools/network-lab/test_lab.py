@@ -1,8 +1,10 @@
 import hashlib
 import http.client
+import http.server
 import pathlib
 import socket
 import sys
+import threading
 import tempfile
 import unittest
 from unittest import mock
@@ -235,6 +237,48 @@ class LabTests(unittest.TestCase):
                 finally:
                     connection.close()
 
+
+    def test_tls_negative_reports_truncated_502_diagnostics(self):
+        class TruncatedResponse(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(502)
+                self.send_header("Content-Length", "12")
+                self.end_headers()
+                self.wfile.write(b"short")
+                self.wfile.flush()
+
+            def log_message(self, *_):
+                pass
+
+        server = http.server.ThreadingHTTPServer((lab.HOST, 0), TruncatedResponse)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        original_port = lab.PORTS["core"]
+        try:
+            lab.PORTS["core"] = server.server_port
+            with tempfile.TemporaryDirectory() as folder:
+                log_path = pathlib.Path(folder) / "process.log"
+                log_path.write_text(
+                    "\n".join(f"synthetic line {index}" for index in range(50)),
+                    encoding="utf-8",
+                )
+                client = mock.Mock()
+                client.poll.return_value = None
+                with self.assertRaises(Exception) as failure:
+                    lab.check_tls_rejection(log_path, client)
+
+            message = str(failure.exception)
+            self.assertIn("response body", message)
+            self.assertIn("IncompleteRead", message)
+            self.assertIn("status=502", message)
+            notes = "\n".join(getattr(failure.exception, "__notes__", []))
+            self.assertIn("synthetic line 49", notes)
+            self.assertNotIn("synthetic line 0", notes)
+        finally:
+            lab.PORTS["core"] = original_port
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 if __name__ == "__main__":
     unittest.main()
