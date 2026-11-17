@@ -188,7 +188,7 @@ class LabTests(unittest.TestCase):
         client = mock.Mock()
         client.poll.return_value = None
         for body in ("A", "B", "DIRECT"):
-            with self.subTest(body=body), mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(200, body)):
+            with self.subTest(body=body), mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(200, body)), mock.patch.object(lab, "add_process_log_tail"):
                 with self.assertRaisesRegex(AssertionError, "Expected a live proxy"):
                     lab.check_tls_rejection(logs, client)
 
@@ -197,7 +197,7 @@ class LabTests(unittest.TestCase):
         logs.read_text.return_value = ""
         client = mock.Mock()
         client.poll.side_effect = [None, None, 1]
-        with mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(502, "")):
+        with mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(502, "")), mock.patch.object(lab, "add_process_log_tail"):
             with self.assertRaisesRegex(AssertionError, "Client exited"):
                 lab.check_tls_rejection(logs, client)
 
