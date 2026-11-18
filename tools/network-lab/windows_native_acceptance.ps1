@@ -562,7 +562,6 @@ function Install-CvrRecoveryService {
 
         $stage = 'verify helper-installed live service and captured core'
         Assert-LiveServiceIdentity
-        Assert-LiveCoreIdentity
 
         $stage = 'stop verified helper-started service before GUI startup'
         Stop-Service -Name $serviceName -Force -ErrorAction Stop

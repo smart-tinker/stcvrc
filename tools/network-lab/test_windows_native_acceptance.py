@@ -95,11 +95,21 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "GetFileName($preimagePath) -cne 'verge-mihomo.exe'",
             "Set-Acl -LiteralPath $serviceCore -AclObject $preimageAcl",
             "Stop-Service -Name $serviceName",
-            "Assert-LiveCoreIdentity",
             "service-core ACL SDDL SHA256 expected=",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, recovery_install)
+        self.assertNotIn("Assert-LiveCoreIdentity", recovery_install)
+        selected_ready = source.split("function Assert-SelectedProfileReady", 1)[1].split(
+            "function Assert-SelectedSidecarProfileReady", 1
+        )[0]
+        self.assertIn("Assert-LiveCoreIdentity", selected_ready)
+        recovery = source.split("} elseif ($Phase -eq 'recovery') {", 1)[1].split(
+            "} else {", 1
+        )[0]
+        restart = recovery.index("Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN'")
+        self.assertLess(recovery.index("Invoke-CvrCommand -Command 'patch_verge_config'"), restart)
+        self.assertLess(restart, recovery.index("Assert-SelectedProfileReady"))
         self.assertLess(
             source.index("Install-CvrRecoveryService -CorePreimagePath $RecoveryServiceCorePreimagePath"),
             source.index("$gui=Start-Process -FilePath $guiPath"),
