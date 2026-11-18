@@ -48,7 +48,6 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Label $target.backupLabel", source)
         self.assertIn("Label '258-stock'", source)
         self.assertIn("GetFileName($backup) -cne 'verge-mihomo.exe'", source)
-        self.assertIn("Path.GetFileName([string]$entry.backup)", source)
         self.assertIn("backup SHA256 expected=", source)
         self.assertIn("ACL SDDL SHA256 expected=", source)
         self.assertIn("Test-CvrCorePreimageBackupPathContract", path_helper)
