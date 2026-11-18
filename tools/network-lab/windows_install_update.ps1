@@ -145,6 +145,106 @@ function Invoke-CvrInstaller {
     }
 }
 
+function Get-CvrLegacyRunValue {
+    param([string]$Hive, [string]$Name)
+    $registryHive = [System.Enum]::Parse([Microsoft.Win32.RegistryHive], $Hive)
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($registryHive, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $false)
+        if (-not $key) { return $null }
+        try {
+            if (@($key.GetValueNames()) -notcontains $Name) { return $null }
+            return [PSCustomObject]@{
+                kind = $key.GetValueKind($Name).ToString()
+                data = [string]$key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            }
+        } finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function Set-CvrLegacyRunValue {
+    param([string]$Hive, [string]$Name, [string]$Kind, [string]$Data)
+    $registryHive = [System.Enum]::Parse([Microsoft.Win32.RegistryHive], $Hive)
+    $valueKind = [System.Enum]::Parse([Microsoft.Win32.RegistryValueKind], $Kind)
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($registryHive, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
+        if (-not $key) { $key = $base.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true) }
+        if (-not $key) { throw 'Could not create the synthetic Run-key fixture.' }
+        try { $key.SetValue($Name, $Data, $valueKind) }
+        finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function New-CvrSyntheticLegacyPreimage {
+    $windowStateRoot = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'
+    $files = @(
+        (Join-Path $windowStateRoot 'window-state.json'),
+        (Join-Path $windowStateRoot '.window-state.json')
+    )
+    if (@($files | Where-Object { Test-Path -LiteralPath $_ })) {
+        throw 'Refusing preexisting synthetic window-state targets.'
+    }
+    $fixtureId = [Guid]::NewGuid().ToString('N')
+    $registry = @(
+        [PSCustomObject]@{ hive='CurrentUser'; name='Clash Verge'; kind='String'; data="STCVRC-fixture-$fixtureId-cu-main" },
+        [PSCustomObject]@{ hive='LocalMachine'; name='Clash Verge'; kind='String'; data="STCVRC-fixture-$fixtureId-lm-main" },
+        [PSCustomObject]@{ hive='CurrentUser'; name='clash-verge'; kind='ExpandString'; data="STCVRC-fixture-$fixtureId-cu-legacy" },
+        [PSCustomObject]@{ hive='LocalMachine'; name='clash-verge'; kind='ExpandString'; data="STCVRC-fixture-$fixtureId-lm-legacy" }
+    )
+    foreach ($entry in $registry) {
+        if (Get-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name) {
+            throw 'Refusing preexisting synthetic Run-value targets.'
+        }
+    }
+    New-Item -ItemType Directory -Force -Path $windowStateRoot | Out-Null
+    $fileRecords = @()
+    foreach ($path in $files) {
+        $text = '{"fixture":"' + $fixtureId + '","state":"synthetic"}' + "`n"
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+        [IO.File]::WriteAllBytes($path, $bytes)
+        $fileRecords += [PSCustomObject]@{
+            path = $path
+            bytes = [Convert]::ToBase64String($bytes)
+            sddl = (Get-Acl -LiteralPath $path).Sddl
+        }
+    }
+    foreach ($entry in $registry) {
+        Set-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name -Kind $entry.kind -Data $entry.data
+    }
+    return [PSCustomObject]@{ phase=$fixtureId; files=$fileRecords; registry=$registry }
+}
+
+function Assert-CvrSyntheticLegacyPreimage {
+    param($Fixture, [string]$Phase)
+    $failures = [Collections.Generic.List[string]]::new()
+    foreach ($entry in $Fixture.files) {
+        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf)) {
+            $failures.Add('window-state file missing')
+            continue
+        }
+        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($entry.path)) -cne $entry.bytes) {
+            $failures.Add('window-state content changed')
+        }
+        if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
+            $failures.Add('window-state ACL changed')
+        }
+    }
+    foreach ($entry in $Fixture.registry) {
+        $actual = Get-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name
+        if (-not $actual) {
+            $failures.Add("Run value missing: $($entry.hive)/Registry64/$($entry.name)")
+            continue
+        }
+        if ($actual.kind -cne $entry.kind -or $actual.data -cne $entry.data) {
+            $failures.Add("Run value type/data changed: $($entry.hive)/Registry64/$($entry.name)")
+        }
+    }
+    if ($failures.Count) {
+        throw "CVR $Phase installer did not preserve its captured preimage: $($failures -join '; ')."
+    }
+}
+
 function Invoke-CvrOverlayReinstall {
     param([string]$InstallDirectory)
     $started = [DateTime]::UtcNow
@@ -328,7 +428,9 @@ Assert-CoreStartDecisionVectors
 
 $processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
 Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
+$legacyStatePreimage = New-CvrSyntheticLegacyPreimage
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
+Assert-CvrSyntheticLegacyPreimage -Fixture $legacyStatePreimage -Phase '2.5.8 install'
 Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline'
 Invoke-NativePhase -Phase seed -InstallDirectory $install258
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
