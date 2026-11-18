@@ -320,7 +320,9 @@ function Restore-CvrLegacyState {
             }
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $entry.path) | Out-Null
             [IO.File]::WriteAllBytes($entry.path, [Convert]::FromBase64String($entry.bytes))
-            Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+            if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
+                Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+            }
         } catch {
             $failures.Add('window-state preimage restore failed')
         }
