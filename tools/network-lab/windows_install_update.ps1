@@ -456,20 +456,25 @@ function Restore-CvrCorePairPreimage {
     } catch {
         $failures.Add('Program Files core preimage restore failed')
     }
+    $serviceRestoreStage = 'helper lookup'
     try {
         $entry = $Preimage.service
         $helper = Get-CvrServiceInstallHelper -Version $HelperVersion
+        $serviceRestoreStage = 'helper core restore'
         $output = & $helper.path --install-core $entry.backup --sha256 $entry.sha256 2>&1
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) { throw "version-pinned helper exit $exitCode" }
+        $serviceRestoreStage = 'service core content verification'
         if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf) -or
             (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
             throw 'service core hash mismatch'
         }
+        $serviceRestoreStage = 'service core ACL restore'
         Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+        $serviceRestoreStage = 'service core ACL verification'
         if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) { throw 'service core ACL mismatch' }
     } catch {
-        $failures.Add('service core preimage restore failed')
+        $failures.Add("service core preimage restore failed at $serviceRestoreStage")
     }
     if ($failures.Count) { throw "CVR core rollback was incomplete: $($failures -join '; ')." }
     Assert-CvrCorePairPreimage -Preimage $Preimage -Phase 'rollback'
