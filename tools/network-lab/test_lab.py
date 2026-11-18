@@ -1,8 +1,11 @@
 import hashlib
+import io
 import http.client
+import http.server
 import pathlib
 import socket
 import sys
+import threading
 import tempfile
 import unittest
 from unittest import mock
@@ -155,7 +158,7 @@ class LabTests(unittest.TestCase):
         client.poll.return_value = None
         with mock.patch.object(lab, "request", return_value=(502, "")) as request:
             lab.check_both_down(client)
-            self.assertEqual(request.call_args_list, [mock.call(timeout=10)] * 3)
+            self.assertEqual(request.call_args_list, [mock.call(timeout=10, strict=True)] * 3)
         for status in (None, 200, 503):
             with self.subTest(status=status), mock.patch.object(lab, "request", return_value=(status, "")):
                 with self.assertRaises(AssertionError):
@@ -181,19 +184,22 @@ class LabTests(unittest.TestCase):
 
     def test_tls_rejection_does_not_accept_either_endpoint_or_direct(self):
         logs = mock.Mock()
+        logs.read_text.return_value = ""
         client = mock.Mock()
         client.poll.return_value = None
         for body in ("A", "B", "DIRECT"):
-            with self.subTest(body=body), mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(200, body)):
+            with self.subTest(body=body), mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(200, body)), mock.patch.object(lab, "add_process_log_tail"):
                 with self.assertRaisesRegex(AssertionError, "Expected a live proxy"):
                     lab.check_tls_rejection(logs, client)
 
     def test_tls_rejection_does_not_pass_after_client_exit(self):
+        logs = mock.Mock()
+        logs.read_text.return_value = ""
         client = mock.Mock()
         client.poll.side_effect = [None, None, 1]
-        with mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(502, "")):
+        with mock.patch.object(lab.socket, "create_connection"), mock.patch.object(lab, "request", return_value=(502, "")), mock.patch.object(lab, "add_process_log_tail"):
             with self.assertRaisesRegex(AssertionError, "Client exited"):
-                lab.check_tls_rejection(mock.Mock(), client)
+                lab.check_tls_rejection(logs, client)
 
     def test_backend_negative_control_really_returns_direct(self):
         with lab.backend("DIRECT") as port:
@@ -235,6 +241,102 @@ class LabTests(unittest.TestCase):
                 finally:
                     connection.close()
 
+
+    def test_add_process_log_tail_reads_bounded_suffix(self):
+        class TrackedLog(io.BytesIO):
+            def __init__(self, data):
+                super().__init__(data)
+                self.read_sizes = []
+
+            def read(self, size=-1):
+                self.read_sizes.append(size)
+                return super().read(size)
+
+        stream = TrackedLog(b"before\n" * 5000 + b"last line\n")
+        log_path = mock.MagicMock()
+        log_path.open.return_value.__enter__.return_value = stream
+        log_path.read_text.side_effect = AssertionError("must not read the whole log")
+        failure = RuntimeError("synthetic failure")
+
+        lab.add_process_log_tail(failure, log_path)
+
+        self.assertEqual(stream.read_sizes, [16 * 1024])
+        notes = "\n".join(getattr(failure, "__notes__", []))
+        self.assertIn("last line", notes)
+
+
+    def test_tls_negative_reports_truncated_502_diagnostics(self):
+        class SyntheticResponse(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            response_mode = "chunked"
+            body = b"short"
+            requests = 0
+
+            def do_GET(self):
+                type(self).requests += 1
+                self.close_connection = True
+                self.send_response(502)
+                if self.response_mode == "chunked":
+                    self.send_header("Transfer-Encoding", "chunked")
+                else:
+                    self.send_header("Content-Length", "12")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.response_mode == "chunked":
+                    self.wfile.write(b"5\r\nshort\r\n")
+                else:
+                    self.wfile.write(self.body)
+                self.wfile.flush()
+
+            def log_message(self, *_):
+                pass
+
+        server = http.server.ThreadingHTTPServer((lab.HOST, 0), SyntheticResponse)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        original_port = lab.PORTS["core"]
+        try:
+            lab.PORTS["core"] = server.server_port
+            marker = "certificate is valid for stcvrc-lab.invalid, not wrong-stcvrc-lab.invalid"
+            with tempfile.TemporaryDirectory() as folder:
+                log_path = pathlib.Path(folder) / "process.log"
+                log_path.write_text(
+                    "\n".join([*(f"synthetic line {index}" for index in range(50)), marker]),
+                    encoding="utf-8",
+                )
+                client = mock.Mock()
+                client.poll.return_value = None
+
+                for response_mode in ("chunked", "content-length"):
+                    with self.subTest(response_mode=response_mode):
+                        SyntheticResponse.response_mode = response_mode
+                        SyntheticResponse.body = b"short"
+                        SyntheticResponse.requests = 0
+                        with self.assertRaises(lab.RequestFailure) as failure:
+                            lab.check_tls_rejection(log_path, client)
+
+                        self.assertEqual(failure.exception.phase, "response body")
+                        self.assertEqual(failure.exception.exception_type, "IncompleteRead")
+                        self.assertEqual(failure.exception.status, 502)
+                        self.assertEqual(SyntheticResponse.requests, 1)
+                        notes = "\n".join(getattr(failure.exception, "__notes__", []))
+                        self.assertIn(marker, notes)
+                        self.assertIn("synthetic line 49", notes)
+                        self.assertNotIn("synthetic line 0", notes)
+
+                SyntheticResponse.response_mode = "content-length"
+                SyntheticResponse.body = b"012345678901"
+                SyntheticResponse.requests = 0
+                self.assertEqual(
+                    lab.check_tls_rejection(log_path, client),
+                    {"tls_hostname_mismatch_rejected": True},
+                )
+                self.assertEqual(SyntheticResponse.requests, 3)
+        finally:
+            lab.PORTS["core"] = original_port
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 if __name__ == "__main__":
     unittest.main()
