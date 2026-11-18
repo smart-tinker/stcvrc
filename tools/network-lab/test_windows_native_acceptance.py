@@ -28,6 +28,16 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Invoke-CvrInstaller -Version '2.5.10'", source)
         self.assertIn("Invoke-NativePhase", source)
 
+    def test_nsis_side_effects_and_split_core_preimages_are_restored(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("Invoke-CvrStateTransaction", source)
+        self.assertIn("Assert-CvrInstallerChangedLegacyPreimage", source)
+        self.assertIn("Restore-CvrLegacyState", source)
+        self.assertIn("Get-CvrCorePairPreimage", source)
+        self.assertIn("Restore-CvrCorePairPreimage", source)
+        self.assertIn("Set-CvrSyntheticSplitCorePreimage", source)
+        self.assertIn("Assert-CvrCorePairPreimage", source)
+
     def test_native_acceptance_checks_safety_and_real_runtime(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         required = (
@@ -304,7 +314,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_cvr_2510_overlay_reinstall_starts_with_running_gui(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Invoke-CvrOverlayReinstall", source)
-        overlay = source.split("function Invoke-CvrOverlayReinstall", 1)[1].split(
+        overlay = source.split("function Invoke-CvrOverlayReinstallAction", 1)[1].split(
             "\nfunction ", 1
         )[0]
         for assertion in (

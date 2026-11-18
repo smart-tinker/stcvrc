@@ -39,7 +39,8 @@
           "sha256": "61aa5b1d1573d427db7712c07c34cbae5334caa8850ac2ba7d863c46fb8f4e39",
           "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/latest.json"
         }
-      }
+      },
+      "serviceInstallHelperSha256": "fa3a36b13d75e775162e29d307b94efcba78f814ba766d755699ee5821189b77"
     },
     {
       "version": "2.5.10",
@@ -77,7 +78,8 @@
           "sha256": "f1a55f966257d38fa45e54714abeef5ce8a83aaac7040fb4fa92691f4f216f92",
           "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/latest.json"
         }
-      }
+      },
+      "serviceInstallHelperSha256": "432a81a6fcd636b0ed2472f224d178fe02f0b3422fff51e3f76e625e44bc1574"
     }
   ],
   "core": {

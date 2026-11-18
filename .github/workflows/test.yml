@@ -627,8 +627,15 @@ jobs:
             if ($helperFiles.Count -ne 1) { throw "CVR $($release.version) payload expected one service-install helper, found $($helperFiles.Count)" }
             $helperHash = (Get-FileHash -LiteralPath $helperFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($helperHash -notmatch '^[0-9a-f]{64}$') { throw "CVR $($release.version) service-install helper SHA256 is malformed" }
-            if ($release.version -eq '2.5.8') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_SERVICE_INSTALL_HELPER_SHA256=$helperHash" }
-            if ($release.version -eq '2.5.10') { Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_INSTALL_HELPER_SHA256=$helperHash" }
+            if ($helperHash -cne [string]$release.serviceInstallHelperSha256) { throw "CVR $($release.version) extracted helper does not match its exact pin" }
+            if ($release.version -eq '2.5.8') {
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_SERVICE_INSTALL_HELPER_SHA256=$helperHash"
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_SERVICE_INSTALL_HELPER_PATH=$($helperFiles[0].FullName)"
+            }
+            if ($release.version -eq '2.5.10') {
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_INSTALL_HELPER_SHA256=$helperHash"
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_INSTALL_HELPER_PATH=$($helperFiles[0].FullName)"
+            }
             Write-Host "CVR $($release.version) extracted service-install helper SHA256: $helperHash"
             Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "CVR $($release.version) extracted service-install helper SHA256: $helperHash."
             $guiFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge.exe' })

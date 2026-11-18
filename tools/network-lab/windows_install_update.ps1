@@ -63,6 +63,7 @@ if (Test-Path -LiteralPath (Split-Path -Parent $profileDirectory)) { throw 'Refu
 
 $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$script:manifest = $manifest
 if ($manifest.repository -ne 'clash-verge-rev/clash-verge-rev' -or (@($manifest.releases | ForEach-Object { $_.version }) -join ',') -ne '2.5.8,2.5.10') {
     throw 'Unexpected pinned CVR release pair.'
 }
@@ -130,6 +131,13 @@ function Get-InstalledCvrDirectory {
 }
 
 function Invoke-CvrInstaller {
+    param([string]$Version, [string[]]$Arguments, [switch]$PreserveCorePair)
+    return Invoke-CvrStateTransaction -Phase "CVR $Version installer" -HelperVersion $Version -InstallDirectory $script:installDirectory -PreserveCorePair:$PreserveCorePair -Action {
+        Invoke-CvrInstallerAction -Version $Version -Arguments $Arguments
+    }
+}
+
+function Invoke-CvrInstallerAction {
     param([string]$Version, [string[]]$Arguments)
     $started = [DateTime]::UtcNow
     try {
@@ -156,14 +164,14 @@ function Get-CvrLegacyRunValue {
             if (@($key.GetValueNames()) -notcontains $Name) { return $null }
             return [PSCustomObject]@{
                 kind = $key.GetValueKind($Name).ToString()
-                data = [string]$key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                data = $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
             }
         } finally { $key.Dispose() }
     } finally { $base.Dispose() }
 }
 
 function Set-CvrLegacyRunValue {
-    param([string]$Hive, [string]$Name, [string]$Kind, [string]$Data)
+    param([string]$Hive, [string]$Name, [string]$Kind, [object]$Data)
     $registryHive = [System.Enum]::Parse([Microsoft.Win32.RegistryHive], $Hive)
     $valueKind = [System.Enum]::Parse([Microsoft.Win32.RegistryValueKind], $Kind)
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($registryHive, [Microsoft.Win32.RegistryView]::Registry64)
@@ -176,15 +184,161 @@ function Set-CvrLegacyRunValue {
     } finally { $base.Dispose() }
 }
 
+function Remove-CvrLegacyRunValue {
+    param([string]$Hive, [string]$Name)
+    $registryHive = [System.Enum]::Parse([Microsoft.Win32.RegistryHive], $Hive)
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($registryHive, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
+        if (-not $key) { return }
+        try { $key.DeleteValue($Name, $false) }
+        finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function Get-CvrLegacyState {
+    $windowStateRoot = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'
+    $filePaths = @(
+        (Join-Path $windowStateRoot 'window-state.json'),
+        (Join-Path $windowStateRoot '.window-state.json')
+    )
+    $files = foreach ($path in $filePaths) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $acl = Get-Acl -LiteralPath $path
+            [PSCustomObject]@{
+                path = $path
+                present = $true
+                bytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
+                sddl = $acl.Sddl
+                acl = $acl
+            }
+        } else {
+            [PSCustomObject]@{ path = $path; present = $false; bytes = $null; sddl = $null; acl = $null }
+        }
+    }
+    $registryTargets = @(
+        [PSCustomObject]@{ hive='CurrentUser'; name='Clash Verge' },
+        [PSCustomObject]@{ hive='LocalMachine'; name='Clash Verge' },
+        [PSCustomObject]@{ hive='CurrentUser'; name='clash-verge' },
+        [PSCustomObject]@{ hive='LocalMachine'; name='clash-verge' }
+    )
+    $registry = foreach ($target in $registryTargets) {
+        $value = Get-CvrLegacyRunValue -Hive $target.hive -Name $target.name
+        [PSCustomObject]@{
+            hive = $target.hive
+            name = $target.name
+            present = [bool]$value
+            kind = if ($value) { $value.kind } else { $null }
+            data = if ($value) { $value.data } else { $null }
+        }
+    }
+    return [PSCustomObject]@{ files=@($files); registry=@($registry) }
+}
+
+function Test-CvrRegistryDataEqual {
+    param([object]$Expected, [object]$Actual)
+    $expectedJson = ConvertTo-Json -InputObject $Expected -Compress -Depth 8
+    $actualJson = ConvertTo-Json -InputObject $Actual -Compress -Depth 8
+    return $expectedJson -ceq $actualJson
+}
+
+function Assert-CvrLegacyState {
+    param($Expected, [string]$Phase)
+    $actual = Get-CvrLegacyState
+    $failures = [Collections.Generic.List[string]]::new()
+    for ($index = 0; $index -lt $Expected.files.Count; $index++) {
+        $before = $Expected.files[$index]
+        $after = $actual.files[$index]
+        if ([bool]$after.present -ne [bool]$before.present) {
+            $failures.Add('window-state presence changed')
+            continue
+        }
+        if ($before.present) {
+            if ($after.bytes -cne $before.bytes) { $failures.Add('window-state content changed') }
+            if ($after.sddl -cne $before.sddl) { $failures.Add('window-state ACL changed') }
+        }
+    }
+    for ($index = 0; $index -lt $Expected.registry.Count; $index++) {
+        $before = $Expected.registry[$index]
+        $after = $actual.registry[$index]
+        if ([bool]$after.present -ne [bool]$before.present) {
+            $failures.Add("Run value presence changed: $($before.hive)/Registry64/$($before.name)")
+            continue
+        }
+        if ($before.present -and (
+            $after.kind -cne $before.kind -or
+            -not (Test-CvrRegistryDataEqual -Expected $before.data -Actual $after.data)
+        )) {
+            $failures.Add("Run value type/data changed: $($before.hive)/Registry64/$($before.name)")
+        }
+    }
+    if ($failures.Count) { throw "CVR $Phase state mismatch: $($failures -join '; ')." }
+}
+
+function Assert-CvrInstallerChangedLegacyPreimage {
+    param($Preimage, [string]$Phase)
+    $actual = Get-CvrLegacyState
+    for ($index = 0; $index -lt $Preimage.files.Count; $index++) {
+        $before = $Preimage.files[$index]
+        $after = $actual.files[$index]
+        if ($before.present -and $after.present -and $after.bytes -ceq $before.bytes) {
+            throw "CVR $Phase NSIS did not replace or delete its synthetic window-state preimage."
+        }
+    }
+    for ($index = 0; $index -lt $Preimage.registry.Count; $index++) {
+        $before = $Preimage.registry[$index]
+        $after = $actual.registry[$index]
+        if ($before.present -and $after.present -and $after.kind -ceq $before.kind -and
+            (Test-CvrRegistryDataEqual -Expected $before.data -Actual $after.data)) {
+            throw "CVR $Phase NSIS did not replace or delete its synthetic Run-value preimage."
+        }
+    }
+}
+
+function Restore-CvrLegacyState {
+    param($State)
+    $failures = [Collections.Generic.List[string]]::new()
+    foreach ($entry in $State.files) {
+        try {
+            if (-not $entry.present) {
+                if (Test-Path -LiteralPath $entry.path) {
+                    if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf)) { throw 'target is not a file' }
+                    Remove-Item -LiteralPath $entry.path -Force -ErrorAction Stop
+                }
+                continue
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $entry.path) | Out-Null
+            [IO.File]::WriteAllBytes($entry.path, [Convert]::FromBase64String($entry.bytes))
+            Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+        } catch {
+            $failures.Add('window-state preimage restore failed')
+        }
+    }
+    foreach ($entry in $State.registry) {
+        try {
+            if (-not $entry.present) {
+                Remove-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name
+                continue
+            }
+            Set-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name -Kind $entry.kind -Data $entry.data
+        } catch {
+            $failures.Add("Run-value preimage restore failed: $($entry.hive)/Registry64/$($entry.name)")
+        }
+    }
+    if ($failures.Count) { throw "CVR preimage rollback was incomplete: $($failures -join '; ')." }
+    Assert-CvrLegacyState -Expected $State -Phase 'preimage restore'
+}
+
 function New-CvrSyntheticLegacyPreimage {
+    $baseline = Get-CvrLegacyState
+    if (@($baseline.files | Where-Object { $_.present }).Count -or @($baseline.registry | Where-Object { $_.present }).Count) {
+        throw 'Refusing preexisting synthetic window-state or Run-value targets.'
+    }
     $windowStateRoot = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'
     $files = @(
         (Join-Path $windowStateRoot 'window-state.json'),
         (Join-Path $windowStateRoot '.window-state.json')
     )
-    if (@($files | Where-Object { Test-Path -LiteralPath $_ })) {
-        throw 'Refusing preexisting synthetic window-state targets.'
-    }
     $fixtureId = [Guid]::NewGuid().ToString('N')
     $registry = @(
         [PSCustomObject]@{ hive='CurrentUser'; name='Clash Verge'; kind='String'; data="STCVRC-fixture-$fixtureId-cu-main" },
@@ -192,60 +346,211 @@ function New-CvrSyntheticLegacyPreimage {
         [PSCustomObject]@{ hive='CurrentUser'; name='clash-verge'; kind='ExpandString'; data="STCVRC-fixture-$fixtureId-cu-legacy" },
         [PSCustomObject]@{ hive='LocalMachine'; name='clash-verge'; kind='ExpandString'; data="STCVRC-fixture-$fixtureId-lm-legacy" }
     )
-    foreach ($entry in $registry) {
-        if (Get-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name) {
-            throw 'Refusing preexisting synthetic Run-value targets.'
-        }
-    }
     New-Item -ItemType Directory -Force -Path $windowStateRoot | Out-Null
-    $fileRecords = @()
     foreach ($path in $files) {
-        $text = '{"fixture":"' + $fixtureId + '","state":"synthetic"}' + "`n"
-        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
-        [IO.File]::WriteAllBytes($path, $bytes)
-        $fileRecords += [PSCustomObject]@{
-            path = $path
-            bytes = [Convert]::ToBase64String($bytes)
-            sddl = (Get-Acl -LiteralPath $path).Sddl
-        }
+        $text = '{"fixture":"' + $fixtureId + '","state":"synthetic"}' + [Environment]::NewLine
+        [IO.File]::WriteAllBytes($path, [Text.UTF8Encoding]::new($false).GetBytes($text))
     }
     foreach ($entry in $registry) {
         Set-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name -Kind $entry.kind -Data $entry.data
     }
-    return [PSCustomObject]@{ phase=$fixtureId; files=$fileRecords; registry=$registry }
+    $state = Get-CvrLegacyState
+    Assert-CvrLegacyState -Expected $state -Phase 'synthetic fixture setup'
+    return [PSCustomObject]@{ baseline=$baseline; state=$state; fixtureId=$fixtureId }
 }
 
-function Assert-CvrSyntheticLegacyPreimage {
-    param($Fixture, [string]$Phase)
+function Remove-CvrSyntheticLegacyPreimage {
+    param($Fixture)
+    Restore-CvrLegacyState -State $Fixture.baseline
+    Assert-CvrLegacyState -Expected $Fixture.baseline -Phase 'synthetic baseline restore'
+}
+
+function Get-CvrServiceInstallHelper {
+    param([ValidateSet('2.5.8','2.5.10')][string]$Version)
+    $release = @($script:manifest.releases | Where-Object { $_.version -ceq $Version })
+    if ($release.Count -ne 1) { throw "Expected one pinned CVR $Version release." }
+    $expected = [string]$release[0].serviceInstallHelperSha256
+    if ($expected -notmatch '^[0-9a-f]{64}$') { throw "CVR $Version helper pin is missing or malformed." }
+    $suffix = if ($Version -eq '2.5.8') { '258' } else { '2510' }
+    $path = [Environment]::GetEnvironmentVariable("CVR_$($suffix)_SERVICE_INSTALL_HELPER_PATH")
+    $envSha = [Environment]::GetEnvironmentVariable("CVR_$($suffix)_SERVICE_INSTALL_HELPER_SHA256")
+    if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "The extracted CVR $Version service-install helper is missing."
+    }
+    $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -cne $expected -or $envSha -cne $expected) {
+        throw "Extracted CVR $Version helper does not match its installer-derived pin."
+    }
+    return [PSCustomObject]@{ path=$path; sha256=$expected }
+}
+
+function Get-CvrCorePairPreimage {
+    param([string]$InstallDirectory)
+    Assert-NoService
+    Assert-NoCvrProcesses
+    $targets = @(
+        [PSCustomObject]@{ role='Program Files core'; path=(Join-Path $InstallDirectory 'verge-mihomo.exe') },
+        [PSCustomObject]@{ role='service core'; path=(Join-Path $serviceData 'cores\verge-mihomo.exe') }
+    )
+    if ([IO.Path]::GetFullPath($targets[0].path) -ieq [IO.Path]::GetFullPath($targets[1].path)) {
+        throw 'Program Files and service core paths are not separate.'
+    }
+    $records = foreach ($target in $targets) {
+        if (-not (Test-Path -LiteralPath $target.path -PathType Leaf)) { throw "Missing $($target.role) before NSIS." }
+        $sha = (Get-FileHash -LiteralPath $target.path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $acl = Get-Acl -LiteralPath $target.path
+        $backup = Join-Path $env:RUNNER_TEMP ("cvr-core-preimage-" + [Guid]::NewGuid().ToString('N') + '.exe')
+        Copy-Item -LiteralPath $target.path -Destination $backup
+        if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha) {
+            throw "Could not retain $($target.role) preimage."
+        }
+        [PSCustomObject]@{
+            role = $target.role
+            path = [IO.Path]::GetFullPath($target.path)
+            backup = $backup
+            sha256 = $sha
+            sddl = $acl.Sddl
+            acl = $acl
+        }
+    }
+    return [PSCustomObject]@{ programFiles=$records[0]; service=$records[1] }
+}
+
+function Assert-CvrCorePairPreimage {
+    param($Preimage, [string]$Phase)
+    foreach ($entry in @($Preimage.programFiles, $Preimage.service)) {
+        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256 -or
+            (Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
+            throw "CVR $Phase $($entry.role) preimage restore mismatch."
+        }
+    }
+}
+
+function Restore-CvrCorePairPreimage {
+    param($Preimage, [ValidateSet('2.5.8','2.5.10')][string]$HelperVersion)
+    Assert-NoService
+    Assert-NoCvrProcesses
     $failures = [Collections.Generic.List[string]]::new()
-    foreach ($entry in $Fixture.files) {
-        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf)) {
-            $failures.Add('window-state file missing')
-            continue
+    try {
+        $entry = $Preimage.programFiles
+        Copy-Item -LiteralPath $entry.backup -Destination $entry.path -Force
+        Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+        if ((Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256 -or
+            (Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
+            throw 'Program Files core hash/ACL mismatch'
         }
-        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($entry.path)) -cne $entry.bytes) {
-            $failures.Add('window-state content changed')
+    } catch {
+        $failures.Add('Program Files core preimage restore failed')
+    }
+    try {
+        $entry = $Preimage.service
+        $helper = Get-CvrServiceInstallHelper -Version $HelperVersion
+        $output = & $helper.path --install-core $entry.backup --sha256 $entry.sha256 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) { throw "version-pinned helper exit $exitCode" }
+        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+            throw 'service core hash mismatch'
         }
-        if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
-            $failures.Add('window-state ACL changed')
+        Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+        if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) { throw 'service core ACL mismatch' }
+    } catch {
+        $failures.Add('service core preimage restore failed')
+    }
+    if ($failures.Count) { throw "CVR core rollback was incomplete: $($failures -join '; ')." }
+    Assert-CvrCorePairPreimage -Preimage $Preimage -Phase 'rollback'
+}
+
+function Invoke-CvrStateTransaction {
+    param(
+        [string]$Phase,
+        [ValidateSet('2.5.8','2.5.10')][string]$HelperVersion,
+        [string]$InstallDirectory,
+        [switch]$PreserveCorePair,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    if (-not $script:legacyStateFixture) { throw 'Synthetic NSIS preimage fixture was not prepared.' }
+    Restore-CvrLegacyState -State $script:legacyStateFixture.state
+    $legacyPreimage = Get-CvrLegacyState
+    $corePreimage = $null
+    if ($PreserveCorePair) { $corePreimage = Get-CvrCorePairPreimage -InstallDirectory $InstallDirectory }
+
+    $result = $null
+    $actionFailure = $null
+    try {
+        $result = & $Action
+        Assert-CvrInstallerChangedLegacyPreimage -Preimage $legacyPreimage -Phase $Phase
+    } catch {
+        $actionFailure = $_.Exception.Message
+    }
+
+    $restoreFailures = [Collections.Generic.List[string]]::new()
+    try {
+        Restore-CvrLegacyState -State $legacyPreimage
+        Assert-CvrLegacyState -Expected $legacyPreimage -Phase "$Phase legacy restore"
+    } catch {
+        $restoreFailures.Add("legacy state: $($_.Exception.Message)")
+    }
+    if ($corePreimage) {
+        try {
+            Restore-CvrCorePairPreimage -Preimage $corePreimage -HelperVersion $HelperVersion
+            Assert-CvrCorePairPreimage -Preimage $corePreimage -Phase $Phase
+        } catch {
+            $restoreFailures.Add("separate core files: $($_.Exception.Message)")
         }
     }
-    foreach ($entry in $Fixture.registry) {
-        $actual = Get-CvrLegacyRunValue -Hive $entry.hive -Name $entry.name
-        if (-not $actual) {
-            $failures.Add("Run value missing: $($entry.hive)/Registry64/$($entry.name)")
-            continue
-        }
-        if ($actual.kind -cne $entry.kind -or $actual.data -cne $entry.data) {
-            $failures.Add("Run value type/data changed: $($entry.hive)/Registry64/$($entry.name)")
-        }
+    if ($restoreFailures.Count) {
+        throw "CVR $Phase rollback failed; installer/action error [$actionFailure]; restore errors [$($restoreFailures -join '; ')]."
     }
-    if ($failures.Count) {
-        throw "CVR $Phase installer did not preserve its captured preimage: $($failures -join '; ')."
+    if ($actionFailure) { throw "CVR $Phase failed after its preimages were restored: $actionFailure" }
+    return $result
+}
+
+function Save-CvrSyntheticStockCore {
+    param([string]$InstallDirectory)
+    $path = Join-Path $InstallDirectory 'verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'Pinned 2.5.8 stock Program Files core is missing.' }
+    $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sha -ceq $coreSha) { throw 'Synthetic stock Program Files core must differ from the candidate service core.' }
+    $acl = Get-Acl -LiteralPath $path
+    $backup = Join-Path $env:RUNNER_TEMP ("cvr-258-stock-core-" + [Guid]::NewGuid().ToString('N') + '.exe')
+    Copy-Item -LiteralPath $path -Destination $backup
+    if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha) {
+        throw 'Could not retain the pinned 2.5.8 stock Program Files core.'
     }
+    return [PSCustomObject]@{ path=$backup; sha256=$sha; sddl=$acl.Sddl; acl=$acl }
+}
+
+function Set-CvrSyntheticSplitCorePreimage {
+    param([string]$InstallDirectory, $StockCore)
+    if (-not $StockCore -or -not (Test-Path -LiteralPath $StockCore.path -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $StockCore.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $StockCore.sha256) {
+        throw 'The retained 2.5.8 stock core no longer matches its preimage.'
+    }
+    $programFilesCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
+    $serviceCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $serviceCore -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant() -cne $coreSha) {
+        throw 'Synthetic service core is not the pinned candidate preimage.'
+    }
+    Copy-Item -LiteralPath $StockCore.path -Destination $programFilesCore -Force
+    Set-Acl -LiteralPath $programFilesCore -AclObject $StockCore.acl
+    if ((Get-FileHash -LiteralPath $programFilesCore -Algorithm SHA256).Hash.ToLowerInvariant() -cne $StockCore.sha256 -or
+        (Get-Acl -LiteralPath $programFilesCore).Sddl -cne $StockCore.sddl) {
+        throw 'Could not establish the separate signed-stock Program Files core preimage.'
+    }
+    if ($StockCore.sha256 -ceq $coreSha) { throw 'Synthetic Program Files and service core preimages are not distinct.' }
 }
 
 function Invoke-CvrOverlayReinstall {
+    param([string]$InstallDirectory)
+    return Invoke-CvrStateTransaction -Phase 'CVR 2.5.10 overlay' -HelperVersion '2.5.10' -InstallDirectory $InstallDirectory -PreserveCorePair -Action {
+        Invoke-CvrOverlayReinstallAction -InstallDirectory $InstallDirectory
+    }
+}
+
+function Invoke-CvrOverlayReinstallAction {
     param([string]$InstallDirectory)
     $started = [DateTime]::UtcNow
     $guiPath = Join-Path $InstallDirectory 'clash-verge.exe'
@@ -336,7 +641,7 @@ function Invoke-CvrOverlayReinstall {
 }
 
 function Install-CandidateCore {
-    param([string]$InstallDirectory, [string]$Phase)
+    param([string]$InstallDirectory, [string]$Phase, [ValidateSet('2.5.8','2.5.10')][string]$HelperVersion)
     $started = [DateTime]::UtcNow
     try {
         $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
@@ -347,9 +652,13 @@ function Install-CandidateCore {
         }
         $helpers = @(Get-ChildItem -LiteralPath $InstallDirectory -Recurse -File -Filter 'clash-verge-service-install.exe')
         if ($helpers.Count -ne 1) { throw "Expected one service core-staging helper after $Phase; found $($helpers.Count)." }
+        $helperPin = Get-CvrServiceInstallHelper -Version $HelperVersion
+        if ((Get-FileHash -LiteralPath $helpers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $helperPin.sha256) {
+            throw "Installed CVR $HelperVersion service helper does not match its extracted installer pin."
+        }
         $stageOutput = & $helpers[0].FullName --install-core $installedCore --sha256 $coreSha 2>&1
         $stageExit = $LASTEXITCODE
-        if ($stageExit -ne 0) { throw "SHA-pinned core staging failed after $Phase ($stageExit): $($stageOutput -join ' ')" }
+        if ($stageExit -ne 0) { throw "SHA-pinned core staging failed after $Phase ($stageExit)." }
         $stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
         if (-not (Test-Path -LiteralPath $stagedCore -PathType Leaf) -or
             (Get-FileHash -LiteralPath $stagedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
@@ -428,16 +737,29 @@ Assert-CoreStartDecisionVectors
 
 $processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
 Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
-$legacyStatePreimage = New-CvrSyntheticLegacyPreimage
+$script:legacyStateFixture = New-CvrSyntheticLegacyPreimage
+$rollbackSelfCheck = $false
+try {
+    Invoke-CvrStateTransaction -Phase 'intentional action-failure self-check' -HelperVersion '2.5.8' -InstallDirectory '' -Action {
+        throw 'synthetic action failure'
+    }
+} catch {
+    $rollbackSelfCheck = $_.Exception.Message -match 'failed after its preimages were restored: synthetic action failure'
+}
+if (-not $rollbackSelfCheck) { throw 'Installer action failure did not restore and report the synthetic preimage.' }
+Assert-CvrLegacyState -Expected $script:legacyStateFixture.state -Phase 'action-failure self-check'
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
-Assert-CvrSyntheticLegacyPreimage -Fixture $legacyStatePreimage -Phase '2.5.8 install'
-Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline'
+$script:installDirectory = $install258
+$stockProgramFilesCore = Save-CvrSyntheticStockCore -InstallDirectory $install258
+Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline' -HelperVersion '2.5.8'
 Invoke-NativePhase -Phase seed -InstallDirectory $install258
-$install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS')
+Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
+$install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
-Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update'
+Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update' -HelperVersion '2.5.10'
+Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install2510 -StockCore $stockProgramFilesCore
 Invoke-CvrOverlayReinstall -InstallDirectory $install2510
-Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay'
+Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay' -HelperVersion '2.5.10'
 Invoke-NativePhase -Phase exercise -InstallDirectory $install2510
 
 # The native phase normally removes its exact service, process tree and synthetic route.
@@ -453,9 +775,11 @@ Start-Sleep -Seconds 2
 
 $recoveryFailure = $null
 try {
-    $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS')
+    Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 before recovery' -HelperVersion '2.5.10'
+    Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
+    $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
     if ($installRecovered -ne $install258) { throw 'CVR recovery changed the registered install directory.' }
-    Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery'
+    Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery' -HelperVersion '2.5.8'
     Assert-NoService
     Assert-NoCvrProcesses
     Invoke-NativePhase -Phase recovery -InstallDirectory $installRecovered
@@ -506,6 +830,8 @@ $summary = @(
     '- Exercised valid synthetic profiles, DNS override confirmation/on/off, GLOBAL selector persistence, explicit synthetic TUN traffic, and 2.5.8 recovery on the disposable windows-2022 runner.',
     '- Native core starts were allowed only within phase intervals after the installed and service-staged executable hashes matched the fresh source-built core; every Alpha start is forbidden.',
     '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
+    '- Synthetic action failure was surfaced after restoring its exact preimage; each pinned NSIS is required to change the window-state files and four Run values, which are restored with exact bytes, ACLs, registry type/data.',
+    '- Before 2.5.10 update, overlay, and 2.5.8 recovery, separate signed-stock Program Files and candidate service-core preimages are restored and verified with that version’s extracted pinned helper.',
     '- No production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
 foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }
@@ -517,5 +843,6 @@ foreach ($event in $coreEvents) {
 if ($script:nativeFailures.Count) { $summary += '- Native/process-start acceptance: FAIL.'; $summary += $script:nativeFailures | ForEach-Object { "- Failure: $_" } }
 else { $summary += '- Native/process-start acceptance: PASS.' }
 if ($recoveryFailure) { $summary += "- 2.5.8 recovery: FAIL — $recoveryFailure" } else { $summary += '- 2.5.8 recovery: PASS.' }
+Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture
 Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
 if ($script:nativeFailures.Count -or $recoveryFailure) { throw "Native acceptance/recovery failed. Native: $($script:nativeFailures -join ' | '); recovery: $recoveryFailure" }
