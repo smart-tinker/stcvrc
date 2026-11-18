@@ -119,9 +119,18 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_synthetic_rollback_self_check_precedes_the_long_windows_build(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
-        check = workflow.index("Test-CvrInstallerActionFailureRollback")
+        step = workflow.split("      - name: Check synthetic rollback before native build\n", 1)[1].split(
+            "      - name: Fresh native Windows core build", 1
+        )[0]
+        check = step.index("Test-CvrInstallerActionFailureRollback")
+        app_data_checks = [index for index in range(len(step)) if step.startswith("Test-Path -LiteralPath $normalAppDataPath", index)]
         build = workflow.index("- name: Fresh native Windows core build")
-        self.assertLess(check, build)
+        self.assertEqual(len(app_data_checks), 2)
+        self.assertLess(app_data_checks[0], check)
+        self.assertLess(check, app_data_checks[1])
+        self.assertIn("$env:APPDATA = $selfCheckAppDataRoot", step)
+        self.assertIn("Remove-Item -LiteralPath $selfCheckAppDataRoot -Recurse -Force -ErrorAction Stop", step)
+        self.assertLess(workflow.index("Test-CvrInstallerActionFailureRollback"), build)
         self.assertIn("function Test-CvrInstallerActionFailureRollback", helper)
         self.assertIn("Invoke-CvrStateTransaction -Phase 'intentional action-failure self-check'", helper)
         self.assertNotIn("CVR_258_INSTALLER", helper)

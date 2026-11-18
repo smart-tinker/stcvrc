@@ -535,8 +535,22 @@ jobs:
       - name: Check synthetic rollback before native build
         run: |
           $ErrorActionPreference = 'Stop'
-          . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_legacy_state_transaction.ps1')
-          Test-CvrInstallerActionFailureRollback
+          $normalAppDataRoot = $env:APPDATA
+          if (-not $normalAppDataRoot) { throw 'Normal APPDATA is missing.' }
+          $normalAppDataPath = Join-Path $normalAppDataRoot 'io.github.clash-verge-rev.clash-verge-rev'
+          if (Test-Path -LiteralPath $normalAppDataPath) { throw 'Refusing preexisting CVR app data before synthetic rollback.' }
+          $selfCheckAppDataRoot = Join-Path $env:RUNNER_TEMP ('cvr-synthetic-appdata-' + [Guid]::NewGuid().ToString('N'))
+          if (Test-Path -LiteralPath $selfCheckAppDataRoot) { throw 'Synthetic APPDATA temp path unexpectedly exists.' }
+          New-Item -ItemType Directory -Path $selfCheckAppDataRoot | Out-Null
+          try {
+            $env:APPDATA = $selfCheckAppDataRoot
+            . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_legacy_state_transaction.ps1')
+            Test-CvrInstallerActionFailureRollback
+            if (Test-Path -LiteralPath $normalAppDataPath) { throw 'Synthetic rollback changed the normal CVR app-data path.' }
+          } finally {
+            $env:APPDATA = $normalAppDataRoot
+            Remove-Item -LiteralPath $selfCheckAppDataRoot -Recurse -Force -ErrorAction Stop
+          }
 
       - name: Fresh native Windows core build
         id: build
