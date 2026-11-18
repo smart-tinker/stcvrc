@@ -1,7 +1,8 @@
 param(
     [ValidateSet('seed','exercise','recovery')][string]$Phase = 'exercise',
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedProgramFilesCoreSha256,
-    [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedServiceCoreSha256
+    [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedServiceCoreSha256,
+    [string]$RecoveryServiceCorePreimagePath
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -12,6 +13,9 @@ if (-not $env:STCVRC_NATIVE_PORT_PLAN) { throw 'The shared native DNS port plan 
 $portPlanScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_port_plan.ps1'
 if (-not (Test-Path -LiteralPath $portPlanScript -PathType Leaf)) { throw 'The native DNS port-plan helper is missing.' }
 . $portPlanScript
+$corePreimageScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_preimage_paths.ps1'
+if (-not (Test-Path -LiteralPath $corePreimageScript -PathType Leaf)) { throw 'The native core preimage helper is missing.' }
+. $corePreimageScript
 $nativePortPlan = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
 $expectedVersion = if ($Phase -in @('seed','recovery')) { '2.5.8' } else { '2.5.10' }
 $script:nativePhase = $Phase
@@ -29,6 +33,33 @@ if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].si
 if ((Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'The candidate input is not the freshly built pinned core.' }
 $script:expectedProgramFilesCoreSha = [string]$ExpectedProgramFilesCoreSha256
 $script:expectedServiceCoreSha = [string]$ExpectedServiceCoreSha256
+if ($Phase -eq 'recovery') {
+    if ([string]::IsNullOrWhiteSpace($RecoveryServiceCorePreimagePath)) {
+        throw "Recovery service-core preimage missing (stage=verify preimage; expected_sha=$($script:expectedServiceCoreSha))."
+    }
+    $recoverySource = [IO.Path]::GetFullPath($RecoveryServiceCorePreimagePath)
+    $recoveryDirectory = [IO.Path]::GetDirectoryName($recoverySource)
+    $recoveryRoot = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+    if ([IO.Path]::GetFileName($recoverySource) -cne 'verge-mihomo.exe' -or
+        -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($recoveryDirectory), $recoveryRoot) -or
+        [IO.Path]::GetFileName($recoveryDirectory) -notmatch '^stcvrc-core-preimage-service-[0-9a-f]{32}$') {
+        throw 'Recovery service-core preimage path is outside its unique pinned backup directory.'
+    }
+    if (-not (Test-Path -LiteralPath $recoverySource -PathType Leaf)) {
+        throw "Recovery service-core preimage is missing (stage=verify preimage; expected_sha=$($script:expectedServiceCoreSha))."
+    }
+    $recoveryDirectoryItem = Get-Item -LiteralPath $recoveryDirectory -Force -ErrorAction Stop
+    $recoveryFile = Get-Item -LiteralPath $recoverySource -Force -ErrorAction Stop
+    if (-not $recoveryDirectoryItem.PSIsContainer -or
+        (($recoveryDirectoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) -or
+        (($recoveryFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw 'Recovery service-core preimage directory or file is a reparse point.'
+    }
+    $recoverySourceSha = (Get-FileHash -LiteralPath $recoverySource -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($recoverySourceSha -cne $script:expectedServiceCoreSha) {
+        throw "Recovery service-core preimage SHA256 mismatch: expected=$($script:expectedServiceCoreSha) actual=$recoverySourceSha."
+    }
+}
 if ($Phase -ne 'recovery' -and (
     $script:expectedProgramFilesCoreSha -cne $coreSha -or
     $script:expectedServiceCoreSha -cne $coreSha
@@ -390,10 +421,15 @@ function Wait-ServiceReady {
     throw "get_runtime_state never reached service ready; lastState=$stateText; lastReadError=$lastError; coreStartupError=$startupText"
 }
 function Assert-LiveServiceIdentity {
+    param([switch]$AllowStopped)
     $service = Get-Service -Name $serviceName -ErrorAction Stop
-    if ($service.Status -ne 'Running') { throw 'SCM does not report the CVR service running.' }
     $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
-    if (-not $serviceRecord -or $serviceRecord.State -ne 'Running') { throw 'CVR SCM service is not running.' }
+    if (-not $serviceRecord) { throw 'CVR SCM service registration is missing.' }
+    if ($AllowStopped) {
+        if ($service.Status -ne 'Stopped' -or $serviceRecord.State -ne 'Stopped') { throw 'CVR SCM service was expected to be installed and stopped.' }
+    } elseif ($service.Status -ne 'Running' -or $serviceRecord.State -ne 'Running') {
+        throw 'CVR SCM service is not running.'
+    }
     $imageMatch = [regex]::Match([string]$serviceRecord.PathName, '^"([^"]+)"|^(\S+)')
     if (-not $imageMatch.Success) { throw "Could not parse the registered service image path: $($serviceRecord.PathName)" }
     $imagePath = if ($imageMatch.Groups[1].Success) { $imageMatch.Groups[1].Value } else { $imageMatch.Groups[2].Value }
@@ -405,6 +441,32 @@ function Assert-LiveServiceIdentity {
     if ($serviceHash -ne $script:expectedServiceSha) { throw "SCM service image SHA256 differs from the pinned extracted CVR payload: $serviceHash" }
 }
 function Start-CvrService {
+    if ($Phase -eq 'recovery') {
+        $beforeStartSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($beforeStartSha -cne $script:expectedServiceCoreSha) {
+            throw "Recovery service-core SHA256 changed before SCM start: expected=$($script:expectedServiceCoreSha) actual=$beforeStartSha."
+        }
+        $existingService = Get-Service -Name $serviceName -ErrorAction Stop
+        if ($existingService.Status -eq 'Stopped') {
+            Assert-LiveServiceIdentity -AllowStopped
+            Start-Service -Name $serviceName -ErrorAction Stop
+        } elseif ($existingService.Status -eq 'Running') {
+            Assert-LiveServiceIdentity
+        } else {
+            throw "Recovery service is in an unexpected SCM state before start: $($existingService.Status)."
+        }
+        $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { break }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $svc -or $svc.Status -ne 'Running') { throw 'Direct SCM start did not start the verified recovery service.' }
+        Assert-LiveServiceIdentity
+        Assert-LiveCoreIdentity
+        Write-Host 'Recovery reused the pinned service helper installation; GUI Tauri install_service was skipped.'
+        return
+    }
     $outcome=Invoke-CvrCommand -Command 'install_service'
     if (([string]$outcome.status).ToLowerInvariant() -ne 'installed') { throw "Tauri install_service did not report installed: $($outcome | ConvertTo-Json -Compress -Depth 10)" }
     $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
@@ -430,6 +492,114 @@ function Assert-LiveCoreIdentity {
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
     $script:verifiedCorePid = [int]$processes[0].ProcessId
 }
+function Install-CvrRecoveryService {
+    param([Parameter(Mandatory)][string]$CorePreimagePath)
+    $stage = 'verify pinned helper'
+    $helperSha = ''
+    $expectedAclSha = ''
+    $actualAclSha = ''
+    $actualProgramFilesSha = ''
+    $actualServiceCoreSha = ''
+    try {
+        $helperPath = [string]$env:CVR_258_SERVICE_INSTALL_HELPER_PATH
+        $helperPin = [string]$env:CVR_258_SERVICE_INSTALL_HELPER_SHA256
+        if ([IO.Path]::GetFileName($helperPath) -cne 'clash-verge-service-install.exe' -or
+            -not (Test-Path -LiteralPath $helperPath -PathType Leaf) -or
+            $helperPin -notmatch '^[0-9a-f]{64}$') {
+            throw 'Pinned CVR 2.5.8 service-install helper path or digest is missing.'
+        }
+        $helperSha = (Get-FileHash -LiteralPath $helperPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($helperSha -cne $helperPin) { throw "CVR 2.5.8 service-install helper SHA256 mismatch: expected=$helperPin actual=$helperSha." }
+
+        $stage = 'capture restored destination ACL and verify split core preimages'
+        $preimagePath = [IO.Path]::GetFullPath($CorePreimagePath)
+        if ([IO.Path]::GetFileName($preimagePath) -cne 'verge-mihomo.exe' -or
+            -not [StringComparer]::OrdinalIgnoreCase.Equals($preimagePath, [IO.Path]::GetFullPath($RecoveryServiceCorePreimagePath))) {
+            throw 'The staged recovery service-core source is not the captured preimage with the helper-required basename.'
+        }
+        $sourceSha = (Get-FileHash -LiteralPath $preimagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($sourceSha -cne $script:expectedServiceCoreSha) {
+            throw "Recovery helper source SHA256 mismatch: expected=$($script:expectedServiceCoreSha) actual=$sourceSha."
+        }
+        $actualProgramFilesSha = (Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualProgramFilesSha -cne $script:expectedProgramFilesCoreSha) {
+            throw "Program Files preimage SHA256 mismatch before helper: expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha."
+        }
+        $actualServiceCoreSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualServiceCoreSha -cne $script:expectedServiceCoreSha) {
+            throw "Restored service-core SHA256 mismatch before helper: expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha."
+        }
+        $preimageAcl = Get-Acl -LiteralPath $serviceCore -ErrorAction Stop
+        $preimageAclSddl = [string]$preimageAcl.Sddl
+        $expectedAclSha = Get-CvrStringSha256 -Value $preimageAclSddl
+
+        $stage = 'invoke pinned helper with explicit service-core preimage'
+        $helperOutput = & $helperPath --install-service --install-core $preimagePath --sha256 $script:expectedServiceCoreSha 2>&1
+        $helperExit = $LASTEXITCODE
+        if ($helperExit -ne 0) { throw "Pinned CVR 2.5.8 service helper exited $helperExit." }
+
+        $stage = 'verify helper-published Program Files and service-core hashes'
+        $actualProgramFilesSha = (Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualProgramFilesSha -cne $script:expectedProgramFilesCoreSha) {
+            throw "Program Files preimage changed after helper: expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha."
+        }
+        $actualServiceCoreSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualServiceCoreSha -cne $script:expectedServiceCoreSha) {
+            throw "Service-core preimage mismatch after helper: expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha."
+        }
+
+        $stage = 'restore and verify service-core ACL'
+        $actualAclSddl = [string](Get-Acl -LiteralPath $serviceCore -ErrorAction Stop).Sddl
+        if ($actualAclSddl -cne $preimageAclSddl) {
+            Set-Acl -LiteralPath $serviceCore -AclObject $preimageAcl -ErrorAction Stop
+        }
+        $actualAclSddl = [string](Get-Acl -LiteralPath $serviceCore -ErrorAction Stop).Sddl
+        $actualAclSha = Get-CvrStringSha256 -Value $actualAclSddl
+        if ($actualAclSddl -cne $preimageAclSddl) {
+            throw "Service-core ACL restore mismatch: expected_sddl_sha256=$expectedAclSha actual_sddl_sha256=$actualAclSha."
+        }
+        Write-Host "Recovery service-core ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
+
+        $stage = 'verify helper-installed live service and captured core'
+        Assert-LiveServiceIdentity
+        Assert-LiveCoreIdentity
+
+        $stage = 'stop verified helper-started service before GUI startup'
+        Stop-Service -Name $serviceName -Force -ErrorAction Stop
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        $svc = $null
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Stopped') { break }
+            Start-Sleep -Milliseconds 250
+        }
+        if (-not $svc -or $svc.Status -ne 'Stopped') { throw 'Recovery helper-installed service did not stop before GUI startup.' }
+        $processDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        $remainingServiceCores = @()
+        while ([DateTime]::UtcNow -lt $processDeadline) {
+            $remainingServiceCores = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'" |
+                Where-Object { $_.ExecutablePath -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($_.ExecutablePath), [IO.Path]::GetFullPath($serviceCore)) })
+            if ($remainingServiceCores.Count -eq 0) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        if ($remainingServiceCores.Count -ne 0) { throw 'Recovery service core process remained after stopping the pre-GUI helper service.' }
+        Assert-LiveServiceIdentity -AllowStopped
+
+        $actualProgramFilesSha = (Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualServiceCoreSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualAclSddl = [string](Get-Acl -LiteralPath $serviceCore -ErrorAction Stop).Sddl
+        $actualAclSha = Get-CvrStringSha256 -Value $actualAclSddl
+        if ($actualProgramFilesSha -cne $script:expectedProgramFilesCoreSha -or
+            $actualServiceCoreSha -cne $script:expectedServiceCoreSha -or
+            $actualAclSddl -cne $preimageAclSddl) {
+            throw "Split recovery preimage changed after helper lifecycle: Program Files expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
+        }
+        Write-Host "Recovery helper lifecycle verified: helper_sha256=$helperSha; Program Files core SHA256 expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service core SHA256 expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; service-core ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
+    } catch {
+        throw "Recovery service install failed at stage [$stage]; helper_sha256=$helperSha; Program Files core SHA256 expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service core SHA256 expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; service-core ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha; $($_.Exception.Message)"
+    }
+}
+
 function Assert-LiveSidecarCoreIdentity {
     $state = Invoke-CvrCommand -Command 'get_runtime_state'
     if (([string]$state.mode).ToLowerInvariant() -ne 'sidecar') { throw "Expected the explicitly isolated sidecar mode, got $($state.mode); snapshot=$(Get-NativeStateSnapshot -Phase 'core identity')." }
@@ -1574,6 +1744,9 @@ try {
     if (-not $serverReady) { throw 'Synthetic HTTP/DNS server did not become ready.' }
     [void](Invoke-TunHttp -FakeAddress '127.0.0.1' -FixtureName 'fixture-server-health.invalid' -Port $httpPort)
     Write-Host 'Synthetic fixture HTTP server passed its direct-loopback health check.'
+    if ($Phase -eq 'recovery') {
+        Install-CvrRecoveryService -CorePreimagePath $RecoveryServiceCorePreimagePath
+    }
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$devtoolsPort"
     $gui=Start-Process -FilePath $guiPath -PassThru -WindowStyle Normal
     $script:guiProcess=$gui; $script:guiProcessId=[int]$gui.Id

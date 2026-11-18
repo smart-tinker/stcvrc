@@ -518,7 +518,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_legacy_state_transaction.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -531,6 +531,12 @@ jobs:
           . (Join-Path $source 'tools\network-lab\windows_core_preimage_paths.ps1')
           Test-CvrCorePreimageBackupPathContract -Root $env:RUNNER_TEMP
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
+
+      - name: Check synthetic rollback before native build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_legacy_state_transaction.ps1')
+          Test-CvrInstallerActionFailureRollback
 
       - name: Fresh native Windows core build
         id: build

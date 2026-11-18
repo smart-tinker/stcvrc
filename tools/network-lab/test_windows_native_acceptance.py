@@ -61,6 +61,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Restore-CvrCorePairPreimage -Preimage $originalCorePair -HelperVersion '2.5.8'", source)
         self.assertIn("-ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256", source)
         self.assertIn("-ExpectedServiceCoreSha $originalCorePair.service.sha256", source)
+        self.assertIn("-RecoveryServiceCorePreimagePath $originalCorePair.service.backup", source)
         self.assertIn("-ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha", source)
         self.assertIn("-ExpectedServiceCoreSha256 $ExpectedServiceCoreSha", source)
         self.assertIn("if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256)", source)
@@ -81,6 +82,51 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("$script:expectedProgramFilesCoreSha", sidecar_identity)
         self.assertIn("original pair after native recovery", source)
 
+
+    def test_recovery_uses_pinned_258_helper_before_gui_and_skips_tauri_restage(self):
+        source = NATIVE_SMOKE.read_text(encoding="utf-8")
+        recovery_install = source.split("function Install-CvrRecoveryService", 1)[1].split(
+            "function Assert-LiveSidecarCoreIdentity", 1
+        )[0]
+        for assertion in (
+            "CVR_258_SERVICE_INSTALL_HELPER_PATH",
+            "CVR_258_SERVICE_INSTALL_HELPER_SHA256",
+            "--install-service --install-core $preimagePath --sha256 $script:expectedServiceCoreSha",
+            "GetFileName($preimagePath) -cne 'verge-mihomo.exe'",
+            "Set-Acl -LiteralPath $serviceCore -AclObject $preimageAcl",
+            "Stop-Service -Name $serviceName",
+            "Assert-LiveCoreIdentity",
+            "service-core ACL SDDL SHA256 expected=",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, recovery_install)
+        self.assertLess(
+            source.index("Install-CvrRecoveryService -CorePreimagePath $RecoveryServiceCorePreimagePath"),
+            source.index("$gui=Start-Process -FilePath $guiPath"),
+        )
+        startup = source.split("function Start-CvrService", 1)[1].split(
+            "function Assert-LiveCoreIdentity", 1
+        )[0]
+        recovery_start = startup.split("if ($Phase -eq 'recovery')", 1)[1].split(
+            "$outcome=Invoke-CvrCommand -Command 'install_service'", 1
+        )[0]
+        self.assertNotIn("Invoke-CvrCommand -Command 'install_service'", recovery_start)
+        self.assertIn("$existingService.Status -eq 'Stopped'", recovery_start)
+        self.assertIn("$existingService.Status -eq 'Running'", recovery_start)
+        self.assertIn("Start-Service -Name $serviceName", recovery_start)
+        self.assertIn("Assert-LiveCoreIdentity", recovery_start)
+
+    def test_synthetic_rollback_self_check_precedes_the_long_windows_build(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
+        check = workflow.index("Test-CvrInstallerActionFailureRollback")
+        build = workflow.index("- name: Fresh native Windows core build")
+        self.assertLess(check, build)
+        self.assertIn("function Test-CvrInstallerActionFailureRollback", helper)
+        self.assertIn("Invoke-CvrStateTransaction -Phase 'intentional action-failure self-check'", helper)
+        self.assertNotIn("CVR_258_INSTALLER", helper)
+        self.assertNotIn("CUSTOM_CORE", helper)
+
     def test_install_update_and_recovery_run_native_phases_in_order(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         phases = ("-Phase seed", "-Phase exercise", "-Phase recovery")
@@ -92,9 +138,12 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
     def test_nsis_side_effects_and_split_core_preimages_are_restored(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        self.assertIn("Invoke-CvrStateTransaction", source)
-        self.assertIn("Assert-CvrInstallerChangedLegacyPreimage", source)
-        self.assertIn("Restore-CvrLegacyState", source)
+        helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
+        self.assertIn("windows_legacy_state_transaction.ps1", source)
+        self.assertIn("Invoke-CvrStateTransaction", helper)
+        self.assertIn("Assert-CvrInstallerChangedLegacyPreimage", helper)
+        self.assertIn("Restore-CvrLegacyState", helper)
+        self.assertIn("if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl)", helper)
         self.assertIn("Get-CvrCorePairPreimage", source)
         self.assertIn("Restore-CvrCorePairPreimage", source)
         self.assertIn("Set-CvrSyntheticSplitCorePreimage", source)
