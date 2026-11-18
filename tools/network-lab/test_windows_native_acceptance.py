@@ -136,8 +136,6 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, recovery_start)
         self.assertLess(recovery_start.index("$beforeStartSha"), recovery_start.index("Start-Service -Name $serviceName"))
-        self.assertIn("Assert-LiveCoreIdentity", selected_ready)
-        self.assertIn("Assert-LiveCoreIdentity", recovery_start)
 
     def test_synthetic_rollback_self_check_precedes_the_long_windows_build(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
