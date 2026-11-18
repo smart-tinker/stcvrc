@@ -499,7 +499,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - name: Fetch the exact PR source
+      - name: Fetch the exact PR source and check core preimage paths
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -518,7 +518,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_legacy_state_transaction.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -528,7 +528,29 @@ jobs:
               throw "PowerShell parse errors in ${name}: $parseDetails"
             }
           }
+          . (Join-Path $source 'tools\network-lab\windows_core_preimage_paths.ps1')
+          Test-CvrCorePreimageBackupPathContract -Root $env:RUNNER_TEMP
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
+
+      - name: Check synthetic rollback before native build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $normalAppDataRoot = $env:APPDATA
+          if (-not $normalAppDataRoot) { throw 'Normal APPDATA is missing.' }
+          $normalAppDataPath = Join-Path $normalAppDataRoot 'io.github.clash-verge-rev.clash-verge-rev'
+          if (Test-Path -LiteralPath $normalAppDataPath) { throw 'Refusing preexisting CVR app data before synthetic rollback.' }
+          $selfCheckAppDataRoot = Join-Path $env:RUNNER_TEMP ('cvr-synthetic-appdata-' + [Guid]::NewGuid().ToString('N'))
+          if (Test-Path -LiteralPath $selfCheckAppDataRoot) { throw 'Synthetic APPDATA temp path unexpectedly exists.' }
+          New-Item -ItemType Directory -Path $selfCheckAppDataRoot | Out-Null
+          try {
+            $env:APPDATA = $selfCheckAppDataRoot
+            . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_legacy_state_transaction.ps1')
+            Test-CvrInstallerActionFailureRollback
+            if (Test-Path -LiteralPath $normalAppDataPath) { throw 'Synthetic rollback changed the normal CVR app-data path.' }
+          } finally {
+            $env:APPDATA = $normalAppDataRoot
+            Remove-Item -LiteralPath $selfCheckAppDataRoot -Recurse -Force -ErrorAction Stop
+          }
 
       - name: Fresh native Windows core build
         id: build
@@ -623,6 +645,21 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "CVR $($release.version) payload extraction failed" }
             $files = @(Get-ChildItem -LiteralPath $extract -Recurse -File)
             if ($files.Count -eq 0) { throw "CVR $($release.version) payload was empty" }
+            $helperFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge-service-install.exe' })
+            if ($helperFiles.Count -ne 1) { throw "CVR $($release.version) payload expected one service-install helper, found $($helperFiles.Count)" }
+            $helperHash = (Get-FileHash -LiteralPath $helperFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($helperHash -notmatch '^[0-9a-f]{64}$') { throw "CVR $($release.version) service-install helper SHA256 is malformed" }
+            if ($helperHash -cne [string]$release.serviceInstallHelperSha256) { throw "CVR $($release.version) extracted helper does not match its exact pin" }
+            if ($release.version -eq '2.5.8') {
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_SERVICE_INSTALL_HELPER_SHA256=$helperHash"
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_258_SERVICE_INSTALL_HELPER_PATH=$($helperFiles[0].FullName)"
+            }
+            if ($release.version -eq '2.5.10') {
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_INSTALL_HELPER_SHA256=$helperHash"
+              Add-Content -Path $env:GITHUB_ENV -Value "CVR_2510_SERVICE_INSTALL_HELPER_PATH=$($helperFiles[0].FullName)"
+            }
+            Write-Host "CVR $($release.version) extracted service-install helper SHA256: $helperHash"
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "CVR $($release.version) extracted service-install helper SHA256: $helperHash."
             $guiFiles = @($files | Where-Object { $_.Name -ieq 'clash-verge.exe' })
             if ($guiFiles.Count -ne 1) { throw "CVR $($release.version) payload expected one clash-verge.exe, found $($guiFiles.Count)" }
             $guiHash = (Get-FileHash -LiteralPath $guiFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()

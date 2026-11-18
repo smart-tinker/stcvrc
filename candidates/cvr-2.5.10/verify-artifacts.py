@@ -4,6 +4,7 @@ import argparse
 import base64
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -12,6 +13,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 ROOT = Path(__file__).resolve().parent
+WINDOWS_NATIVE_CANDIDATE = {
+    'releaseId': 446278043,
+    'tag': 'stcvrc-1.19.33-rc.9',
+    'candidate': 'STCVRC 1.19.33 RC9',
+    'assetId': 751963784,
+    'assetName': 'verge-mihomo.exe',
+    'assetSize': 60833280,
+    'sha256': '1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e',
+}
 
 
 def require(condition, reason):
@@ -58,6 +68,8 @@ def public_file(root, name):
 
 def verify(artifacts, core, manifest):
     require(manifest['schemaVersion'] == 1, 'unsupported inputs schema')
+    require(manifest.get('windowsNativeCandidate') == WINDOWS_NATIVE_CANDIDATE,
+            'native Windows candidate pin mismatch')
     require(manifest['repository'] == 'clash-verge-rev/clash-verge-rev', 'wrong upstream repository')
     require([r['version'] for r in manifest['releases']] == ['2.5.8', '2.5.10'], 'unsupported version pair')
     public_lines = base64.b64decode(manifest['publicKeyBase64'], validate=True).decode().splitlines()
@@ -68,6 +80,9 @@ def verify(artifacts, core, manifest):
     verified = []
     for release in manifest['releases']:
         version = release['version']
+        helper_sha = release.get('serviceInstallHelperSha256')
+        require(isinstance(helper_sha, str) and re.fullmatch(r'[0-9a-f]{64}', helper_sha),
+                'invalid extracted service-install helper SHA256 pin')
         require(release['tag'] == 'v' + version, 'tag/version mismatch')
         metadata = json.loads(public_file(artifacts, release['metadataFile']).read_bytes())
         require(metadata['id'] == release['releaseId'] and metadata['tag_name'] == release['tag'], 'release identity mismatch')
@@ -110,7 +125,7 @@ def verify(artifacts, core, manifest):
             require(item['signature'] == encoded, 'updater signature mismatch')
             require(item['url'] == f'https://api.github.com/repos/{manifest["repository"]}/releases/assets/{installer_id}', 'updater URL mismatch')
         verified.append({'version': version, 'tag': release['tag'], 'releaseId': release['releaseId'],
-                         'sourceCommit': release['sourceCommit'], 'assets': checked_assets,
+                         'sourceCommit': release['sourceCommit'], 'serviceInstallHelperSha256': helper_sha, 'assets': checked_assets,
                          'taggedConfigVerified': True, 'signatureVerified': True,
                          'trustedCommentVerified': True, 'windowsUpdaterEntriesMatch': True,
                          'negativeControlsPassed': ['changed_message', 'changed_trusted_comment', 'wrong_key_id']})
@@ -121,6 +136,7 @@ def verify(artifacts, core, manifest):
     require(core_sha == manifest['core']['sha256'], 'custom core SHA256 mismatch')
     verified_core = dict(manifest['core'], size=core_size, sha256=core_sha)
     return {'schemaVersion': 1, 'releases': verified, 'core': verified_core,
+            'windowsNativeCandidate': dict(WINDOWS_NATIVE_CANDIDATE),
             'extractedPayloads': 'NOT_VERIFIED', 'nativeAcceptance': 'NOT_RUN',
             'authenticode': 'NOT_VERIFIED', 'artifactsExecuted': False, 'releasePublished': False}
 

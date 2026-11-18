@@ -31,7 +31,13 @@ class VerifierTests(unittest.TestCase):
         self.public = b'Ed' + b'test-key' + public
         encoded_key = base64.b64encode(b'untrusted comment: fixture\n' + base64.b64encode(self.public) + b'\n').decode()
         self.manifest = {'schemaVersion': 1, 'repository': 'clash-verge-rev/clash-verge-rev',
-                         'publicKeyBase64': encoded_key, 'releases': []}
+                         'publicKeyBase64': encoded_key, 'releases': [],
+                         'windowsNativeCandidate': {'releaseId': 446278043,
+                             'tag': 'stcvrc-1.19.33-rc.9',
+                             'candidate': 'STCVRC 1.19.33 RC9',
+                             'assetId': 751963784, 'assetName': 'verge-mihomo.exe',
+                             'assetSize': 60833280,
+                             'sha256': '1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e'}}
         for number, version in enumerate(('2.5.8', '2.5.10'), 10):
             installer = b'MZ fixture installer ' + version.encode()
             signature = self.sign(installer)
@@ -43,6 +49,7 @@ class VerifierTests(unittest.TestCase):
             config_data = json.dumps(config).encode()
             (self.root / config_file).write_bytes(config_data)
             release = {'version': version, 'tag': 'v' + version, 'releaseId': number,
+                       'serviceInstallHelperSha256': sha(b'MZ helper fixture ' + version.encode()),
                        'sourceCommit': 'a' * 40, 'metadataFile': f'cvr-v{version}-release.json',
                        'config': {'file': config_file, 'sha256': sha(config_data), 'sourceURL': 'https://example.test/config'},
                        'assets': {}}
@@ -98,7 +105,9 @@ class VerifierTests(unittest.TestCase):
         self.assertEqual(receipt['inputsSha256'], sha(self.manifest_path.read_bytes()))
         self.assertEqual(receipt['extractedPayloads'], 'NOT_VERIFIED')
         self.assertEqual(receipt['nativeAcceptance'], 'NOT_RUN')
+        self.assertEqual(receipt['windowsNativeCandidate'], self.manifest['windowsNativeCandidate'])
         for release in receipt['releases']:
+            self.assertRegex(release['serviceInstallHelperSha256'], r'^[0-9a-f]{64}$')
             self.assertTrue(release['trustedCommentVerified'])
             self.assertEqual(len(release['negativeControlsPassed']), 3)
         self.assertNotIn(str(self.root), output.getvalue())
@@ -116,6 +125,24 @@ class VerifierTests(unittest.TestCase):
     def assert_rejected(self):
         with self.assertRaises((ValueError, InvalidSignature, KeyError, TypeError)):
             self.module().verify(self.root, self.core, self.manifest)
+
+    def test_windows_native_candidate_pin_is_exact(self):
+        for field, value in (('releaseId', 446278044), ('tag', 'other'),
+                             ('candidate', 'other'), ('assetId', 0),
+                             ('assetName', 'other.exe'), ('assetSize', 1),
+                             ('sha256', '0' * 64)):
+            manifest = copy.deepcopy(self.manifest)
+            manifest['windowsNativeCandidate'][field] = value
+            with self.assertRaisesRegex(ValueError, 'native Windows candidate pin mismatch'):
+                self.module().verify(self.root, self.core, manifest)
+
+    def test_service_install_helper_pin_must_be_a_lowercase_sha256(self):
+        for value in ('', 'A' * 64, '0' * 63, None):
+            manifest = copy.deepcopy(self.manifest)
+            manifest['releases'][0]['serviceInstallHelperSha256'] = value
+            with self.subTest(value=value):
+                with self.assertRaises((ValueError, TypeError)):
+                    self.module().verify(self.root, self.core, manifest)
 
     def test_byte_substitution_and_signed_digest_change_are_rejected(self):
         asset = self.manifest['releases'][0]['assets']['installer']
@@ -287,6 +314,15 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
         self.assertNotIn('actions/upload-artifact', block)
         self.assertNotIn('actions/cache', block)
 
+
+    def test_extracted_service_helpers_are_version_pinned_before_core_staging(self):
+        workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
+        smoke = (SCRIPT.parents[2] / 'tools' / 'network-lab' / 'windows_install_update.ps1').read_text(encoding='utf-8')
+        self.assertIn('$helperHash -cne [string]$release.serviceInstallHelperSha256', workflow)
+        self.assertIn('CVR_258_SERVICE_INSTALL_HELPER_PATH=', workflow)
+        self.assertIn('CVR_2510_SERVICE_INSTALL_HELPER_PATH=', workflow)
+        self.assertIn('Get-CvrServiceInstallHelper -Version $HelperVersion', smoke)
+        self.assertIn('Installed CVR $HelperVersion service helper does not match', smoke)
 
     def test_windows_job_executes_and_identifies_only_the_fresh_custom_core(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
