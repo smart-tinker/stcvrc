@@ -83,7 +83,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("original pair after native recovery", source)
 
 
-    def test_recovery_uses_pinned_258_helper_before_gui_and_skips_tauri_restage(self):
+    def test_recovery_keeps_helper_service_running_and_checks_service_readiness(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         recovery_install = source.split("function Install-CvrRecoveryService", 1)[1].split(
             "function Assert-LiveSidecarCoreIdentity", 1
@@ -94,48 +94,85 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "--install-service --install-core $preimagePath --sha256 $script:expectedServiceCoreSha",
             "GetFileName($preimagePath) -cne 'verge-mihomo.exe'",
             "Set-Acl -LiteralPath $serviceCore -AclObject $preimageAcl",
-            "Stop-Service -Name $serviceName",
+            "Assert-LiveServiceIdentity",
             "service-core ACL SDDL SHA256 expected=",
+            "$script:expectedProgramFilesCoreSha",
+            "$script:expectedServiceCoreSha",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, recovery_install)
-        self.assertNotIn("Assert-LiveCoreIdentity", recovery_install)
-        selected_ready = source.split("function Assert-SelectedProfileReady", 1)[1].split(
-            "function Assert-SelectedSidecarProfileReady", 1
-        )[0]
-        self.assertIn("Assert-LiveCoreIdentity", selected_ready)
-        recovery = source.split("} elseif ($Phase -eq 'recovery') {", 1)[1].split(
-            "} else {", 1
-        )[0]
-        start_service = recovery.index("Start-CvrService")
-        patch = recovery.index("Invoke-CvrCommand -Command 'patch_verge_config'")
-        restart = recovery.index("Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN'")
-        ready = recovery.index("Assert-SelectedProfileReady")
-        self.assertLess(start_service, patch)
-        self.assertLess(patch, restart)
-        self.assertLess(restart, ready)
-        self.assertLess(
-            source.index("Install-CvrRecoveryService -CorePreimagePath $RecoveryServiceCorePreimagePath"),
-            source.index("$gui=Start-Process -FilePath $guiPath"),
-        )
+        for forbidden in (
+            "Stop-Service -Name $serviceName",
+            "Start-Service -Name $serviceName",
+            "Assert-LiveServiceIdentity -AllowStopped",
+            "Assert-LiveCoreIdentity",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, recovery_install)
+        helper = recovery_install.index("--install-service --install-core $preimagePath")
+        running_identity = recovery_install.index("Assert-LiveServiceIdentity", helper)
+        self.assertLess(helper, running_identity)
+
         startup = source.split("function Start-CvrService", 1)[1].split(
             "function Assert-LiveCoreIdentity", 1
         )[0]
         recovery_start = startup.split("if ($Phase -eq 'recovery')", 1)[1].split(
             "$outcome=Invoke-CvrCommand -Command 'install_service'", 1
         )[0]
-        self.assertNotIn("Invoke-CvrCommand -Command 'install_service'", recovery_start)
-        self.assertNotIn("Assert-LiveCoreIdentity", recovery_start)
         for assertion in (
             "$beforeStartSha",
             "$script:expectedServiceCoreSha",
-            "Assert-LiveServiceIdentity -AllowStopped",
+            "if ($existingService.Status -ne 'Running')",
             "Assert-LiveServiceIdentity",
-            "Start-Service -Name $serviceName",
+            "Wait-ServiceReady",
+            "Assert-LiveCoreIdentity",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, recovery_start)
-        self.assertLess(recovery_start.index("$beforeStartSha"), recovery_start.index("Start-Service -Name $serviceName"))
+        for forbidden in ("Start-Service -Name $serviceName", "Assert-LiveServiceIdentity -AllowStopped"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, recovery_start)
+        self.assertLess(recovery_start.index("$beforeStartSha"), recovery_start.index("Wait-ServiceReady"))
+        self.assertLess(recovery_start.index("Wait-ServiceReady"), recovery_start.index("Assert-LiveCoreIdentity"))
+
+        live_identity = source.split("function Assert-LiveCoreIdentity", 1)[1].split(
+            "function Install-CvrRecoveryService", 1
+        )[0]
+        for assertion in ("$serviceCore", "ParentProcessId", "$serviceRecord.ProcessId",
+                          "$script:expectedServiceCoreSha", "$script:verifiedCorePid"):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, live_identity)
+
+        selected_ready = source.split("function Assert-SelectedProfileReady", 1)[1].split(
+            "function Assert-SelectedSidecarProfileReady", 1
+        )[0]
+        self.assertLess(selected_ready.index("Wait-ServiceReady"), selected_ready.index("Assert-LiveCoreIdentity"))
+
+        seed = source.split("if ($Phase -eq 'seed') {", 1)[1].split(
+            "} elseif ($Phase -eq 'recovery') {", 1
+        )[0]
+        recovery = source.split("} elseif ($Phase -eq 'recovery') {", 1)[1].split(
+            "} else {", 1
+        )[0]
+        self.assertIn("Assert-LiveSidecarCoreIdentity", seed)
+        self.assertNotIn("Assert-LiveSidecarCoreIdentity", recovery)
+        self.assertIn("[string]$profiles.current", recovery)
+        self.assertIn("Assert-FixtureNodeSelection", recovery)
+        self.assertIn("Assert-ProfileDnsState", recovery)
+        self.assertIn("Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid'", recovery)
+        start_service = recovery.index("Start-CvrService")
+        patch = recovery.index("Invoke-CvrCommand -Command 'patch_verge_config'")
+        restart = recovery.index("Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN'")
+        ready = recovery.index("Assert-SelectedProfileReady")
+        traffic = recovery.index("Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid'")
+        self.assertLess(start_service, patch)
+        self.assertLess(patch, restart)
+        self.assertLess(restart, ready)
+        self.assertLess(ready, traffic)
+        self.assertLess(
+            source.index("Install-CvrRecoveryService -CorePreimagePath $RecoveryServiceCorePreimagePath"),
+            source.index("$gui=Start-Process -FilePath $guiPath"),
+        )
 
     def test_synthetic_rollback_self_check_precedes_the_long_windows_build(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
