@@ -444,26 +444,16 @@ function Start-CvrService {
     if ($Phase -eq 'recovery') {
         $beforeStartSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($beforeStartSha -cne $script:expectedServiceCoreSha) {
-            throw "Recovery service-core SHA256 changed before SCM start: expected=$($script:expectedServiceCoreSha) actual=$beforeStartSha."
+            throw "Recovery service-core SHA256 changed before GUI readiness: expected=$($script:expectedServiceCoreSha) actual=$beforeStartSha."
         }
         $existingService = Get-Service -Name $serviceName -ErrorAction Stop
-        if ($existingService.Status -eq 'Stopped') {
-            Assert-LiveServiceIdentity -AllowStopped
-            Start-Service -Name $serviceName -ErrorAction Stop
-        } elseif ($existingService.Status -eq 'Running') {
-            Assert-LiveServiceIdentity
-        } else {
-            throw "Recovery service is in an unexpected SCM state before start: $($existingService.Status)."
+        if ($existingService.Status -ne 'Running') {
+            throw "Recovery helper-started service is not Running for fresh GUI startup: state=$($existingService.Status); service-core SHA256 expected=$($script:expectedServiceCoreSha) actual=$beforeStartSha."
         }
-        $deadline=[DateTime]::UtcNow.AddSeconds(30); $svc=$null
-        while ([DateTime]::UtcNow -lt $deadline) {
-            $svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-            if ($svc -and $svc.Status -eq 'Running') { break }
-            Start-Sleep -Milliseconds 500
-        }
-        if (-not $svc -or $svc.Status -ne 'Running') { throw 'Direct SCM start did not start the verified recovery service.' }
         Assert-LiveServiceIdentity
-        Write-Host 'Recovery reused the pinned service helper installation; GUI Tauri install_service was skipped.'
+        $state = Wait-ServiceReady
+        Assert-LiveCoreIdentity
+        Write-Host "Fresh CVR GUI startup selected the pinned $expectedVersion service core; mode=$($state.mode); service=$($state.service)."
         return
     }
     $outcome=Invoke-CvrCommand -Command 'install_service'
@@ -559,30 +549,7 @@ function Install-CvrRecoveryService {
         }
         Write-Host "Recovery service-core ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
 
-        $stage = 'verify helper-installed live service and captured core'
-        Assert-LiveServiceIdentity
-
-        $stage = 'stop verified helper-started service before GUI startup'
-        Stop-Service -Name $serviceName -Force -ErrorAction Stop
-        $deadline = [DateTime]::UtcNow.AddSeconds(30)
-        $svc = $null
-        while ([DateTime]::UtcNow -lt $deadline) {
-            $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-            if ($svc -and $svc.Status -eq 'Stopped') { break }
-            Start-Sleep -Milliseconds 250
-        }
-        if (-not $svc -or $svc.Status -ne 'Stopped') { throw 'Recovery helper-installed service did not stop before GUI startup.' }
-        $processDeadline = [DateTime]::UtcNow.AddSeconds(10)
-        $remainingServiceCores = @()
-        while ([DateTime]::UtcNow -lt $processDeadline) {
-            $remainingServiceCores = @(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo.exe'" |
-                Where-Object { $_.ExecutablePath -and [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($_.ExecutablePath), [IO.Path]::GetFullPath($serviceCore)) })
-            if ($remainingServiceCores.Count -eq 0) { break }
-            Start-Sleep -Milliseconds 250
-        }
-        if ($remainingServiceCores.Count -ne 0) { throw 'Recovery service core process remained after stopping the pre-GUI helper service.' }
-        Assert-LiveServiceIdentity -AllowStopped
-
+        $stage = 'verify restored split-core hashes and service-core ACL after helper'
         $actualProgramFilesSha = (Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant()
         $actualServiceCoreSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
         $actualAclSddl = [string](Get-Acl -LiteralPath $serviceCore -ErrorAction Stop).Sddl
@@ -590,8 +557,11 @@ function Install-CvrRecoveryService {
         if ($actualProgramFilesSha -cne $script:expectedProgramFilesCoreSha -or
             $actualServiceCoreSha -cne $script:expectedServiceCoreSha -or
             $actualAclSddl -cne $preimageAclSddl) {
-            throw "Split recovery preimage changed after helper lifecycle: Program Files expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
+            throw "Split recovery preimage changed after helper: Program Files expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
         }
+
+        $stage = 'verify helper-started service remains Running for fresh GUI startup'
+        Assert-LiveServiceIdentity
         Write-Host "Recovery helper lifecycle verified: helper_sha256=$helperSha; Program Files core SHA256 expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service core SHA256 expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; service-core ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha."
     } catch {
         throw "Recovery service install failed at stage [$stage]; helper_sha256=$helperSha; Program Files core SHA256 expected=$($script:expectedProgramFilesCoreSha) actual=$actualProgramFilesSha; service core SHA256 expected=$($script:expectedServiceCoreSha) actual=$actualServiceCoreSha; service-core ACL SDDL SHA256 expected=$expectedAclSha actual=$actualAclSha; $($_.Exception.Message)"
@@ -1824,13 +1794,13 @@ try {
         } catch { Add-Failure "2.5.8 profile/config seed: $($_.Exception.Message)" }
     } elseif ($Phase -eq 'recovery') {
         try {
+            Start-CvrService
             Assert-GlobalUiModesOff -Phase '2.5.8 functional recovery'
             $profiles = Invoke-CvrCommand -Command 'get_profiles'
             $profileA = Get-FixtureProfile -Name 'native-fixture-a'
             $profileB = Get-FixtureProfile -Name 'native-fixture-b'
             if ([string]$profiles.current -ne [string]$profileA.uid) { throw "Recovered CVR current profile is $($profiles.current), expected native-fixture-a ($($profileA.uid))." }
             Select-FixtureProfile -Uid ([string]$profileA.uid) -AllowName 'native-fixture-a.invalid' -RejectName 'native-fixture-b.invalid'
-            Assert-LiveSidecarCoreIdentity
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-a' -ExpectedNode 'fixture-node-a' -Phase '2.5.8 recovery'
             Select-FixtureProfile -Uid ([string]$profileB.uid) -AllowName 'native-fixture-b.invalid' -RejectName 'native-fixture-a.invalid'
             Assert-FixtureNodeSelection -ProfileName 'native-fixture-b' -ExpectedNode 'fixture-node-b' -Phase '2.5.8 recovery'
@@ -1839,8 +1809,7 @@ try {
             $runtime = Get-RuntimeYaml
             if (-not $runtime.Contains('proxy-server-nameserver:') -or -not $runtime.Contains('nameserver-policy:')) { throw 'Recovered 2.5.8 core did not load the persisted profile DNS configuration.' }
             Assert-ProfileDnsState -Uid ([string]$profileA.uid) -Enabled $true -Phase '2.5.8 recovery'
-            Start-CvrService
-            [void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
+[void](Invoke-CvrCommand -Command 'patch_verge_config' -Payload @{ payload=@{ enable_tun_mode=$true } })
             [void](Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN')
             Assert-SelectedProfileReady -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase '2.5.8 functional recovery TUN'
             Test-FixtureTraffic -FixtureName 'recovery.native-fixture-a.invalid' -DnsPort $dnsPort -HttpPort $httpPort -ExpectedResolver 'app'
