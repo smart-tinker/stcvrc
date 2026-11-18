@@ -499,7 +499,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - name: Fetch the exact PR source
+      - name: Fetch the exact PR source and check core preimage paths
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -518,7 +518,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -528,6 +528,8 @@ jobs:
               throw "PowerShell parse errors in ${name}: $parseDetails"
             }
           }
+          . (Join-Path $source 'tools\network-lab\windows_core_preimage_paths.ps1')
+          Test-CvrCorePreimageBackupPathContract -Root $env:RUNNER_TEMP
           Add-Content -Path $env:GITHUB_ENV -Value "PR_SOURCE=$source"
 
       - name: Fresh native Windows core build

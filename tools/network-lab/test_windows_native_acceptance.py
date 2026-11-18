@@ -40,6 +40,22 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         ):
             self.assertIn(pin, source)
 
+    def test_core_preimage_backups_keep_helper_filename_and_hash_contract(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        path_helper = (INSTALLER_SMOKE.parent / "windows_core_preimage_paths.ps1").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("New-CvrCorePreimageBackupPath", source)
+        self.assertIn("Label $target.backupLabel", source)
+        self.assertIn("Label '258-stock'", source)
+        self.assertIn("GetFileName($backup) -cne 'verge-mihomo.exe'", source)
+        self.assertIn("Path.GetFileName([string]$entry.backup)", source)
+        self.assertIn("backup SHA256 expected=", source)
+        self.assertIn("ACL SDDL SHA256 expected=", source)
+        self.assertIn("Test-CvrCorePreimageBackupPathContract", path_helper)
+        check = workflow.index("Test-CvrCorePreimageBackupPathContract -Root $env:RUNNER_TEMP")
+        build = workflow.index("- name: Fresh native Windows core build")
+        self.assertLess(check, build)
+
     def test_recovery_restores_original_split_core_pair_before_native_check(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         self.assertIn("$originalCorePair = Get-CvrCorePairPreimage", source)

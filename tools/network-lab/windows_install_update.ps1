@@ -58,6 +58,7 @@ if ($null -eq $vcRuntime -or [int]$vcRuntime.Installed -ne 1) {
 }
 
 if (-not $env:APPDATA -or -not $env:PR_SOURCE -or -not $env:CUSTOM_CORE) { throw 'Required runner paths are missing.' }
+. (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_preimage_paths.ps1')
 $profileDirectory = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev\profiles'
 if (Test-Path -LiteralPath (Split-Path -Parent $profileDirectory)) { throw 'Refusing preexisting CVR app data.' }
 
@@ -402,8 +403,8 @@ function Get-CvrCorePairPreimage {
     Assert-NoService
     Assert-NoCvrProcesses
     $targets = @(
-        [PSCustomObject]@{ role='Program Files core'; path=(Join-Path $InstallDirectory 'verge-mihomo.exe') },
-        [PSCustomObject]@{ role='service core'; path=(Join-Path $serviceData 'cores\verge-mihomo.exe') }
+        [PSCustomObject]@{ role='Program Files core'; backupLabel='program-files'; path=(Join-Path $InstallDirectory 'verge-mihomo.exe') },
+        [PSCustomObject]@{ role='service core'; backupLabel='service'; path=(Join-Path $serviceData 'cores\verge-mihomo.exe') }
     )
     if ([IO.Path]::GetFullPath($targets[0].path) -ieq [IO.Path]::GetFullPath($targets[1].path)) {
         throw 'Program Files and service core paths are not separate.'
@@ -412,7 +413,7 @@ function Get-CvrCorePairPreimage {
         if (-not (Test-Path -LiteralPath $target.path -PathType Leaf)) { throw "Missing $($target.role) before NSIS." }
         $sha = (Get-FileHash -LiteralPath $target.path -Algorithm SHA256).Hash.ToLowerInvariant()
         $acl = Get-Acl -LiteralPath $target.path
-        $backup = Join-Path $env:RUNNER_TEMP ("cvr-core-preimage-" + [Guid]::NewGuid().ToString('N') + '.exe')
+        $backup = New-CvrCorePreimageBackupPath -Root $env:RUNNER_TEMP -Label $target.backupLabel
         Copy-Item -LiteralPath $target.path -Destination $backup
         if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha) {
             throw "Could not retain $($target.role) preimage."
@@ -456,25 +457,57 @@ function Restore-CvrCorePairPreimage {
     } catch {
         $failures.Add('Program Files core preimage restore failed')
     }
-    $serviceRestoreStage = 'helper lookup'
+    $serviceRestoreStage = 'preimage path/hash verification'
+    $serviceRestoreDiagnostic = ''
     try {
         $entry = $Preimage.service
+        if ([IO.Path]::GetFileName([string]$entry.backup) -cne 'verge-mihomo.exe') {
+            $serviceRestoreDiagnostic = 'backup basename must be verge-mihomo.exe'
+            throw 'service helper input basename mismatch'
+        }
+        if (-not (Test-Path -LiteralPath $entry.backup -PathType Leaf)) {
+            $serviceRestoreDiagnostic = 'backup file missing'
+            throw 'service core backup is missing'
+        }
+        $backupHash = (Get-FileHash -LiteralPath $entry.backup -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($backupHash -cne $entry.sha256) {
+            $serviceRestoreDiagnostic = "backup SHA256 expected=$($entry.sha256) actual=$backupHash"
+            throw 'service core backup hash mismatch'
+        }
+        $serviceRestoreStage = 'helper lookup'
         $helper = Get-CvrServiceInstallHelper -Version $HelperVersion
         $serviceRestoreStage = 'helper core restore'
         $output = & $helper.path --install-core $entry.backup --sha256 $entry.sha256 2>&1
         $exitCode = $LASTEXITCODE
-        if ($exitCode -ne 0) { throw "version-pinned helper exit $exitCode" }
+        if ($exitCode -ne 0) {
+            $serviceRestoreDiagnostic = "helper exit=$exitCode"
+            throw "version-pinned helper exit $exitCode"
+        }
         $serviceRestoreStage = 'service core content verification'
-        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf) -or
-            (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf)) {
+            $serviceRestoreDiagnostic = 'service core destination missing after helper'
+            throw 'service core destination missing'
+        }
+        $restoredHash = (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($restoredHash -cne $entry.sha256) {
+            $serviceRestoreDiagnostic = "content SHA256 expected=$($entry.sha256) actual=$restoredHash"
             throw 'service core hash mismatch'
         }
         $serviceRestoreStage = 'service core ACL restore'
-        Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+        if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
+            Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+        }
         $serviceRestoreStage = 'service core ACL verification'
-        if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) { throw 'service core ACL mismatch' }
+        $restoredSddl = (Get-Acl -LiteralPath $entry.path).Sddl
+        if ($restoredSddl -cne $entry.sddl) {
+            $expectedAclHash = Get-CvrStringSha256 -Value $entry.sddl
+            $actualAclHash = Get-CvrStringSha256 -Value $restoredSddl
+            $serviceRestoreDiagnostic = "ACL SDDL SHA256 expected=$expectedAclHash actual=$actualAclHash"
+            throw 'service core ACL mismatch'
+        }
     } catch {
-        $failures.Add("service core preimage restore failed at $serviceRestoreStage")
+        $detail = if ($serviceRestoreDiagnostic) { " ($serviceRestoreDiagnostic)" } else { '' }
+        $failures.Add("service core preimage restore failed at $serviceRestoreStage$detail")
     }
     if ($failures.Count) { throw "CVR core rollback was incomplete: $($failures -join '; ')." }
     Assert-CvrCorePairPreimage -Preimage $Preimage -Phase 'rollback'
@@ -532,7 +565,8 @@ function Save-CvrSyntheticStockCore {
     $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($sha -ceq $coreSha) { throw 'Synthetic stock Program Files core must differ from the candidate service core.' }
     $acl = Get-Acl -LiteralPath $path
-    $backup = Join-Path $env:RUNNER_TEMP ("cvr-258-stock-core-" + [Guid]::NewGuid().ToString('N') + '.exe')
+    $backup = New-CvrCorePreimageBackupPath -Root $env:RUNNER_TEMP -Label '258-stock'
+    if ([IO.Path]::GetFileName($backup) -cne 'verge-mihomo.exe') { throw 'Pinned 2.5.8 helper input basename mismatch.' }
     Copy-Item -LiteralPath $path -Destination $backup
     if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha) {
         throw 'Could not retain the pinned 2.5.8 stock Program Files core.'
