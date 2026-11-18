@@ -1,4 +1,8 @@
-param([ValidateSet('seed','exercise','recovery')][string]$Phase = 'exercise')
+param(
+    [ValidateSet('seed','exercise','recovery')][string]$Phase = 'exercise',
+    [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedProgramFilesCoreSha256,
+    [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedServiceCoreSha256
+)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
@@ -23,6 +27,14 @@ if ($coreEntries.Count -ne 1 -or $coreEntries[0].sha256 -notmatch '^[0-9a-f]{64}
 $coreSha = [string]$coreEntries[0].sha256
 if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].size) { throw 'Fresh Windows artifact size changed after build.' }
 if ((Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'The candidate input is not the freshly built pinned core.' }
+$script:expectedProgramFilesCoreSha = [string]$ExpectedProgramFilesCoreSha256
+$script:expectedServiceCoreSha = [string]$ExpectedServiceCoreSha256
+if ($Phase -ne 'recovery' -and (
+    $script:expectedProgramFilesCoreSha -cne $coreSha -or
+    $script:expectedServiceCoreSha -cne $coreSha
+)) {
+    throw 'Seed and exercise phases must use the fresh source-built core for both paths.'
+}
 
 $serviceName = 'clash_verge_service'
 $serviceData = Join-Path $env:ProgramData 'clash-verge-service'
@@ -33,9 +45,14 @@ $installRoot = Join-Path $env:ProgramFiles 'Clash Verge'
 $guiPath = Join-Path $installRoot 'clash-verge.exe'
 if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf)) { throw "The verified CVR $expectedVersion GUI is absent from the installed payload." }
 if ((Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedGuiSha.ToLowerInvariant()) { throw "The installed CVR $expectedVersion GUI SHA256 does not match the pinned extracted payload." }
-if ((Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw "The installed CVR $expectedVersion core path does not contain the fresh source-built bytes." }
-if (Test-Path -LiteralPath $serviceCore -PathType Leaf) {
-    if ((Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'The service staging path does not contain the fresh source-built core.' }
+$installedCoreSha = (Get-FileHash -LiteralPath $installedCore -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($installedCoreSha -cne $script:expectedProgramFilesCoreSha) {
+    throw "The installed CVR $expectedVersion Program Files core SHA256 mismatch: expected=$($script:expectedProgramFilesCoreSha) actual=$installedCoreSha"
+}
+if (-not (Test-Path -LiteralPath $serviceCore -PathType Leaf)) { throw "The installed CVR $expectedVersion service core path is missing." }
+$serviceCoreSha = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($serviceCoreSha -cne $script:expectedServiceCoreSha) {
+    throw "The installed CVR $expectedVersion service core SHA256 mismatch: expected=$($script:expectedServiceCoreSha) actual=$serviceCoreSha"
 }
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Clean-runner precondition failed: a CVR service already exists.' }
 $failures = [Collections.Generic.List[string]]::new()
@@ -409,7 +426,7 @@ function Assert-LiveCoreIdentity {
     $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if (-not $serviceRecord -or $serviceRecord.State -ne 'Running' -or [uint32]$serviceRecord.ProcessId -le 0) { throw 'The registered CVR service has no live process identity.' }
     if ([uint32]$processes[0].ParentProcessId -ne [uint32]$serviceRecord.ProcessId) { throw 'The live core is not a direct child of the registered CVR service process.' }
-    if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live service core SHA256 mismatch.' }
+    if ((Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $script:expectedServiceCoreSha) { throw 'Live service core SHA256 mismatch.' }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
     $script:verifiedCorePid = [int]$processes[0].ProcessId
 }
@@ -420,7 +437,7 @@ function Assert-LiveSidecarCoreIdentity {
     if ($allCores.Count -ne 1) { throw "Expected exactly one live sidecar core process; found $($allCores.Count)." }
     $path = [IO.Path]::GetFullPath([string]$allCores[0].ExecutablePath)
     if (-not [StringComparer]::OrdinalIgnoreCase.Equals($path,[IO.Path]::GetFullPath($installedCore))) { throw "Recovered/seeded core path differs from the installed custom core: $path" }
-    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) { throw 'Live sidecar core SHA256 mismatch.' }
+    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $script:expectedProgramFilesCoreSha) { throw 'Live sidecar core SHA256 mismatch.' }
     if (@(Get-CimInstance Win32_Process -Filter "Name='verge-mihomo-alpha.exe'" -ErrorAction SilentlyContinue).Count) { throw 'Alpha core process started during acceptance.' }
     $script:verifiedCorePid = [int]$allCores[0].ProcessId
 }

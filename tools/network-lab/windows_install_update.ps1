@@ -755,7 +755,7 @@ function Invoke-NativePhase {
     $started = [DateTime]::UtcNow
     $failure = $null
     try {
-        & $nativeScript -Phase $Phase
+        & $nativeScript -Phase $Phase -ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha -ExpectedServiceCoreSha256 $ExpectedServiceCoreSha
     } catch {
         $failure = $_.Exception.Message
         $script:nativeFailures.Add("$Phase`: $failure")
@@ -816,11 +816,15 @@ $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS
 $script:installDirectory = $install258
 $stockProgramFilesCore = Save-CvrSyntheticStockCore -InstallDirectory $install258
 $stockHelper = Get-CvrServiceInstallHelper -Version '2.5.8'
-$stockStageOutput = & $stockHelper.path --install-core $stockProgramFilesCore.path --sha256 $stockProgramFilesCore.sha256 2>&1
-$stockStageExit = $LASTEXITCODE
-if ($stockStageExit -ne 0) { throw "Pinned 2.5.8 helper could not retain the synthetic original service core ($stockStageExit)." }
+if ([IO.Path]::GetFileName([string]$env:CUSTOM_CORE) -cne 'verge-mihomo.exe') { throw 'Fresh source-built core basename does not match the service helper contract.' }
+$baselineServiceStageOutput = & $stockHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha 2>&1
+$baselineServiceStageExit = $LASTEXITCODE
+if ($baselineServiceStageExit -ne 0) { throw "Pinned 2.5.8 helper could not stage the source-built baseline service core ($baselineServiceStageExit)." }
 $originalCorePair = Get-CvrCorePairPreimage -InstallDirectory $install258
 Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original 2.5.8 core'
+if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256) { throw 'Synthetic baseline Program Files core does not match its retained 2.5.8 stock preimage.' }
+if ($originalCorePair.programFiles.sha256 -ceq $coreSha) { throw 'Synthetic baseline Program Files core must remain separate from source-built service core.' }
+if ($originalCorePair.service.sha256 -cne $coreSha) { throw 'Synthetic baseline service core does not match the fresh source-built bytes.' }
 Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline' -HelperVersion '2.5.8'
 Invoke-NativePhase -Phase seed -InstallDirectory $install258 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
 Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore

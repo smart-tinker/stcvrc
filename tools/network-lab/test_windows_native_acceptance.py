@@ -61,6 +61,24 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Restore-CvrCorePairPreimage -Preimage $originalCorePair -HelperVersion '2.5.8'", source)
         self.assertIn("-ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256", source)
         self.assertIn("-ExpectedServiceCoreSha $originalCorePair.service.sha256", source)
+        self.assertIn("-ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha", source)
+        self.assertIn("-ExpectedServiceCoreSha256 $ExpectedServiceCoreSha", source)
+        self.assertIn("if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256)", source)
+        self.assertIn("if ($originalCorePair.programFiles.sha256 -ceq $coreSha)", source)
+        self.assertIn("if ($originalCorePair.service.sha256 -cne $coreSha)", source)
+        self.assertIn("GetFileName([string]$env:CUSTOM_CORE) -cne 'verge-mihomo.exe'", source)
+        self.assertIn("$stockHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha", source)
+        native = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("$script:expectedProgramFilesCoreSha -cne $coreSha", native)
+        self.assertIn("$script:expectedServiceCoreSha -cne $coreSha", native)
+        service_identity = native.split("function Assert-LiveCoreIdentity", 1)[1].split(
+            "function Assert-LiveSidecarCoreIdentity", 1
+        )[0]
+        sidecar_identity = native.split("function Assert-LiveSidecarCoreIdentity", 1)[1].split(
+            "function Get-RuntimeDnsListen", 1
+        )[0]
+        self.assertIn("$script:expectedServiceCoreSha", service_identity)
+        self.assertIn("$script:expectedProgramFilesCoreSha", sidecar_identity)
         self.assertIn("original pair after native recovery", source)
 
     def test_install_update_and_recovery_run_native_phases_in_order(self):
@@ -203,7 +221,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$processes[0].ExecutablePath",
             "$serviceCore",
             "Get-FileHash",
-            "$coreSha",
+            "$script:expectedServiceCoreSha",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, identity)
