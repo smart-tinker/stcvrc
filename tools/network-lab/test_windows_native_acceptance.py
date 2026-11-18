@@ -107,9 +107,13 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         recovery = source.split("} elseif ($Phase -eq 'recovery') {", 1)[1].split(
             "} else {", 1
         )[0]
+        start_service = recovery.index("Start-CvrService")
+        patch = recovery.index("Invoke-CvrCommand -Command 'patch_verge_config'")
         restart = recovery.index("Invoke-CvrRestartCore -Phase '2.5.8 functional recovery TUN'")
-        self.assertLess(recovery.index("Invoke-CvrCommand -Command 'patch_verge_config'"), restart)
-        self.assertLess(restart, recovery.index("Assert-SelectedProfileReady"))
+        ready = recovery.index("Assert-SelectedProfileReady")
+        self.assertLess(start_service, patch)
+        self.assertLess(patch, restart)
+        self.assertLess(restart, ready)
         self.assertLess(
             source.index("Install-CvrRecoveryService -CorePreimagePath $RecoveryServiceCorePreimagePath"),
             source.index("$gui=Start-Process -FilePath $guiPath"),
@@ -121,9 +125,18 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$outcome=Invoke-CvrCommand -Command 'install_service'", 1
         )[0]
         self.assertNotIn("Invoke-CvrCommand -Command 'install_service'", recovery_start)
-        self.assertIn("$existingService.Status -eq 'Stopped'", recovery_start)
-        self.assertIn("$existingService.Status -eq 'Running'", recovery_start)
-        self.assertIn("Start-Service -Name $serviceName", recovery_start)
+        self.assertNotIn("Assert-LiveCoreIdentity", recovery_start)
+        for assertion in (
+            "$beforeStartSha",
+            "$script:expectedServiceCoreSha",
+            "Assert-LiveServiceIdentity -AllowStopped",
+            "Assert-LiveServiceIdentity",
+            "Start-Service -Name $serviceName",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, recovery_start)
+        self.assertLess(recovery_start.index("$beforeStartSha"), recovery_start.index("Start-Service -Name $serviceName"))
+        self.assertIn("Assert-LiveCoreIdentity", selected_ready)
         self.assertIn("Assert-LiveCoreIdentity", recovery_start)
 
     def test_synthetic_rollback_self_check_precedes_the_long_windows_build(self):

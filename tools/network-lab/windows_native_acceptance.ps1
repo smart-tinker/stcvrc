@@ -463,7 +463,6 @@ function Start-CvrService {
         }
         if (-not $svc -or $svc.Status -ne 'Running') { throw 'Direct SCM start did not start the verified recovery service.' }
         Assert-LiveServiceIdentity
-        Assert-LiveCoreIdentity
         Write-Host 'Recovery reused the pinned service helper installation; GUI Tauri install_service was skipped.'
         return
     }
