@@ -33,7 +33,10 @@ class VerifierTests(unittest.TestCase):
         self.manifest = {'schemaVersion': 1, 'repository': 'clash-verge-rev/clash-verge-rev',
                          'publicKeyBase64': encoded_key, 'releases': [],
                          'windowsNativeCandidate': {'releaseId': 446278043,
+                             'tag': 'stcvrc-1.19.33-rc.9',
                              'candidate': 'STCVRC 1.19.33 RC9',
+                             'assetId': 751963784, 'assetName': 'verge-mihomo.exe',
+                             'assetSize': 60833280,
                              'sha256': '1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e'}}
         for number, version in enumerate(('2.5.8', '2.5.10'), 10):
             installer = b'MZ fixture installer ' + version.encode()
@@ -124,7 +127,9 @@ class VerifierTests(unittest.TestCase):
             self.module().verify(self.root, self.core, self.manifest)
 
     def test_windows_native_candidate_pin_is_exact(self):
-        for field, value in (('releaseId', 446278044), ('candidate', 'other'),
+        for field, value in (('releaseId', 446278044), ('tag', 'other'),
+                             ('candidate', 'other'), ('assetId', 0),
+                             ('assetName', 'other.exe'), ('assetSize', 1),
                              ('sha256', '0' * 64)):
             manifest = copy.deepcopy(self.manifest)
             manifest['windowsNativeCandidate'][field] = value

@@ -15,7 +15,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 ROOT = Path(__file__).resolve().parent
 WINDOWS_NATIVE_CANDIDATE = {
     'releaseId': 446278043,
+    'tag': 'stcvrc-1.19.33-rc.9',
     'candidate': 'STCVRC 1.19.33 RC9',
+    'assetId': 751963784,
+    'assetName': 'verge-mihomo.exe',
+    'assetSize': 60833280,
     'sha256': '1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e',
 }
 

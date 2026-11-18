@@ -23,12 +23,30 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         manifest = json.loads((INSTALLER_SMOKE.parents[2] / "candidates" / "cvr-2.5.10" / "inputs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["windowsNativeCandidate"], {
             "releaseId": 446278043,
+            "tag": "stcvrc-1.19.33-rc.9",
             "candidate": "STCVRC 1.19.33 RC9",
+            "assetId": 751963784,
+            "assetName": "verge-mihomo.exe",
+            "assetSize": 60833280,
             "sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
         })
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        self.assertIn("$nativeCandidate.releaseId -ne 446278043", source)
-        self.assertIn("$coreSha -cne [string]$nativeCandidate.sha256", source)
+        for pin in (
+            "$nativeCandidate.releaseId -ne 446278043",
+            "$nativeCandidate.tag -cne 'stcvrc-1.19.33-rc.9'",
+            "$nativeCandidate.assetId -ne 751963784",
+            "[long]$nativeCandidate.assetSize -ne 60833280",
+            "$coreSha -cne [string]$nativeCandidate.sha256",
+        ):
+            self.assertIn(pin, source)
+
+    def test_recovery_restores_original_split_core_pair_before_native_check(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("$originalCorePair = Get-CvrCorePairPreimage", source)
+        self.assertIn("Restore-CvrCorePairPreimage -Preimage $originalCorePair -HelperVersion '2.5.8'", source)
+        self.assertIn("-ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256", source)
+        self.assertIn("-ExpectedServiceCoreSha $originalCorePair.service.sha256", source)
+        self.assertIn("original pair after native recovery", source)
 
     def test_install_update_and_recovery_run_native_phases_in_order(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")

@@ -76,9 +76,14 @@ if ($coreEntries.Count -ne 1 -or $coreEntries[0].sha256 -notmatch '^[0-9a-f]{64}
 $coreSha = [string]$coreEntries[0].sha256
 $nativeCandidate = $manifest.windowsNativeCandidate
 if ($nativeCandidate.releaseId -ne 446278043 -or
+    $nativeCandidate.tag -cne 'stcvrc-1.19.33-rc.9' -or
     $nativeCandidate.candidate -cne 'STCVRC 1.19.33 RC9' -or
+    $nativeCandidate.assetId -ne 751963784 -or
+    $nativeCandidate.assetName -cne 'verge-mihomo.exe' -or
+    [long]$nativeCandidate.assetSize -ne 60833280 -or
+    [long]$coreEntries[0].size -ne [long]$nativeCandidate.assetSize -or
     $coreSha -cne [string]$nativeCandidate.sha256) {
-    throw 'Fresh Windows core does not match the exact STCVRC 1.19.33 RC9 release pin.'
+    throw 'Fresh Windows core does not match the exact STCVRC 1.19.33 RC9 release asset pin.'
 }
 if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].size) { throw 'Fresh Windows artifact size changed after build.' }
 if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf) -or
@@ -688,13 +693,22 @@ if (Test-Path -LiteralPath $env:STCVRC_NATIVE_PORT_PLAN) { throw 'Refusing a pre
 $null = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
 Write-Host 'Created one validated DNS port plan for seed, update, and recovery phases.'
 function Invoke-NativePhase {
-    param([ValidateSet('seed','exercise','recovery')][string]$Phase, [string]$InstallDirectory)
+    param(
+        [ValidateSet('seed','exercise','recovery')][string]$Phase,
+        [string]$InstallDirectory,
+        [string]$ExpectedProgramFilesCoreSha,
+        [string]$ExpectedServiceCoreSha
+    )
     $installedCore = Join-Path $InstallDirectory 'verge-mihomo.exe'
-    $stagedCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
-    foreach ($path in @($installedCore,$stagedCore)) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
-            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
-            throw "Refusing native $Phase phase before exact custom core SHA is verified at $path."
+    $stagedCore = Join-Path $serviceData 'cores\\verge-mihomo.exe'
+    foreach ($target in @(
+        [PSCustomObject]@{ path=$installedCore; sha256=$ExpectedProgramFilesCoreSha },
+        [PSCustomObject]@{ path=$stagedCore; sha256=$ExpectedServiceCoreSha }
+    )) {
+        if ($target.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            -not (Test-Path -LiteralPath $target.path -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $target.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $target.sha256) {
+            throw "Refusing native $Phase phase before its separate original/candidate core SHA is verified."
         }
     }
     $started = [DateTime]::UtcNow
@@ -745,20 +759,29 @@ $processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
 Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
 $script:legacyStateFixture = New-CvrSyntheticLegacyPreimage
 $rollbackSelfCheck = $false
+$rollbackMessage = ''
 try {
     Invoke-CvrStateTransaction -Phase 'intentional action-failure self-check' -HelperVersion '2.5.8' -InstallDirectory '' -Action {
         throw 'synthetic action failure'
     }
 } catch {
-    $rollbackSelfCheck = $_.Exception.Message -match 'failed after its preimages were restored: synthetic action failure'
+    $rollbackMessage = [string]$_.Exception.Message
+    Write-Host "Synthetic action-failure self-check observed: $rollbackMessage"
+    $rollbackSelfCheck = $rollbackMessage -match 'failed after its preimages were restored: synthetic action failure'
 }
-if (-not $rollbackSelfCheck) { throw 'Installer action failure did not restore and report the synthetic preimage.' }
+if (-not $rollbackSelfCheck) { throw "Installer action failure did not restore and report the synthetic preimage. Observed: $rollbackMessage" }
 Assert-CvrLegacyState -Expected $script:legacyStateFixture.state -Phase 'action-failure self-check'
 $install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
 $script:installDirectory = $install258
 $stockProgramFilesCore = Save-CvrSyntheticStockCore -InstallDirectory $install258
+$stockHelper = Get-CvrServiceInstallHelper -Version '2.5.8'
+$stockStageOutput = & $stockHelper.path --install-core $stockProgramFilesCore.path --sha256 $stockProgramFilesCore.sha256 2>&1
+$stockStageExit = $LASTEXITCODE
+if ($stockStageExit -ne 0) { throw "Pinned 2.5.8 helper could not retain the synthetic original service core ($stockStageExit)." }
+$originalCorePair = Get-CvrCorePairPreimage -InstallDirectory $install258
+Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original 2.5.8 core'
 Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline' -HelperVersion '2.5.8'
-Invoke-NativePhase -Phase seed -InstallDirectory $install258
+Invoke-NativePhase -Phase seed -InstallDirectory $install258 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
 Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
 $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
 if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
@@ -766,7 +789,7 @@ Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update' -Hel
 Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install2510 -StockCore $stockProgramFilesCore
 Invoke-CvrOverlayReinstall -InstallDirectory $install2510
 Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay' -HelperVersion '2.5.10'
-Invoke-NativePhase -Phase exercise -InstallDirectory $install2510
+Invoke-NativePhase -Phase exercise -InstallDirectory $install2510 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
 
 # The native phase normally removes its exact service, process tree and synthetic route.
 # Repeat cleanup on the disposable runner before the pinned recovery installer.
@@ -785,10 +808,12 @@ try {
     Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
     $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
     if ($installRecovered -ne $install258) { throw 'CVR recovery changed the registered install directory.' }
-    Install-CandidateCore -InstallDirectory $installRecovered -Phase 'recovery' -HelperVersion '2.5.8'
+    Restore-CvrCorePairPreimage -Preimage $originalCorePair -HelperVersion '2.5.8'
+    Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original pair after recovery'
     Assert-NoService
     Assert-NoCvrProcesses
-    Invoke-NativePhase -Phase recovery -InstallDirectory $installRecovered
+    Invoke-NativePhase -Phase recovery -InstallDirectory $installRecovered -ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256 -ExpectedServiceCoreSha $originalCorePair.service.sha256
+    Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original pair after native recovery'
 } catch {
     $recoveryFailure = $_.Exception.Message
     Write-Host "Pinned CVR 2.5.8 recovery failed: $recoveryFailure" -ForegroundColor Red
@@ -838,6 +863,7 @@ $summary = @(
     '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
     '- Synthetic action failure was surfaced after restoring its exact preimage; each pinned NSIS is required to change the window-state files and four Run values, which are restored with exact bytes, ACLs, registry type/data.',
     '- Before 2.5.10 update, overlay, and 2.5.8 recovery, separate signed-stock Program Files and candidate service-core preimages are restored and verified with the extracted pinned service helper for each version.',
+    '- After recovery, the original Program Files and service-core preimages are independently restored with the pinned 2.5.8 helper and verified before the final native phase.',
     '- No production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
 foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }
