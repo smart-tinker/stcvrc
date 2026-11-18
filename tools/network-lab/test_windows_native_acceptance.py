@@ -19,6 +19,17 @@ PORT_PLAN = ROOT / "tools" / "network-lab" / "windows_native_port_plan.ps1"
 
 
 class NativeWindowsAcceptanceContract(unittest.TestCase):
+    def test_fresh_windows_core_is_bound_to_exact_rc9_pin(self):
+        manifest = json.loads((INSTALLER_SMOKE.parents[2] / "candidates" / "cvr-2.5.10" / "inputs.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["windowsNativeCandidate"], {
+            "releaseId": 446278043,
+            "candidate": "STCVRC 1.19.33 RC9",
+            "sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
+        })
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("$nativeCandidate.releaseId -ne 446278043", source)
+        self.assertIn("$coreSha -cne [string]$nativeCandidate.sha256", source)
+
     def test_install_update_and_recovery_run_native_phases_in_order(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         phases = ("-Phase seed", "-Phase exercise", "-Phase recovery")

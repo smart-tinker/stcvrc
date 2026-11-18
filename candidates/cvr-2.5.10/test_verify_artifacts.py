@@ -31,7 +31,10 @@ class VerifierTests(unittest.TestCase):
         self.public = b'Ed' + b'test-key' + public
         encoded_key = base64.b64encode(b'untrusted comment: fixture\n' + base64.b64encode(self.public) + b'\n').decode()
         self.manifest = {'schemaVersion': 1, 'repository': 'clash-verge-rev/clash-verge-rev',
-                         'publicKeyBase64': encoded_key, 'releases': []}
+                         'publicKeyBase64': encoded_key, 'releases': [],
+                         'windowsNativeCandidate': {'releaseId': 446278043,
+                             'candidate': 'STCVRC 1.19.33 RC9',
+                             'sha256': '1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e'}}
         for number, version in enumerate(('2.5.8', '2.5.10'), 10):
             installer = b'MZ fixture installer ' + version.encode()
             signature = self.sign(installer)
@@ -99,6 +102,7 @@ class VerifierTests(unittest.TestCase):
         self.assertEqual(receipt['inputsSha256'], sha(self.manifest_path.read_bytes()))
         self.assertEqual(receipt['extractedPayloads'], 'NOT_VERIFIED')
         self.assertEqual(receipt['nativeAcceptance'], 'NOT_RUN')
+        self.assertEqual(receipt['windowsNativeCandidate'], self.manifest['windowsNativeCandidate'])
         for release in receipt['releases']:
             self.assertRegex(release['serviceInstallHelperSha256'], r'^[0-9a-f]{64}$')
             self.assertTrue(release['trustedCommentVerified'])
@@ -118,6 +122,14 @@ class VerifierTests(unittest.TestCase):
     def assert_rejected(self):
         with self.assertRaises((ValueError, InvalidSignature, KeyError, TypeError)):
             self.module().verify(self.root, self.core, self.manifest)
+
+    def test_windows_native_candidate_pin_is_exact(self):
+        for field, value in (('releaseId', 446278044), ('candidate', 'other'),
+                             ('sha256', '0' * 64)):
+            manifest = copy.deepcopy(self.manifest)
+            manifest['windowsNativeCandidate'][field] = value
+            with self.assertRaisesRegex(ValueError, 'native Windows candidate pin mismatch'):
+                self.module().verify(self.root, self.core, manifest)
 
     def test_service_install_helper_pin_must_be_a_lowercase_sha256(self):
         for value in ('', 'A' * 64, '0' * 63, None):

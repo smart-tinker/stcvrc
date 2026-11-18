@@ -74,6 +74,12 @@ if ($LASTEXITCODE -ne 0 -or $build.schema_version -ne 1 -or $build.build_host -n
 $coreEntries = @($build.artifacts | Where-Object { $_.name -eq 'verge-mihomo.exe' -and $_.target -eq 'windows/amd64' })
 if ($coreEntries.Count -ne 1 -or $coreEntries[0].sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$coreEntries[0].size -lt 1) { throw 'Fresh Windows artifact identity is invalid.' }
 $coreSha = [string]$coreEntries[0].sha256
+$nativeCandidate = $manifest.windowsNativeCandidate
+if ($nativeCandidate.releaseId -ne 446278043 -or
+    $nativeCandidate.candidate -cne 'STCVRC 1.19.33 RC9' -or
+    $coreSha -cne [string]$nativeCandidate.sha256) {
+    throw 'Fresh Windows core does not match the exact STCVRC 1.19.33 RC9 release pin.'
+}
 if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].size) { throw 'Fresh Windows artifact size changed after build.' }
 if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf) -or
     (Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
@@ -831,7 +837,7 @@ $summary = @(
     '- Native core starts were allowed only within phase intervals after the installed and service-staged executable hashes matched the fresh source-built core; every Alpha start is forbidden.',
     '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
     '- Synthetic action failure was surfaced after restoring its exact preimage; each pinned NSIS is required to change the window-state files and four Run values, which are restored with exact bytes, ACLs, registry type/data.',
-    '- Before 2.5.10 update, overlay, and 2.5.8 recovery, separate signed-stock Program Files and candidate service-core preimages are restored and verified with that version’s extracted pinned helper.',
+    '- Before 2.5.10 update, overlay, and 2.5.8 recovery, separate signed-stock Program Files and candidate service-core preimages are restored and verified with the extracted pinned service helper for each version.',
     '- No production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
 foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }

@@ -94,5 +94,10 @@
       "with_gvisor"
     ],
     "sha256": "d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87"
+  },
+  "windowsNativeCandidate": {
+    "releaseId": 446278043,
+    "candidate": "STCVRC 1.19.33 RC9",
+    "sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e"
   }
 }
