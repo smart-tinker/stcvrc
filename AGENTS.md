@@ -21,5 +21,11 @@ STCVRC is a temporary, minimal downstream core for stock Clash Verge Rev (CVR), 
 - Before handoff re-read actual PR head/status/checks. Maintain one current summary and link historical evidence rather than append conflicting “final” sections.
 - No secrets, private profiles or operational data in public issues/logs. No paid runners, settings changes, release, deployment or automatic merge without explicit authorization. Existing bounded free-runner policy is not permission for native rollout.
 
+## Independent-review pilot
+- Complex changes involving core, network, TUN, service, update, data or shared contracts require independent review by Astra 6.2 Max in «STCVRC | Независимое ревью», separately from implementation.
+- The coordinator supplies the issue, checkable DoD, exact PR head SHA and verification results with evidence links and untested boundaries. The reviewer does not edit code; it returns a verdict and any blockers with evidence. Record the result in the PR against the reviewed SHA; after changes, recheck affected findings against the new SHA rather than reuse an older verdict as current.
+- Short, low-risk tasks use a compact DoD and one risk-appropriate verification, without duplicate independent review. All mandatory repository checks still run, including on documentation-only and draft PRs; this pilot does not weaken CI or acceptance gates.
+- The current coordinator and separate acceptance remain unchanged. Review is not installed-machine acceptance and does not authorize merge, publication or deployment.
+
 ## Issue handoff checklist
 Required scenario and upstream gap; observed vs expected; evidence and exact revisions; scope/non-goals; relevant invariants; dependencies/existing work; DoD and negative tests; stop conditions; patch retirement/migration condition. Mark hypotheses and unverified claims explicitly. Prefer a small executable task over a broad product roadmap.
