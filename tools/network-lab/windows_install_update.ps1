@@ -65,6 +65,9 @@ if (-not (Test-Path -LiteralPath $legacyStateTransactionScript -PathType Leaf)) 
 $idleBaselineGuardScript = Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1'
 if (-not (Test-Path -LiteralPath $idleBaselineGuardScript -PathType Leaf)) { throw 'The shared idle-baseline guard helper is missing.' }
 . $idleBaselineGuardScript
+$idleTransactionScript = Join-Path $PSScriptRoot 'windows_idle_transaction.ps1'
+if (-not (Test-Path -LiteralPath $idleTransactionScript -PathType Leaf)) { throw 'The shared idle transaction helper is missing.' }
+. $idleTransactionScript
 if (-not (Get-Command -Name Assert-CvrIdleBaseline -CommandType Function -ErrorAction SilentlyContinue)) { throw 'The idle-baseline guard function is unavailable in installer scope.' }
 $profileDirectory = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev\profiles'
 if (Test-Path -LiteralPath (Split-Path -Parent $profileDirectory)) { throw 'Refusing preexisting CVR app data.' }
@@ -832,11 +835,11 @@ Stop-CvrRunnerRuntime
 Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture
 $script:legacyStateFixture = $null
 
-$idleBaselineCapture = New-CvrIdleTransactionCapture -InstallDirectory $install258
-$originalCorePair = $idleBaselineCapture.corePair
-$transactionFailure = $null
-$idleRestoreFailure = $null
-try {
+$idleTransactionCallbacks = @{
+    CaptureScript = { New-CvrIdleTransactionCapture -InstallDirectory $install258 }
+    ActionScript = {
+        param($capture)
+        $originalCorePair = $capture.corePair
     Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'captured original 2.5.8 idle core pair'
     if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256) { throw 'Captured idle Program Files core differs from the pinned 2.5.8 stock preimage.' }
     if ($originalCorePair.programFiles.sha256 -ceq $coreSha) { throw 'Captured idle Program Files core must remain separate from the source-built service core.' }
@@ -883,17 +886,23 @@ try {
     Assert-NoCvrProcesses
     Invoke-NativePhase -Phase recovery -InstallDirectory $installRecovered -ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256 -ExpectedServiceCoreSha $originalCorePair.service.sha256 -RecoveryServiceCorePreimagePath $originalCorePair.service.backup
     Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original pair after native recovery'
-} catch {
-    $transactionFailure = $_.Exception.Message
-    Write-Host "Candidate update/recovery transaction failed: $transactionFailure" -ForegroundColor Red
-} finally {
-    try {
-        Restore-CvrIdleTransaction -Capture $idleBaselineCapture | Out-Null
-    } catch {
-        $idleRestoreFailure = $_.Exception.Message
-        Write-Host "Captured idle baseline restore failed: $idleRestoreFailure" -ForegroundColor Red
+    }
+    RestoreScript = { param($capture) Restore-CvrIdleTransaction -Capture $capture }
+    VerifyScript = {
+        param($capture, $restored)
+        $null = Assert-CvrIdleBaseline @restored
+        Assert-CvrCorePairPreimage -Preimage $capture.corePair -Phase 'shared idle transaction verification'
+        Assert-CvrLegacyState -Expected $capture.legacyState -Phase 'shared idle transaction verification'
+        return $true
     }
 }
+$idleTransactionResult = Invoke-CvrIdleTransaction @idleTransactionCallbacks
+$idleBaselineCapture = $idleTransactionResult.Capture
+$originalCorePair = $idleBaselineCapture.corePair
+$transactionFailure = $idleTransactionResult.ActionFailure
+$idleRestoreFailure = $idleTransactionResult.RestoreFailure
+if ($transactionFailure) { Write-Host "Candidate update/recovery transaction failed: $transactionFailure" -ForegroundColor Red }
+if ($idleRestoreFailure) { Write-Host "Captured idle baseline restore failed: $idleRestoreFailure" -ForegroundColor Red }
 
 # WMI indication delivery is asynchronous; drain until stable, with a hard bound.
 $drainDeadline = [DateTime]::UtcNow.AddSeconds(8)
@@ -939,6 +948,7 @@ $summary = @(
     '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
     '- Synthetic NSIS side-effect check ran against the isolated initial preimage; update/recovery transactions captured and restored their actual window-state files, ACLs, and autorun values.',
     '- Captured an intentionally idle pinned 2.5.8 baseline after seed, including separate Program Files/service core bytes and ACLs, GUI pin, legacy state, Running service identity, no GUI/core process, and no owned controller listener.',
+    '- The shared idle transaction helper restores and verifies captured preimages after the update/recovery action, including when that action fails.',
     '- Updated and exercised the fresh source-built candidate through pinned 2.5.10; verified its post-exercise idle service state before recovery.',
     '- The final recovery restores the captured 2.5.8 GUI, both exact core preimages/ACLs, captured legacy state, and verified idle service state even when update/recovery throws.',
     '- The public runner uses only synthetic acceptance inputs; no private pins/data, production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'

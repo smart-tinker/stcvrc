@@ -43,6 +43,11 @@ Assert-IdleTransaction ($restoreFailure.ActionFailure -eq $null) 'Successful act
 Assert-IdleTransaction ($restoreFailure.RestoreFailure -ceq 'synthetic-restore-failure') 'Restore failure was not retained.'
 Assert-IdleTransactionOrder @('capture','action','restore')
 
+$script:idleTransactionEvents.Clear()
+$verifyFailure = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action'); 'candidate' } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore'); 'baseline' } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); $false }
+Assert-IdleTransaction ($verifyFailure.RestoreFailure -ceq 'Idle transaction restore verification did not pass.') 'False restore verification was accepted.'
+Assert-IdleTransactionOrder @('capture','action','restore','verify')
+
 foreach ($invalidIntent in @($true,0)) {
     $script:idleTransactionEvents.Clear()
     $rejected = $false

@@ -13,18 +13,38 @@ function Invoke-CvrIdleTransaction {
         throw 'Idle transaction requires a captured strict false intent.'
     }
 
-    # RED baseline: action errors escape before restoration.
-    $actionResult = & $ActionScript $capturedBaseline
-    $restoreResult = & $RestoreScript $capturedBaseline
-    $verified = & $VerifyScript $capturedBaseline $restoreResult
-    if ($verified -isnot [bool] -or -not $verified) {
-        throw 'Idle transaction restore verification did not pass.'
+    $actionResult = $null
+    $actionFailure = $null
+    try { $actionResult = & $ActionScript $capturedBaseline }
+    catch {
+        $actionFailure = $_.Exception.Message
+        if (-not $actionFailure) { $actionFailure = 'Action callback failed without a message.' }
+    }
+
+    $restoreResult = $null
+    $restoreFailure = $null
+    try { $restoreResult = & $RestoreScript $capturedBaseline }
+    catch {
+        $restoreFailure = $_.Exception.Message
+        if (-not $restoreFailure) { $restoreFailure = 'Restore callback failed without a message.' }
+    }
+
+    if ($null -eq $restoreFailure) {
+        try {
+            $verified = & $VerifyScript $capturedBaseline $restoreResult
+            if ($verified -isnot [bool] -or -not $verified) {
+                throw 'Idle transaction restore verification did not pass.'
+            }
+        } catch {
+            $restoreFailure = $_.Exception.Message
+            if (-not $restoreFailure) { $restoreFailure = 'Restore verification failed without a message.' }
+        }
     }
 
     return [PSCustomObject]@{
         Capture = $capturedBaseline
         ActionResult = $actionResult
-        ActionFailure = $null
-        RestoreFailure = $null
+        ActionFailure = $actionFailure
+        RestoreFailure = $restoreFailure
     }
 }
