@@ -730,5 +730,52 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertNotIn("SSH_FIXTURE_AUTH_OK", helper)
 
 
+
+    def test_public_installer_runs_candidate_from_captured_idle_baseline_and_restores_it(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
+        capture_call = source.index("$idleBaselineCapture = New-CvrIdleTransactionCapture")
+        update = source.index("Invoke-CvrInstaller -Version '2.5.10'", capture_call)
+        exercise = source.index("Invoke-NativePhase -Phase exercise", update)
+        recovery = source.index("Invoke-CvrInstaller -Version '2.5.8'", exercise)
+        restore_call = source.index("Restore-CvrIdleTransaction -Capture $idleBaselineCapture", recovery)
+        self.assertLess(capture_call, update)
+        self.assertLess(update, exercise)
+        self.assertLess(exercise, recovery)
+        self.assertLess(recovery, restore_call)
+
+        capture = source.split("function New-CvrIdleTransactionCapture", 1)[1].split(
+            "function Restore-CvrIdleTransaction", 1
+        )[0]
+        for assertion in (
+            "Get-CvrCorePairPreimage",
+            "Get-CvrLegacyState",
+            "Get-CvrIdleBaselineObservation",
+            "Assert-CvrIdleBaseline",
+            "--install-service --install-core",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, capture)
+
+        restore = source.split("function Restore-CvrIdleTransaction", 1)[1].split(
+            "function Invoke-NativePhase", 1
+        )[0]
+        for assertion in (
+            "Restore-CvrCorePairPreimage",
+            "Restore-CvrLegacyState",
+            "Assert-CvrCorePairPreimage",
+            "Assert-CvrLegacyState",
+            "Assert-CvrIdleBaseline",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, restore)
+
+        transaction = helper.split("function Invoke-CvrStateTransaction", 1)[1].split(
+            "function Test-CvrInstallerActionFailureRollback", 1
+        )[0]
+        self.assertNotIn("Synthetic NSIS preimage fixture was not prepared.", transaction)
+        self.assertIn("if ($script:legacyStateFixture)", transaction)
+
+
 if __name__ == "__main__":
     unittest.main()
