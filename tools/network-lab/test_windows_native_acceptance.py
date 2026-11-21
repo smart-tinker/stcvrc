@@ -734,15 +734,21 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_public_installer_runs_candidate_from_captured_idle_baseline_and_restores_it(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
+        guard = (INSTALLER_SMOKE.parent / "windows_idle_baseline_guard.ps1").read_text(encoding="utf-8")
         capture_call = source.index("$idleBaselineCapture = New-CvrIdleTransactionCapture")
         update = source.index("Invoke-CvrInstaller -Version '2.5.10'", capture_call)
         exercise = source.index("Invoke-NativePhase -Phase exercise", update)
-        recovery = source.index("Invoke-CvrInstaller -Version '2.5.8'", exercise)
+        candidate_idle = source.index("Install-CvrIdleService -Version '2.5.10'", exercise)
+        candidate_guard = source.index("Assert-CvrIdleBaseline @candidateIdleObservation", candidate_idle)
+        recovery = source.index("Invoke-CvrInstaller -Version '2.5.8'", candidate_guard)
         restore_call = source.index("Restore-CvrIdleTransaction -Capture $idleBaselineCapture", recovery)
         self.assertLess(capture_call, update)
         self.assertLess(update, exercise)
-        self.assertLess(exercise, recovery)
+        self.assertLess(exercise, candidate_idle)
+        self.assertLess(candidate_idle, candidate_guard)
+        self.assertLess(candidate_guard, recovery)
         self.assertLess(recovery, restore_call)
+        self.assertIn("finally {", source[update:restore_call])
 
         capture = source.split("function New-CvrIdleTransactionCapture", 1)[1].split(
             "function Restore-CvrIdleTransaction", 1
@@ -750,9 +756,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             "Get-CvrCorePairPreimage",
             "Get-CvrLegacyState",
-            "Get-CvrIdleBaselineObservation",
+            "ProgramFilesEntry $corePair.programFiles",
+            "Install-CvrIdleService",
             "Assert-CvrIdleBaseline",
-            "--install-service --install-core",
+            "coreShouldBeRunning = [bool]$false",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, capture)
@@ -763,8 +770,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             "Restore-CvrCorePairPreimage",
             "Restore-CvrLegacyState",
+            "ProgramFilesEntry $Capture.corePair.programFiles",
             "Assert-CvrCorePairPreimage",
             "Assert-CvrLegacyState",
+            "Get-CvrIdleBaselineObservation",
             "Assert-CvrIdleBaseline",
         ):
             with self.subTest(assertion=assertion):
@@ -775,7 +784,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         )[0]
         self.assertNotIn("Synthetic NSIS preimage fixture was not prepared.", transaction)
         self.assertIn("if ($script:legacyStateFixture)", transaction)
-
+        self.assertIn(
+            "if ($CoreShouldBeRunning -isnot [bool] -or $ControllerListening -isnot [bool])",
+            guard,
+        )
 
 if __name__ == "__main__":
     unittest.main()
