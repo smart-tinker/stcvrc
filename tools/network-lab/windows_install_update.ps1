@@ -479,6 +479,269 @@ $env:STCVRC_NATIVE_PORT_PLAN = Join-Path $env:RUNNER_TEMP 'stcvrc-native-port-pl
 if (Test-Path -LiteralPath $env:STCVRC_NATIVE_PORT_PLAN) { throw 'Refusing a preexisting native DNS port plan on the disposable runner.' }
 $null = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
 Write-Host 'Created one validated DNS port plan for seed, update, and recovery phases.'
+function Get-CvrIdleBaselineObservation {
+    param(
+        [ValidateSet('2.5.8','2.5.10')][string]$Version,
+        [string]$InstallDirectory,
+        [object]$CoreShouldBeRunning,
+        [string]$ExpectedProgramFilesCoreSha256,
+        [string]$ExpectedServiceCoreSha256
+    )
+    $expectedGuiSha = if ($Version -eq '2.5.8') { [string]$env:CVR_258_GUI_SHA256 } else { [string]$env:CVR_2510_GUI_SHA256 }
+    $expectedServiceExeSha = if ($Version -eq '2.5.8') { [string]$env:CVR_258_SERVICE_SHA256 } else { [string]$env:CVR_2510_SERVICE_SHA256 }
+    if ($expectedGuiSha -notmatch '^[0-9a-f]{64}$' -or $expectedServiceExeSha -notmatch '^[0-9a-f]{64}$') {
+        throw 'Idle baseline GUI or service executable pin is malformed.'
+    }
+
+    $guiPath = [IO.Path]::GetFullPath((Join-Path $InstallDirectory 'clash-verge.exe'))
+    $programFilesCore = [IO.Path]::GetFullPath((Join-Path $InstallDirectory 'verge-mihomo.exe'))
+    $serviceCore = [IO.Path]::GetFullPath((Join-Path $serviceData 'cores\verge-mihomo.exe'))
+    $serviceExe = [IO.Path]::GetFullPath((Join-Path $serviceData 'bin\clash-verge-service.exe'))
+    if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedGuiSha.ToLowerInvariant()) {
+        throw 'Idle baseline GUI SHA256 mismatch.'
+    }
+    if (-not (Test-Path -LiteralPath $programFilesCore -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $serviceCore -PathType Leaf)) {
+        throw 'Idle baseline core path is missing.'
+    }
+
+    $serviceRecord = Get-CimInstance Win32_Service -Filter "Name='clash_verge_service'" -ErrorAction Stop
+    $serviceStatus = if ($serviceRecord) { [string]$serviceRecord.State } else { 'Missing' }
+    $servicePid = if ($serviceRecord) { [int]$serviceRecord.ProcessId } else { 0 }
+    if ($serviceRecord -and ($serviceStatus -cne 'Running' -or $servicePid -le 0)) {
+        throw 'Idle baseline service process identity is unavailable.'
+    }
+    if ($serviceRecord) {
+        $serviceExeProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$servicePid" -ErrorAction Stop
+        if (-not $serviceExeProcess -or -not $serviceExeProcess.ExecutablePath -or
+            [IO.Path]::GetFullPath([string]$serviceExeProcess.ExecutablePath) -ine $serviceExe -or
+            (Get-FileHash -LiteralPath $serviceExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedServiceExeSha.ToLowerInvariant()) {
+            throw 'Idle baseline service executable identity mismatch.'
+        }
+    }
+
+    $programFilesCoreDirectory = [IO.Path]::GetDirectoryName($programFilesCore)
+    $serviceCoreDirectory = [IO.Path]::GetDirectoryName($serviceCore)
+    $allProcesses = @(Get-CimInstance Win32_Process -Filter "Name='clash-verge.exe' OR Name='clash-verge-service.exe' OR Name='verge-mihomo.exe' OR Name='verge-mihomo-alpha.exe'" -ErrorAction Stop)
+    $guiIds = @()
+    $coreIds = @()
+    foreach ($process in $allProcesses) {
+        if (-not $process.ExecutablePath) { throw 'Idle baseline CVR process path is unavailable.' }
+        $processPath = [IO.Path]::GetFullPath([string]$process.ExecutablePath)
+        if ($process.Name -ieq 'clash-verge.exe') {
+            if ($processPath -ine $guiPath) { throw 'Idle baseline found an unowned GUI process.' }
+            $guiIds += [int]$process.ProcessId
+        } elseif ($process.Name -ieq 'clash-verge-service.exe') {
+            if (-not $serviceRecord -or [int]$process.ProcessId -ne $servicePid -or $processPath -ine $serviceExe) {
+                throw 'Idle baseline found an unowned service process.'
+            }
+        } elseif ($process.Name -ieq 'verge-mihomo.exe' -or $process.Name -ieq 'verge-mihomo-alpha.exe') {
+            $processDirectory = [IO.Path]::GetDirectoryName($processPath)
+            if ($processDirectory -ine $programFilesCoreDirectory -and $processDirectory -ine $serviceCoreDirectory) {
+                throw 'Idle baseline found an unowned core process.'
+            }
+            $coreIds += [int]$process.ProcessId
+        } else {
+            throw 'Idle baseline found an unrecognized CVR process.'
+        }
+    }
+
+    $listenerIds = @(
+        Get-NetTCPConnection -State Listen -ErrorAction Stop |
+            Where-Object { $coreIds -contains [int]$_.OwningProcess } |
+            Select-Object -ExpandProperty OwningProcess -Unique |
+            ForEach-Object { [int]$_ }
+    )
+    return @{
+        CoreShouldBeRunning = $CoreShouldBeRunning
+        OwnedGuiProcessIds = [int[]]$guiIds
+        OwnedCoreProcessIds = [int[]]$coreIds
+        ControllerListening = [bool]($listenerIds.Count -gt 0)
+        OwnedListenerProcessIds = [int[]]$listenerIds
+        ServiceStatus = $serviceStatus
+        ExpectedProgramFilesCoreSha256 = $ExpectedProgramFilesCoreSha256
+        ObservedProgramFilesCoreSha256 = (Get-FileHash -LiteralPath $programFilesCore -Algorithm SHA256).Hash.ToLowerInvariant()
+        ExpectedServiceCoreSha256 = $ExpectedServiceCoreSha256
+        ObservedServiceCoreSha256 = (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Install-CvrIdleService {
+    param(
+        [ValidateSet('2.5.8','2.5.10')][string]$Version,
+        [string]$InstallDirectory,
+        [object]$ProgramFilesEntry,
+        [object]$CoreEntry,
+        [object]$CoreShouldBeRunning
+    )
+    if (-not (Test-Path -LiteralPath $ProgramFilesEntry.path -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $ProgramFilesEntry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$ProgramFilesEntry.sha256 -or
+        (Get-Acl -LiteralPath $ProgramFilesEntry.path).Sddl -cne [string]$ProgramFilesEntry.sddl) {
+        throw 'Idle Program Files core preimage SHA256 or ACL mismatch.'
+    }
+    if ([IO.Path]::GetFileName([string]$CoreEntry.backup) -cne 'verge-mihomo.exe' -or
+        -not (Test-Path -LiteralPath $CoreEntry.backup -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $CoreEntry.backup -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$CoreEntry.sha256) {
+        throw 'Idle service core preimage basename or SHA256 mismatch.'
+    }
+    if (Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue) {
+        throw 'Refusing to replace a preexisting CVR service during idle capture.'
+    }
+    $helper = Get-CvrServiceInstallHelper -Version $Version
+    $helperOutput = & $helper.path --install-service --install-core $CoreEntry.backup --sha256 $CoreEntry.sha256 2>&1
+    $helperExit = $LASTEXITCODE
+    if ($helperExit -ne 0) { throw "Pinned CVR $Version idle-service helper exited $helperExit." }
+
+    $serviceCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $serviceCore -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $serviceCore -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$CoreEntry.sha256) {
+        throw 'Pinned helper did not publish the idle service core bytes.'
+    }
+    if ((Get-Acl -LiteralPath $serviceCore).Sddl -cne [string]$CoreEntry.sddl) {
+        Set-Acl -LiteralPath $serviceCore -AclObject $CoreEntry.acl
+    }
+    if ((Get-Acl -LiteralPath $serviceCore).Sddl -cne [string]$CoreEntry.sddl) {
+        throw 'Idle service core ACL did not match the captured preimage.'
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $service = $null
+    do {
+        $service = Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue
+        if ($service -and $service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running) { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $service -or $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        throw "Pinned CVR $Version helper did not leave the idle service Running."
+    }
+    if ((Get-FileHash -LiteralPath $ProgramFilesEntry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$ProgramFilesEntry.sha256 -or
+        (Get-Acl -LiteralPath $ProgramFilesEntry.path).Sddl -cne [string]$ProgramFilesEntry.sddl) {
+        throw 'Idle helper changed the captured Program Files core SHA256 or ACL.'
+    }
+    return (Get-CvrIdleBaselineObservation -Version $Version -InstallDirectory $InstallDirectory -CoreShouldBeRunning $CoreShouldBeRunning -ExpectedProgramFilesCoreSha256 ([string]$ProgramFilesEntry.sha256) -ExpectedServiceCoreSha256 ([string]$CoreEntry.sha256))
+}
+
+function Stop-CvrRunnerRuntime {
+    $service = Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue
+    if ($service) {
+        if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+            Stop-Service -Name 'clash_verge_service' -Force -ErrorAction Stop
+            $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+        }
+        $null = & sc.exe delete 'clash_verge_service' 2>&1
+    }
+
+    $expectedGui = [IO.Path]::GetFullPath((Join-Path $script:installDirectory 'clash-verge.exe'))
+    $expectedServiceExe = [IO.Path]::GetFullPath((Join-Path $serviceData 'bin\clash-verge-service.exe'))
+    $expectedCoreDirectories = @(
+        [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath((Join-Path $script:installDirectory 'verge-mihomo.exe'))),
+        [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath((Join-Path $serviceData 'cores\verge-mihomo.exe')))
+    )
+    $processes = @(Get-CimInstance Win32_Process -Filter "Name='clash-verge.exe' OR Name='clash-verge-service.exe' OR Name='verge-mihomo.exe' OR Name='verge-mihomo-alpha.exe'" -ErrorAction Stop)
+    foreach ($process in $processes) {
+        if (-not $process.ExecutablePath) { throw 'Refusing cleanup without a CVR process path.' }
+        $path = [IO.Path]::GetFullPath([string]$process.ExecutablePath)
+        $owned = if ($process.Name -ieq 'clash-verge.exe') {
+            $path -ieq $expectedGui
+        } elseif ($process.Name -ieq 'clash-verge-service.exe') {
+            $path -ieq $expectedServiceExe
+        } elseif ($process.Name -ieq 'verge-mihomo.exe' -or $process.Name -ieq 'verge-mihomo-alpha.exe') {
+            [IO.Path]::GetDirectoryName($path) -in $expectedCoreDirectories
+        } else { $false }
+        if (-not $owned) { throw 'Refusing cleanup of an unowned CVR process.' }
+        Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction Stop
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $remaining = @(Get-CimInstance Win32_Process -Filter "Name='clash-verge.exe' OR Name='clash-verge-service.exe' OR Name='verge-mihomo.exe' OR Name='verge-mihomo-alpha.exe'" -ErrorAction Stop)
+        $service = Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue
+        if (-not $remaining.Count -and -not $service) { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($remaining.Count -or $service) { throw 'CVR runner runtime did not stop and delete within the bound.' }
+    Assert-NoCvrProcesses
+}
+
+function New-CvrIdleTransactionCapture {
+    param([Parameter(Mandatory)][string]$InstallDirectory)
+    Assert-NoService
+    Assert-NoCvrProcesses
+    $verifiedDirectory = Get-InstalledCvrDirectory -ExpectedVersion '2.5.8'
+    if ([IO.Path]::GetFullPath($verifiedDirectory) -ine [IO.Path]::GetFullPath($InstallDirectory)) {
+        throw 'Idle baseline install directory differs from the pinned 2.5.8 directory.'
+    }
+    $guiSha = [string]$env:CVR_258_GUI_SHA256
+    $guiPath = Join-Path $InstallDirectory 'clash-verge.exe'
+    if ($guiSha -notmatch '^[0-9a-f]{64}$' -or
+        (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $guiSha.ToLowerInvariant()) {
+        throw 'Idle baseline CVR 2.5.8 GUI pin mismatch.'
+    }
+
+    $legacyState = Get-CvrLegacyState
+    $corePair = Get-CvrCorePairPreimage -InstallDirectory $InstallDirectory
+    $capture = [PSCustomObject]@{
+        installDirectory = [IO.Path]::GetFullPath($InstallDirectory)
+        guiSha256 = $guiSha.ToLowerInvariant()
+        coreShouldBeRunning = [bool]$false
+        corePair = $corePair
+        legacyState = $legacyState
+        idleObservation = $null
+    }
+    try {
+        $observation = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $InstallDirectory -ProgramFilesEntry $corePair.programFiles -CoreEntry $corePair.service -CoreShouldBeRunning $capture.coreShouldBeRunning
+        $null = Assert-CvrIdleBaseline @observation
+        Assert-CvrCorePairPreimage -Preimage $corePair -Phase 'captured idle baseline'
+        Assert-CvrLegacyState -Expected $legacyState -Phase 'captured idle baseline'
+        $capture.idleObservation = $observation
+    } catch {
+        $captureFailure = $_.Exception.Message
+        try {
+            Stop-CvrRunnerRuntime
+            Restore-CvrCorePairPreimage -Preimage $corePair -HelperVersion '2.5.8'
+            Restore-CvrLegacyState -State $legacyState
+            Assert-CvrCorePairPreimage -Preimage $corePair -Phase 'idle capture rollback'
+            Assert-CvrLegacyState -Expected $legacyState -Phase 'idle capture rollback'
+        } catch {
+            throw "Idle baseline capture failed and its local rollback did not verify: $($_.Exception.Message)"
+        }
+        throw "Idle baseline capture failed after restoring its preimages: $captureFailure"
+    }
+    return $capture
+}
+
+function Restore-CvrIdleTransaction {
+    param([Parameter(Mandatory)]$Capture)
+    if ($Capture.coreShouldBeRunning -isnot [bool] -or $Capture.coreShouldBeRunning) {
+        throw 'Captured idle intent is not the strict false Boolean.'
+    }
+    Stop-CvrRunnerRuntime
+    $guiPath = Join-Path $Capture.installDirectory 'clash-verge.exe'
+    $currentGuiSha = if (Test-Path -LiteralPath $guiPath -PathType Leaf) {
+        (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    } else { '' }
+    if ($currentGuiSha -cne $Capture.guiSha256) {
+        $restoredDirectory = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS')
+        if ([IO.Path]::GetFullPath($restoredDirectory) -ine $Capture.installDirectory) {
+            throw 'Pinned 2.5.8 idle GUI recovery changed the captured install directory.'
+        }
+        Stop-CvrRunnerRuntime
+    }
+    $verifiedDirectory = Get-InstalledCvrDirectory -ExpectedVersion '2.5.8'
+    if ([IO.Path]::GetFullPath($verifiedDirectory) -ine $Capture.installDirectory) {
+        throw 'Pinned 2.5.8 GUI did not return to the captured install directory.'
+    }
+    Restore-CvrCorePairPreimage -Preimage $Capture.corePair -HelperVersion '2.5.8'
+    Restore-CvrLegacyState -State $Capture.legacyState
+    $null = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $Capture.installDirectory -ProgramFilesEntry $Capture.corePair.programFiles -CoreEntry $Capture.corePair.service -CoreShouldBeRunning $Capture.coreShouldBeRunning
+    Assert-CvrCorePairPreimage -Preimage $Capture.corePair -Phase 'final idle rollback'
+    Assert-CvrLegacyState -Expected $Capture.legacyState -Phase 'final idle rollback'
+    $observation = Get-CvrIdleBaselineObservation -Version '2.5.8' -InstallDirectory $Capture.installDirectory -CoreShouldBeRunning $Capture.coreShouldBeRunning -ExpectedProgramFilesCoreSha256 $Capture.corePair.programFiles.sha256 -ExpectedServiceCoreSha256 $Capture.corePair.service.sha256
+    $null = Assert-CvrIdleBaseline @observation
+    return $observation
+}
+
 function Invoke-NativePhase {
     param(
         [ValidateSet('seed','exercise','recovery')][string]$Phase,
@@ -558,35 +821,40 @@ if ([IO.Path]::GetFileName([string]$env:CUSTOM_CORE) -cne 'verge-mihomo.exe') { 
 $baselineServiceStageOutput = & $stockHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha 2>&1
 $baselineServiceStageExit = $LASTEXITCODE
 if ($baselineServiceStageExit -ne 0) { throw "Pinned 2.5.8 helper could not stage the source-built baseline service core ($baselineServiceStageExit)." }
-$originalCorePair = Get-CvrCorePairPreimage -InstallDirectory $install258
-Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original 2.5.8 core'
-if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256) { throw 'Synthetic baseline Program Files core does not match its retained 2.5.8 stock preimage.' }
-if ($originalCorePair.programFiles.sha256 -ceq $coreSha) { throw 'Synthetic baseline Program Files core must remain separate from source-built service core.' }
-if ($originalCorePair.service.sha256 -cne $coreSha) { throw 'Synthetic baseline service core does not match the fresh source-built bytes.' }
 Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline' -HelperVersion '2.5.8'
 Invoke-NativePhase -Phase seed -InstallDirectory $install258 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
 Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
-$install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
-if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
-Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update' -HelperVersion '2.5.10'
-Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install2510 -StockCore $stockProgramFilesCore
-Invoke-CvrOverlayReinstall -InstallDirectory $install2510
-Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay' -HelperVersion '2.5.10'
-Invoke-NativePhase -Phase exercise -InstallDirectory $install2510 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
+Stop-CvrRunnerRuntime
+Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture
+$script:legacyStateFixture = $null
 
-# The native phase normally removes its exact service, process tree and synthetic route.
-# Repeat cleanup on the disposable runner before the pinned recovery installer.
-if (Get-Service -Name 'clash_verge_service' -ErrorAction SilentlyContinue) {
-    Stop-Service -Name 'clash_verge_service' -Force -ErrorAction SilentlyContinue
-    & sc.exe delete 'clash_verge_service' | Out-Null
-}
-foreach ($name in @('clash-verge', 'clash-verge-service', 'verge-mihomo', 'verge-mihomo-alpha')) {
-    Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-Start-Sleep -Seconds 2
-
-$recoveryFailure = $null
+$idleBaselineCapture = New-CvrIdleTransactionCapture -InstallDirectory $install258
+$originalCorePair = $idleBaselineCapture.corePair
+$transactionFailure = $null
+$idleRestoreFailure = $null
 try {
+    Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'captured original 2.5.8 idle core pair'
+    if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256) { throw 'Captured idle Program Files core differs from the pinned 2.5.8 stock preimage.' }
+    if ($originalCorePair.programFiles.sha256 -ceq $coreSha) { throw 'Captured idle Program Files core must remain separate from the source-built service core.' }
+    if ($originalCorePair.service.sha256 -cne $coreSha) { throw 'Captured idle service core differs from the fresh source-built bytes.' }
+    Stop-CvrRunnerRuntime
+    $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
+    if ($install258 -ne $install2510) { throw 'CVR update changed the registered install directory.' }
+    Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update' -HelperVersion '2.5.10'
+    Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install2510 -StockCore $stockProgramFilesCore
+    Invoke-CvrOverlayReinstall -InstallDirectory $install2510
+    Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay' -HelperVersion '2.5.10'
+    Invoke-NativePhase -Phase exercise -InstallDirectory $install2510 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
+
+    Stop-CvrRunnerRuntime
+    $candidateCorePair = Get-CvrCorePairPreimage -InstallDirectory $install2510
+    if ($candidateCorePair.programFiles.sha256 -cne $coreSha -or $candidateCorePair.service.sha256 -cne $coreSha) {
+        throw 'The idle 2.5.10 candidate pair differs from the fresh source-built SHA256.'
+    }
+    $candidateIdleObservation = Install-CvrIdleService -Version '2.5.10' -InstallDirectory $install2510 -ProgramFilesEntry $candidateCorePair.programFiles -CoreEntry $candidateCorePair.service -CoreShouldBeRunning $false
+    $null = Assert-CvrIdleBaseline @candidateIdleObservation
+    Stop-CvrRunnerRuntime
+
     Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 before recovery' -HelperVersion '2.5.10'
     Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
     $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/UPDATE', '/NS') -PreserveCorePair
@@ -598,8 +866,15 @@ try {
     Invoke-NativePhase -Phase recovery -InstallDirectory $installRecovered -ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256 -ExpectedServiceCoreSha $originalCorePair.service.sha256 -RecoveryServiceCorePreimagePath $originalCorePair.service.backup
     Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'original pair after native recovery'
 } catch {
-    $recoveryFailure = $_.Exception.Message
-    Write-Host "Pinned CVR 2.5.8 recovery failed: $recoveryFailure" -ForegroundColor Red
+    $transactionFailure = $_.Exception.Message
+    Write-Host "Candidate update/recovery transaction failed: $transactionFailure" -ForegroundColor Red
+} finally {
+    try {
+        Restore-CvrIdleTransaction -Capture $idleBaselineCapture | Out-Null
+    } catch {
+        $idleRestoreFailure = $_.Exception.Message
+        Write-Host "Captured idle baseline restore failed: $idleRestoreFailure" -ForegroundColor Red
+    }
 }
 
 # WMI indication delivery is asynchronous; drain until stable, with a hard bound.
@@ -644,10 +919,11 @@ $summary = @(
     '- Exercised valid synthetic profiles, DNS override confirmation/on/off, GLOBAL selector persistence, explicit synthetic TUN traffic, and 2.5.8 recovery on the disposable windows-2022 runner.',
     '- Native core starts were allowed only within phase intervals after the installed and service-staged executable hashes matched the fresh source-built core; every Alpha start is forbidden.',
     '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
-    '- Synthetic action failure was surfaced after restoring its exact preimage; each pinned NSIS is required to change the window-state files and four Run values, which are restored with exact bytes, ACLs, registry type/data.',
-    '- Before 2.5.10 update, overlay, and 2.5.8 recovery, separate signed-stock Program Files and candidate service-core preimages are restored and verified with the extracted pinned service helper for each version.',
-    '- After recovery, the original Program Files and service-core preimages are independently restored with the pinned 2.5.8 helper and verified before the final native phase.',
-    '- No production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
+    '- Synthetic NSIS side-effect check ran against the isolated initial preimage; update/recovery transactions captured and restored their actual window-state files, ACLs, and autorun values.',
+    '- Captured an intentionally idle pinned 2.5.8 baseline after seed, including separate Program Files/service core bytes and ACLs, GUI pin, legacy state, Running service identity, no GUI/core process, and no owned controller listener.',
+    '- Updated and exercised the fresh source-built candidate through pinned 2.5.10; verified its post-exercise idle service state before recovery.',
+    '- The final recovery restores the captured 2.5.8 GUI, both exact core preimages/ACLs, captured legacy state, and verified idle service state even when update/recovery throws.',
+    '- The public runner uses only synthetic acceptance inputs; no private pins/data, production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
 )
 foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }
 foreach ($interval in $coreStartIntervals) { $summary += "- Allowed core-start interval $($interval.phase): $($interval.startUtc.ToString('o')) .. $($interval.endUtc.ToString('o'))." }
@@ -657,7 +933,10 @@ foreach ($event in $coreEvents) {
 }
 if ($script:nativeFailures.Count) { $summary += '- Native/process-start acceptance: FAIL.'; $summary += $script:nativeFailures | ForEach-Object { "- Failure: $_" } }
 else { $summary += '- Native/process-start acceptance: PASS.' }
-if ($recoveryFailure) { $summary += "- 2.5.8 recovery: FAIL — $recoveryFailure" } else { $summary += '- 2.5.8 recovery: PASS.' }
-Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture
+if ($script:legacyStateFixture) { Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture }
+if ($transactionFailure) { $summary += "- Candidate update/recovery transaction: FAIL — $transactionFailure" } else { $summary += '- Candidate update/recovery transaction: PASS.' }
+if ($idleRestoreFailure) { $summary += "- Captured idle baseline restore: FAIL — $idleRestoreFailure" } else { $summary += '- Captured idle baseline restore: PASS.' }
 Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
-if ($script:nativeFailures.Count -or $recoveryFailure) { throw "Native acceptance/recovery failed. Native: $($script:nativeFailures -join ' | '); recovery: $recoveryFailure" }
+if ($script:nativeFailures.Count -or $transactionFailure -or $idleRestoreFailure) {
+    throw "Native/transaction acceptance failed. Native: $($script:nativeFailures -join ' | '); transaction: $transactionFailure; idle restore: $idleRestoreFailure"
+}
