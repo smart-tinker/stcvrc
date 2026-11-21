@@ -851,6 +851,15 @@ try {
     Invoke-NativePhase -Phase exercise -InstallDirectory $install2510 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha
 
     Stop-CvrRunnerRuntime
+    $candidateProgramFilesCore = Join-Path $install2510 'verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $candidateProgramFilesCore -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $candidateProgramFilesCore -Algorithm SHA256).Hash.ToLowerInvariant() -cne $coreSha) {
+        throw 'Candidate Program Files core changed after the 2.5.10 native exercise.'
+    }
+    $candidateServiceHelper = Get-CvrServiceInstallHelper -Version '2.5.10'
+    $null = & $candidateServiceHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha 2>&1
+    $candidateServiceStageExit = $LASTEXITCODE
+    if ($candidateServiceStageExit -ne 0) { throw "Pinned 2.5.10 helper could not restore the candidate service core after exercise ($candidateServiceStageExit)." }
     $candidateCorePair = Get-CvrCorePairPreimage -InstallDirectory $install2510
     if ($candidateCorePair.programFiles.sha256 -cne $coreSha -or $candidateCorePair.service.sha256 -cne $coreSha) {
         throw 'The idle 2.5.10 candidate pair differs from the fresh source-built SHA256.'

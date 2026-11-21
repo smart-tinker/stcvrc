@@ -749,6 +749,20 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertLess(candidate_guard, recovery)
         self.assertLess(recovery, restore_call)
         self.assertIn("finally {", source[update:restore_call])
+        candidate_program_files_guard = source.index(
+            "$candidateProgramFilesCore = Join-Path $install2510 'verge-mihomo.exe'",
+            exercise,
+        )
+        candidate_service_stage = source.index(
+            "$candidateServiceHelper = Get-CvrServiceInstallHelper -Version '2.5.10'",
+            candidate_program_files_guard,
+        )
+        candidate_pair = source.index("$candidateCorePair = Get-CvrCorePairPreimage", candidate_service_stage)
+        self.assertLess(exercise, candidate_program_files_guard)
+        self.assertLess(candidate_program_files_guard, candidate_service_stage)
+        self.assertLess(candidate_service_stage, candidate_pair)
+        self.assertIn("Candidate Program Files core changed after the 2.5.10 native exercise.", source)
+        self.assertIn("$candidateServiceHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha", source)
 
         capture = source.split("function New-CvrIdleTransactionCapture", 1)[1].split(
             "function Restore-CvrIdleTransaction", 1
