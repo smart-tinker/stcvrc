@@ -77,3 +77,7 @@ $case.ExpectedProgramFilesCoreSha256 = 'invalid'
 Assert-Rejected 'malformed Program Files core pin' $case 'Idle baseline Program Files core SHA256 is malformed.'
 
 Write-Host 'PowerShell idle-baseline behavior checks passed.'
+# A non-Boolean zero must not be coerced into proof of an idle intent.
+$case = Copy-Arguments $baseline
+$case.CoreShouldBeRunning = [int]0
+Assert-Rejected 'non-Boolean idle intent' $case 'Idle baseline intent must be Boolean.'
