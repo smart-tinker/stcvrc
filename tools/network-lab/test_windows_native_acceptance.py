@@ -788,6 +788,18 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "if ($CoreShouldBeRunning -isnot [bool] -or $ControllerListening -isnot [bool])",
             guard,
         )
+        self.assertIn(
+            "$idleBaselineGuardScript = Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1'",
+            source,
+        )
+        self.assertIn(". $idleBaselineGuardScript", source)
+        self.assertIn(
+            "Get-Command -Name Assert-CvrIdleBaseline -CommandType Function",
+            source,
+        )
+        guard_import = source.index(". $idleBaselineGuardScript")
+        capture_call = source.index("$idleBaselineCapture = New-CvrIdleTransactionCapture")
+        self.assertLess(guard_import, capture_call)
 
 if __name__ == "__main__":
     unittest.main()

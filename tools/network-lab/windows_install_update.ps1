@@ -62,6 +62,10 @@ if (-not $env:APPDATA -or -not $env:PR_SOURCE -or -not $env:CUSTOM_CORE) { throw
 $legacyStateTransactionScript = Join-Path $PSScriptRoot 'windows_legacy_state_transaction.ps1'
 if (-not (Test-Path -LiteralPath $legacyStateTransactionScript -PathType Leaf)) { throw 'The shared legacy-state transaction helper is missing.' }
 . $legacyStateTransactionScript
+$idleBaselineGuardScript = Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1'
+if (-not (Test-Path -LiteralPath $idleBaselineGuardScript -PathType Leaf)) { throw 'The shared idle-baseline guard helper is missing.' }
+. $idleBaselineGuardScript
+if (-not (Get-Command -Name Assert-CvrIdleBaseline -CommandType Function -ErrorAction SilentlyContinue)) { throw 'The idle-baseline guard function is unavailable in installer scope.' }
 $profileDirectory = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev\profiles'
 if (Test-Path -LiteralPath (Split-Path -Parent $profileDirectory)) { throw 'Refusing preexisting CVR app data.' }
 
