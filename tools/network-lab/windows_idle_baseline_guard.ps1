@@ -3,7 +3,7 @@ function Assert-CvrIdleBaseline {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [bool]$CoreShouldBeRunning,
+        [object]$CoreShouldBeRunning,
 
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
@@ -14,7 +14,7 @@ function Assert-CvrIdleBaseline {
         [int[]]$OwnedCoreProcessIds,
 
         [Parameter(Mandatory = $true)]
-        [bool]$ControllerListening,
+        [object]$ControllerListening,
 
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
@@ -36,9 +36,11 @@ function Assert-CvrIdleBaseline {
         [string]$ObservedServiceCoreSha256
     )
 
+    if ($CoreShouldBeRunning -isnot [bool]) { throw 'Idle baseline intent must be Boolean.' }
     if ($CoreShouldBeRunning) { throw 'Idle baseline intent must be false.' }
     if ($OwnedGuiProcessIds.Count -gt 0) { throw 'Idle baseline has owned GUI processes.' }
     if ($OwnedCoreProcessIds.Count -gt 0) { throw 'Idle baseline has owned core processes.' }
+    if ($ControllerListening -isnot [bool]) { throw 'Idle baseline controller observation must be Boolean.' }
     if ($ControllerListening) { throw 'Idle baseline controller listener is present.' }
     if ($OwnedListenerProcessIds.Count -gt 0) { throw 'Idle baseline has owned listeners.' }
     if ($ServiceStatus -cne 'Running') { throw 'Idle baseline service is not Running.' }
