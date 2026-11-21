@@ -57,7 +57,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
     def test_recovery_restores_original_split_core_pair_before_native_check(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        self.assertIn("$originalCorePair = Get-CvrCorePairPreimage", source)
+        self.assertIn("$originalCorePair = $idleBaselineCapture.corePair", source)
         self.assertIn("Restore-CvrCorePairPreimage -Preimage $originalCorePair -HelperVersion '2.5.8'", source)
         self.assertIn("-ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256", source)
         self.assertIn("-ExpectedServiceCoreSha $originalCorePair.service.sha256", source)
