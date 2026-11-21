@@ -222,8 +222,9 @@ function Invoke-CvrStateTransaction {
         [switch]$PreserveCorePair,
         [Parameter(Mandatory)][scriptblock]$Action
     )
-    if (-not $script:legacyStateFixture) { throw 'Synthetic NSIS preimage fixture was not prepared.' }
-    Restore-CvrLegacyState -State $script:legacyStateFixture.state
+    if ($script:legacyStateFixture) {
+        Restore-CvrLegacyState -State $script:legacyStateFixture.state
+    }
     $legacyPreimage = Get-CvrLegacyState
     $corePreimage = $null
     if ($PreserveCorePair) { $corePreimage = Get-CvrCorePairPreimage -InstallDirectory $InstallDirectory }
@@ -232,7 +233,9 @@ function Invoke-CvrStateTransaction {
     $actionFailure = $null
     try {
         $result = & $Action
-        Assert-CvrInstallerChangedLegacyPreimage -Preimage $legacyPreimage -Phase $Phase
+        if ($script:legacyStateFixture) {
+            Assert-CvrInstallerChangedLegacyPreimage -Preimage $legacyPreimage -Phase $Phase
+        }
     } catch {
         $actionFailure = $_.Exception.Message
     }

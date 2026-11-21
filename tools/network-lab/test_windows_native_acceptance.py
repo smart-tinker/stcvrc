@@ -57,7 +57,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
     def test_recovery_restores_original_split_core_pair_before_native_check(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        self.assertIn("$originalCorePair = Get-CvrCorePairPreimage", source)
+        self.assertIn("$originalCorePair = $idleBaselineCapture.corePair", source)
         self.assertIn("Restore-CvrCorePairPreimage -Preimage $originalCorePair -HelperVersion '2.5.8'", source)
         self.assertIn("-ExpectedProgramFilesCoreSha $originalCorePair.programFiles.sha256", source)
         self.assertIn("-ExpectedServiceCoreSha $originalCorePair.service.sha256", source)
@@ -729,6 +729,98 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
         self.assertNotIn("SSH_FIXTURE_AUTH_OK", helper)
 
+
+
+    def test_public_installer_runs_candidate_from_captured_idle_baseline_and_restores_it(self):
+        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
+        guard = (INSTALLER_SMOKE.parent / "windows_idle_baseline_guard.ps1").read_text(encoding="utf-8")
+        capture_call = source.index("$idleBaselineCapture = New-CvrIdleTransactionCapture")
+        update = source.index("Invoke-CvrInstaller -Version '2.5.10'", capture_call)
+        exercise = source.index("Invoke-NativePhase -Phase exercise", update)
+        candidate_idle = source.index("Install-CvrIdleService -Version '2.5.10'", exercise)
+        candidate_guard = source.index("Assert-CvrIdleBaseline @candidateIdleObservation", candidate_idle)
+        recovery = source.index("Invoke-CvrInstaller -Version '2.5.8'", candidate_guard)
+        restore_call = source.index("Restore-CvrIdleTransaction -Capture $idleBaselineCapture", recovery)
+        self.assertLess(capture_call, update)
+        self.assertLess(update, exercise)
+        self.assertLess(exercise, candidate_idle)
+        self.assertLess(candidate_idle, candidate_guard)
+        self.assertLess(candidate_guard, recovery)
+        self.assertLess(recovery, restore_call)
+        self.assertIn("finally {", source[update:restore_call])
+        candidate_program_files_guard = source.index(
+            "$candidateProgramFilesCore = Join-Path $install2510 'verge-mihomo.exe'",
+            exercise,
+        )
+        candidate_service_stage = source.index(
+            "$candidateServiceHelper = Get-CvrServiceInstallHelper -Version '2.5.10'",
+            candidate_program_files_guard,
+        )
+        candidate_pair = source.index("$candidateCorePair = Get-CvrCorePairPreimage", candidate_service_stage)
+        self.assertLess(exercise, candidate_program_files_guard)
+        self.assertLess(candidate_program_files_guard, candidate_service_stage)
+        candidate_service_core_guard = source.index(
+            "$candidateServiceCore = Join-Path $serviceData 'cores\\verge-mihomo.exe'",
+            candidate_service_stage,
+        )
+        self.assertLess(candidate_service_stage, candidate_service_core_guard)
+        self.assertLess(candidate_service_core_guard, candidate_pair)
+        self.assertLess(exercise, candidate_program_files_guard)
+        self.assertIn("Candidate service core SHA256 mismatch before idle preimage capture.", source)
+        self.assertIn("Candidate Program Files core changed after the 2.5.10 native exercise.", source)
+        self.assertIn("$candidateServiceHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha", source)
+
+        capture = source.split("function New-CvrIdleTransactionCapture", 1)[1].split(
+            "function Restore-CvrIdleTransaction", 1
+        )[0]
+        for assertion in (
+            "Get-CvrCorePairPreimage",
+            "Get-CvrLegacyState",
+            "ProgramFilesEntry $corePair.programFiles",
+            "Install-CvrIdleService",
+            "Assert-CvrIdleBaseline",
+            "coreShouldBeRunning = [bool]$false",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, capture)
+
+        restore = source.split("function Restore-CvrIdleTransaction", 1)[1].split(
+            "function Invoke-NativePhase", 1
+        )[0]
+        for assertion in (
+            "Restore-CvrCorePairPreimage",
+            "Restore-CvrLegacyState",
+            "ProgramFilesEntry $Capture.corePair.programFiles",
+            "Assert-CvrCorePairPreimage",
+            "Assert-CvrLegacyState",
+            "Get-CvrIdleBaselineObservation",
+            "Assert-CvrIdleBaseline",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, restore)
+
+        transaction = helper.split("function Invoke-CvrStateTransaction", 1)[1].split(
+            "function Test-CvrInstallerActionFailureRollback", 1
+        )[0]
+        self.assertNotIn("Synthetic NSIS preimage fixture was not prepared.", transaction)
+        self.assertIn("if ($script:legacyStateFixture)", transaction)
+        self.assertIn(
+            "if ($CoreShouldBeRunning -isnot [bool] -or $ControllerListening -isnot [bool])",
+            guard,
+        )
+        self.assertIn(
+            "$idleBaselineGuardScript = Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1'",
+            source,
+        )
+        self.assertIn(". $idleBaselineGuardScript", source)
+        self.assertIn(
+            "Get-Command -Name Assert-CvrIdleBaseline -CommandType Function",
+            source,
+        )
+        guard_import = source.index(". $idleBaselineGuardScript")
+        capture_call = source.index("$idleBaselineCapture = New-CvrIdleTransactionCapture")
+        self.assertLess(guard_import, capture_call)
 
 if __name__ == "__main__":
     unittest.main()
