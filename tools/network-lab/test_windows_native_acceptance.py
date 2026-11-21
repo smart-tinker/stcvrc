@@ -761,7 +761,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertLess(exercise, candidate_program_files_guard)
         self.assertLess(candidate_program_files_guard, candidate_service_stage)
         candidate_service_core_guard = source.index(
-            "$candidateServiceCore = Join-Path $serviceData 'cores\\\\verge-mihomo.exe'",
+            "$candidateServiceCore = Join-Path $serviceData 'cores\\verge-mihomo.exe'",
             candidate_service_stage,
         )
         self.assertLess(candidate_service_stage, candidate_service_core_guard)
