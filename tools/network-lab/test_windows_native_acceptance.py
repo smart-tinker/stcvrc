@@ -760,7 +760,14 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         candidate_pair = source.index("$candidateCorePair = Get-CvrCorePairPreimage", candidate_service_stage)
         self.assertLess(exercise, candidate_program_files_guard)
         self.assertLess(candidate_program_files_guard, candidate_service_stage)
-        self.assertLess(candidate_service_stage, candidate_pair)
+        candidate_service_core_guard = source.index(
+            "$candidateServiceCore = Join-Path $serviceData 'cores\\\\verge-mihomo.exe'",
+            candidate_service_stage,
+        )
+        self.assertLess(candidate_service_stage, candidate_service_core_guard)
+        self.assertLess(candidate_service_core_guard, candidate_pair)
+        self.assertLess(exercise, candidate_program_files_guard)
+        self.assertIn("Candidate service core SHA256 mismatch before idle preimage capture.", source)
         self.assertIn("Candidate Program Files core changed after the 2.5.10 native exercise.", source)
         self.assertIn("$candidateServiceHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha", source)
 

@@ -860,6 +860,11 @@ try {
     $null = & $candidateServiceHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha 2>&1
     $candidateServiceStageExit = $LASTEXITCODE
     if ($candidateServiceStageExit -ne 0) { throw "Pinned 2.5.10 helper could not restore the candidate service core after exercise ($candidateServiceStageExit)." }
+    $candidateServiceCore = Join-Path $serviceData 'cores\verge-mihomo.exe'
+    if (-not (Test-Path -LiteralPath $candidateServiceCore -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $candidateServiceCore -Algorithm SHA256).Hash.ToLowerInvariant() -cne $coreSha) {
+        throw 'Candidate service core SHA256 mismatch before idle preimage capture.'
+    }
     $candidateCorePair = Get-CvrCorePairPreimage -InstallDirectory $install2510
     if ($candidateCorePair.programFiles.sha256 -cne $coreSha -or $candidateCorePair.service.sha256 -cne $coreSha) {
         throw 'The idle 2.5.10 candidate pair differs from the fresh source-built SHA256.'
