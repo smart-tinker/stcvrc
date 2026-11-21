@@ -518,7 +518,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_legacy_state_transaction.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -559,6 +559,14 @@ jobs:
             $env:APPDATA = $normalAppDataRoot
             Remove-Item -LiteralPath $selfCheckAppDataRoot -Recurse -Force -ErrorAction Stop
           }
+
+      - name: Check shared idle transaction before native build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $test = Join-Path $env:PR_SOURCE 'tools\network-lab\test_windows_idle_transaction.ps1'
+          $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $powershell51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $test
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 shared idle transaction checks failed.' }
 
       - name: Fresh native Windows core build
         id: build
