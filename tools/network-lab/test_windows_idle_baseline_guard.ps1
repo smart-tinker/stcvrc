@@ -41,6 +41,14 @@ if ((Assert-CvrIdleBaseline @baseline) -ne $true) {
 }
 
 $case = Copy-Arguments $baseline
+$case.CoreShouldBeRunning = 0
+Assert-Rejected 'integer intent' $case 'Idle baseline Boolean observations must be strict Booleans.'
+
+$case = Copy-Arguments $baseline
+$case.ControllerListening = 0
+Assert-Rejected 'integer controller observation' $case 'Idle baseline Boolean observations must be strict Booleans.'
+
+$case = Copy-Arguments $baseline
 $case.CoreShouldBeRunning = $true
 Assert-Rejected 'intent' $case 'Idle baseline intent must be false.'
 
