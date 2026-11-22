@@ -5,7 +5,7 @@ function Get-StcvrcNativePortPlan {
         $plan = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -ErrorAction Stop
     } else {
         $ports = [Collections.Generic.List[int]]::new()
-        while ($ports.Count -lt 3) {
+        while ($ports.Count -lt 4) {
             $probe = [Net.Sockets.UdpClient]::new(
                 [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, 0)
             )
@@ -22,6 +22,7 @@ function Get-StcvrcNativePortPlan {
             coreDnsPort = $ports[0]
             profileDnsPort = $ports[1]
             appDnsPort = $ports[2]
+            subscriptionDnsPort = $ports[3]
         }
         $parent = Split-Path -Parent $Path
         if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
@@ -34,10 +35,10 @@ function Get-StcvrcNativePortPlan {
         )
     }
 
-    $ports = @([int]$plan.coreDnsPort, [int]$plan.profileDnsPort, [int]$plan.appDnsPort)
+    $ports = @([int]$plan.coreDnsPort, [int]$plan.profileDnsPort, [int]$plan.appDnsPort, [int]$plan.subscriptionDnsPort)
     if ([int]$plan.schemaVersion -ne 1 -or
         @($ports | Where-Object { $_ -lt 1 -or $_ -gt 65535 }).Count -gt 0 -or
-        @($ports | Sort-Object -Unique).Count -ne 3) {
+        @($ports | Sort-Object -Unique).Count -ne 4) {
         throw 'The persisted native DNS port plan is invalid.'
     }
     return [PSCustomObject]@{
@@ -45,5 +46,6 @@ function Get-StcvrcNativePortPlan {
         coreDnsPort = $ports[0]
         profileDnsPort = $ports[1]
         appDnsPort = $ports[2]
+        subscriptionDnsPort = $ports[3]
     }
 }

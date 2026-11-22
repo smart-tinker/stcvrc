@@ -449,10 +449,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 . $env:STCVRC_PORT_PLAN_SCRIPT
                 $first = Get-StcvrcNativePortPlan -Path $env:STCVRC_PORT_PLAN_PATH
                 $second = Get-StcvrcNativePortPlan -Path $env:STCVRC_PORT_PLAN_PATH
-                $names = @('coreDnsPort', 'profileDnsPort', 'appDnsPort')
+                $names = @('coreDnsPort', 'profileDnsPort', 'appDnsPort', 'subscriptionDnsPort')
                 $ports = @($names | ForEach-Object { [int]$first.$_ })
-                if (@($ports | Sort-Object -Unique).Count -ne 3) {
-                    throw 'The persistent DNS port plan must use three distinct ports.'
+                if (@($ports | Sort-Object -Unique).Count -ne 4) {
+                    throw 'The persistent DNS port plan must use four distinct UDP ports.'
                 }
                 foreach ($name in $names) {
                     if ([int]$first.$name -ne [int]$second.$name) {
@@ -474,8 +474,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 plan,
                 "the shared UDP port plan must include the subscription DNS listener",
             )
-            ports = [plan[name] for name in ("coreDnsPort", "profileDnsPort", "appDnsPort")]
-            self.assertEqual(len(set(ports)), 3)
+            ports = [plan[name] for name in ("coreDnsPort", "profileDnsPort", "appDnsPort", "subscriptionDnsPort")]
+            self.assertEqual(len(set(ports)), 4)
             self.assertTrue(all(0 < int(port) <= 65535 for port in ports))
 
 
