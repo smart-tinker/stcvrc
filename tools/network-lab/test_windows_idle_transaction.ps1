@@ -218,6 +218,32 @@ try {
     $script:targetCaptureOutcomes.Add([pscustomobject]@{case='fresh-idle-capture-with-distinct-2.5.8-and-2.5.10-pins';result='accepted'})
     if ($expectedPins.recoveryInstaller -ceq $expectedPins.updateInstaller -or $expectedPins.recoveryHelper -ceq $expectedPins.updateHelper) { throw 'Synthetic old and new pins must be distinct.' }
 
+    $savedUpdateInstallerPath = $targetCapture.pinnedFiles.updateInstaller
+    $targetCapture.pinnedFiles.updateInstaller = $targetCapture.pinnedFiles.recoveryInstaller
+    $script:idleTransactionEvents.Clear()
+    $targetPinDriftFailure = $null
+    try {
+        $null = Invoke-CvrIdleTransaction -CaptureScript {
+            $script:idleTransactionEvents.Add('capture')
+            $targetCapture
+        } -ActionScript {
+            param($capture)
+            $script:idleTransactionEvents.Add('candidate-apply')
+            'candidate'
+        } -RestoreScript {
+            param($capture)
+            $script:idleTransactionEvents.Add('rollback')
+            'baseline'
+        } -VerifyScript {
+            param($capture, $restored)
+            $script:idleTransactionEvents.Add('verify')
+            $true
+        }
+    } catch { $targetPinDriftFailure = $_.Exception.Message }
+    $targetCapture.pinnedFiles.updateInstaller = $savedUpdateInstallerPath
+    Assert-IdleTransaction ($targetPinDriftFailure -ceq 'Idle target pinned input verification failed.' -and
+        $script:idleTransactionEvents -notcontains 'candidate-apply') 'Expected behavior RED: target pin drift reached the candidate action.'
+
     Assert-IdleTargetCaptureRejected 'target identity' 'Idle target identity does not match the expected target.' 'different-target' $expectedPins
 
     $savedTime = $targetCapture.capturedAtUtc
