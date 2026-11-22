@@ -197,6 +197,31 @@ function Assert-CvrIdleTargetCapture {
 }
 
 
+function Invoke-CvrIdleTargetTransaction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$CaptureScript,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][scriptblock]$ActionScript,
+        [Parameter(Mandatory = $true)][scriptblock]$RestoreScript,
+        [Parameter(Mandatory = $true)][scriptblock]$VerifyScript
+    )
+
+    $capturedBaseline = & $CaptureScript
+    $targetCaptureValid = Assert-CvrIdleTargetCapture -Capture $capturedBaseline -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    if ($targetCaptureValid -isnot [bool] -or -not $targetCaptureValid) {
+        throw 'Idle target capture validation did not pass.'
+    }
+    $validatedCapture = $capturedBaseline
+    $validatedCaptureScript = { $validatedCapture }
+    $validatedCaptureScript = $validatedCaptureScript.GetNewClosure()
+
+    $transaction = Invoke-CvrIdleTransaction -CaptureScript $validatedCaptureScript -ActionScript $ActionScript -RestoreScript $RestoreScript -VerifyScript $VerifyScript
+    return $transaction
+}
+
+
 function Assert-CvrIdleCaptureAcl {
     [CmdletBinding()]
     param(

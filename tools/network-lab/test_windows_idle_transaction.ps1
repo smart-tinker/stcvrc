@@ -223,10 +223,10 @@ try {
     $script:idleTransactionEvents.Clear()
     $targetPinDriftFailure = $null
     try {
-        $null = Invoke-CvrIdleTransaction -CaptureScript {
+        $null = Invoke-CvrIdleTargetTransaction -CaptureScript {
             $script:idleTransactionEvents.Add('capture')
             $targetCapture
-        } -ActionScript {
+        } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
             param($capture)
             $script:idleTransactionEvents.Add('candidate-apply')
             'candidate'
@@ -241,8 +241,100 @@ try {
         }
     } catch { $targetPinDriftFailure = $_.Exception.Message }
     $targetCapture.pinnedFiles.updateInstaller = $savedUpdateInstallerPath
-    Assert-IdleTransaction ($targetPinDriftFailure -ceq 'Idle target pinned input verification failed.' -and
-        $script:idleTransactionEvents -notcontains 'candidate-apply') 'Expected behavior RED: target pin drift reached the candidate action.'
+    Assert-IdleTransaction ($targetPinDriftFailure -ceq 'Idle target pinned input verification failed.') 'Target pin drift was not rejected.'
+    Assert-IdleTransactionOrder @('capture')
+
+    $candidateCoreSha = $expectedPins.candidateCore
+    $script:syntheticRuntime = @{
+        intent = [bool]$false
+        coreRunning = [bool]$false
+        controllerListening = [bool]$false
+        serviceStatus = 'Running'
+        serviceCorePath = [IO.Path]::GetFullPath($serviceCorePath)
+        serviceCoreSha256 = $serviceSha
+    }
+    $script:idleTransactionEvents.Clear()
+    $idleTargetTransaction = Invoke-CvrIdleTargetTransaction -CaptureScript {
+        $script:idleTransactionEvents.Add('capture')
+        $targetCapture
+    } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
+        param($capture)
+        $script:idleTransactionEvents.Add('candidate-apply')
+        $candidateBytes = [IO.File]::ReadAllBytes($capture.pinnedFiles.candidateCore)
+        $coreEntries = @($capture.corePair.programFiles, $capture.corePair.service)
+        foreach ($entry in $coreEntries) {
+            [IO.File]::WriteAllBytes($entry.path, $candidateBytes)
+            $candidateAcl = Get-Acl -LiteralPath $entry.path -ErrorAction Stop
+            $candidateAcl.SetAccessRuleProtection((-not [bool]$entry.acl.AreAccessRulesProtected), $true)
+            Set-Acl -LiteralPath $entry.path -AclObject $candidateAcl -ErrorAction Stop
+            if ((Get-Acl -LiteralPath $entry.path -ErrorAction Stop).Sddl -ceq $entry.sddl -or
+                (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256 -ErrorAction Stop).Hash -ine $candidateCoreSha) {
+                throw 'Synthetic candidate core pair did not match its pin or change its ACL.'
+            }
+        }
+        $script:syntheticRuntime.intent = [bool]$true
+        $script:syntheticRuntime.coreRunning = [bool]$true
+        $script:syntheticRuntime.controllerListening = [bool]$true
+        $script:syntheticRuntime.serviceCoreSha256 = (Get-FileHash -LiteralPath $capture.corePair.service.path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        if ($script:syntheticRuntime.serviceCorePath -cne [IO.Path]::GetFullPath($capture.corePair.service.path) -or
+            $script:syntheticRuntime.serviceCoreSha256 -cne $candidateCoreSha -or
+            -not $script:syntheticRuntime.coreRunning -or
+            -not $script:syntheticRuntime.controllerListening) {
+            throw 'Synthetic candidate acceptance failed.'
+        }
+        $script:idleTransactionEvents.Add('candidate-accepted')
+        'candidate-accepted'
+    } -RestoreScript {
+        param($capture)
+        $script:idleTransactionEvents.Add('rollback')
+        foreach ($entry in @($capture.corePair.programFiles, $capture.corePair.service)) {
+            [IO.File]::WriteAllBytes($entry.path, [IO.File]::ReadAllBytes($entry.backup))
+            Set-Acl -LiteralPath $entry.path -AclObject $entry.acl -ErrorAction Stop
+        }
+        $script:syntheticRuntime.intent = [bool]$capture.coreShouldBeRunning
+        $script:syntheticRuntime.coreRunning = [bool]$false
+        $script:syntheticRuntime.controllerListening = [bool]$false
+        $script:syntheticRuntime.serviceStatus = [string]$capture.idleObservation.ServiceStatus
+        $script:syntheticRuntime.serviceCorePath = [IO.Path]::GetFullPath($capture.corePair.service.path)
+        $script:syntheticRuntime.serviceCoreSha256 = [string]$capture.corePair.service.sha256
+        'baseline-restored'
+    } -VerifyScript {
+        param($capture, $restored)
+        $script:idleTransactionEvents.Add('verify')
+        $pairsRestored = $true
+        foreach ($entry in @($capture.corePair.programFiles, $capture.corePair.service)) {
+            $actualSha = (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256 -ErrorAction Stop).Hash
+            $actualSddl = (Get-Acl -LiteralPath $entry.path -ErrorAction Stop).Sddl
+            $pairsRestored = $pairsRestored -and
+                $actualSha -ieq [string]$entry.sha256 -and
+                $actualSddl -ceq [string]$entry.sddl
+        }
+        return [bool](
+            $restored -ceq 'baseline-restored' -and
+            $pairsRestored -and
+            $script:syntheticRuntime.intent -ceq [bool]$false -and
+            -not $script:syntheticRuntime.coreRunning -and
+            -not $script:syntheticRuntime.controllerListening -and
+            $script:syntheticRuntime.serviceStatus -ceq [string]$capture.idleObservation.ServiceStatus -and
+            $script:syntheticRuntime.serviceCoreSha256 -ceq [string]$capture.corePair.service.sha256
+        )
+    }
+    Assert-IdleTransaction ($idleTargetTransaction.ActionFailure -eq $null -and
+        $idleTargetTransaction.ActionResult -ceq 'candidate-accepted' -and
+        $idleTargetTransaction.RestoreFailure -eq $null) 'Synthetic idle candidate apply, acceptance, or rollback failed.'
+    Assert-IdleTransactionOrder @('capture','candidate-apply','candidate-accepted','rollback','verify')
+    Assert-IdleTransaction ($script:syntheticRuntime.intent -ceq [bool]$false -and
+        -not $script:syntheticRuntime.coreRunning -and
+        -not $script:syntheticRuntime.controllerListening) 'Synthetic rollback did not restore the idle false-intent state.'
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case='synthetic-idle-apply-accept-rollback';result='accepted';candidateCoreSha256=$candidateCoreSha})
+    $script:idleTransactionReceipt = [pscustomobject]@{
+        candidateCoreSha256 = $candidateCoreSha
+        restoredProgramFilesCoreSha256 = (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        restoredServiceCoreSha256 = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        finalIntent = [bool]$script:syntheticRuntime.intent
+        finalCoreRunning = [bool]$script:syntheticRuntime.coreRunning
+        finalControllerListening = [bool]$script:syntheticRuntime.controllerListening
+    }
 
     Assert-IdleTargetCaptureRejected 'target identity' 'Idle target identity does not match the expected target.' 'different-target' $expectedPins
 
@@ -412,8 +504,9 @@ $fixtureSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Ha
     pass = $true
     fixtureSha256 = $fixtureSha256
     targetCaptureOutcomes = @($script:targetCaptureOutcomes.ToArray())
+    idleTransaction = $script:idleTransactionReceipt
     measuredNativeCalls = $script:nativeCalls
-} | ConvertTo-Json -Depth 4 -Compress | Write-Host
+} | ConvertTo-Json -Depth 5 -Compress | Write-Host
 
 } finally {
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
