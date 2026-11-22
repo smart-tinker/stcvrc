@@ -278,11 +278,6 @@ if ($script:saveCaptureParameters -contains 'ActionScript' -or
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
 Write-Host 'Shared idle transaction behavior checks passed.'
- -or
-    $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'capture')) -or
-    $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared'))) {
-    throw 'Idle Preflight capture was not written to a unique protected sibling.'
-}
 if ($preflight.CaptureDirectory -ceq $preflightAgain.CaptureDirectory) {
     throw 'Repeated idle Preflight capture reused an existing output directory.'
 }
