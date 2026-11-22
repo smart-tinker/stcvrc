@@ -6,6 +6,22 @@ if (-not (Test-Path -LiteralPath $modulePath -PathType Leaf)) {
 . $modulePath
 . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
 
+$script:nativeCalls = 0
+function Start-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Stop-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Restart-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Set-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Start-Process { $script:nativeCalls++; throw 'unexpected-native-process-call' }
+function Stop-Process { $script:nativeCalls++; throw 'unexpected-native-process-call' }
+function Start-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Register-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Set-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Unregister-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Enable-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Disable-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function netsh { $script:nativeCalls++; throw 'unexpected-native-network-call' }
+$script:targetCaptureOutcomes = [Collections.Generic.List[object]]::new()
+
 function Assert-IdleTransaction([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
@@ -91,6 +107,7 @@ function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessag
         $rejected = $true
     }
     Assert-IdleTransaction $rejected "$Case drift was accepted."
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case=$Case;result='rejected'})
 }
 
 $targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [Guid]::NewGuid().ToString('N'))
@@ -100,6 +117,22 @@ try {
     $pinPath = Join-Path $targetCaptureRoot 'pinned-input.bin'
     [IO.File]::WriteAllBytes($pinPath, [byte[]](7, 2, 5, 10))
     $pinSha = (Get-FileHash -LiteralPath $pinPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $syntheticPinPaths = @{
+        candidateCore = Join-Path $targetCaptureRoot 'candidate-core.synthetic'
+        updateInstaller = Join-Path $targetCaptureRoot 'update-installer.synthetic'
+        updateHelper = Join-Path $targetCaptureRoot 'update-helper.synthetic'
+        recoveryInstaller = Join-Path $targetCaptureRoot 'recovery-installer.synthetic'
+        recoveryHelper = Join-Path $targetCaptureRoot 'recovery-helper.synthetic'
+    }
+    [IO.File]::WriteAllBytes($syntheticPinPaths.candidateCore, [byte[]](1, 19, 33, 9))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.updateInstaller, [byte[]](2, 5, 10, 2))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.updateHelper, [byte[]](2, 7, 7, 2))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.recoveryInstaller, [byte[]](2, 5, 8, 2))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.recoveryHelper, [byte[]](2, 7, 6, 2))
+    $syntheticPinHashes = @{}
+    foreach ($name in @('candidateCore', 'updateInstaller', 'updateHelper', 'recoveryInstaller', 'recoveryHelper')) {
+        $syntheticPinHashes[$name] = (Get-FileHash -LiteralPath $syntheticPinPaths[$name] -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
 
     $programFilesPath = Join-Path $targetCaptureRoot 'program-files-core.exe'
     $serviceCorePath = Join-Path $targetCaptureRoot 'service-core.exe'
@@ -123,22 +156,22 @@ try {
         serviceExe258 = $pinSha
         programFilesCore = $programFilesSha
         serviceCore = $serviceSha
-        candidateCore = $pinSha
-        updateInstaller = $pinSha
-        updateHelper = $pinSha
-        recoveryInstaller = $pinSha
-        recoveryHelper = $pinSha
+        candidateCore = $syntheticPinHashes.candidateCore
+        updateInstaller = $syntheticPinHashes.updateInstaller
+        updateHelper = $syntheticPinHashes.updateHelper
+        recoveryInstaller = $syntheticPinHashes.recoveryInstaller
+        recoveryHelper = $syntheticPinHashes.recoveryHelper
     }
     $pinnedFiles = @{
         gui258 = $pinPath
         serviceExe258 = $pinPath
         programFilesCore = $programFilesPath
         serviceCore = $serviceCorePath
-        candidateCore = $pinPath
-        updateInstaller = $pinPath
-        updateHelper = $pinPath
-        recoveryInstaller = $pinPath
-        recoveryHelper = $pinPath
+        candidateCore = $syntheticPinPaths.candidateCore
+        updateInstaller = $syntheticPinPaths.updateInstaller
+        updateHelper = $syntheticPinPaths.updateHelper
+        recoveryInstaller = $syntheticPinPaths.recoveryInstaller
+        recoveryHelper = $syntheticPinPaths.recoveryHelper
     }
     $targetIdentity = [Guid]::NewGuid().ToString('N')
     $targetCapture = [PSCustomObject]@{
@@ -182,6 +215,8 @@ try {
     } catch {}
     Assert-IdleTransaction $acceptedTargetCapture 'Valid fresh idle target capture was rejected.'
     Assert-IdleTransaction ($acceptedTargetCapture -is [bool]) 'Idle target capture did not return a strict Boolean.'
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case='fresh-idle-capture-with-distinct-2.5.8-and-2.5.10-pins';result='accepted'})
+    if ($expectedPins.recoveryInstaller -ceq $expectedPins.updateInstaller -or $expectedPins.recoveryHelper -ceq $expectedPins.updateHelper) { throw 'Synthetic old and new pins must be distinct.' }
 
     Assert-IdleTargetCaptureRejected 'target identity' 'Idle target identity does not match the expected target.' 'different-target' $expectedPins
 
@@ -213,6 +248,14 @@ try {
     $expectedPins.updateInstaller = ('0' * 64)
     Assert-IdleTargetCaptureRejected 'update installer pin drift' 'Idle target pinned input verification failed.' $targetIdentity $expectedPins
     $expectedPins.updateInstaller = $savedInstallerPin
+
+    foreach ($pinName in @('updateInstaller', 'recoveryInstaller')) {
+        $pinPathToDrift = $pinnedFiles[$pinName]
+        $pinBytesBeforeDrift = [IO.File]::ReadAllBytes($pinPathToDrift)
+        [IO.File]::WriteAllBytes($pinPathToDrift, [byte[]](0, 255, 0, 1))
+        Assert-IdleTargetCaptureRejected "$pinName bytes drift" 'Idle target pinned input verification failed.' $targetIdentity $expectedPins
+        [IO.File]::WriteAllBytes($pinPathToDrift, $pinBytesBeforeDrift)
+    }
 
     $savedRecoveryHelperPin = $expectedPins.recoveryHelper
     $savedRecoveryHelperPath = $pinnedFiles.recoveryHelper
@@ -337,7 +380,15 @@ if ($script:saveCaptureParameters -contains 'ActionScript' -or
 }
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
-Write-Host 'Shared idle transaction behavior checks passed.'
+if ($script:nativeCalls -ne 0) { throw 'Idle capture fixture reached a native action tripwire.' }
+$fixtureSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+[pscustomobject]@{
+    pass = $true
+    fixtureSha256 = $fixtureSha256
+    targetCaptureOutcomes = @($script:targetCaptureOutcomes.ToArray())
+    measuredNativeCalls = $script:nativeCalls
+} | ConvertTo-Json -Depth 4 -Compress | Write-Host
+
 } finally {
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
 }
