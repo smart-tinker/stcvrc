@@ -223,7 +223,9 @@ if (-not (Get-Command -Name Save-CvrIdlePreflightCapture -CommandType Function -
 
 $preflightPackageRoot = Join-Path $targetCaptureRoot 'preflight-package'
 $preflightLocalRoot = Join-Path $preflightPackageRoot 'local'
-$null = New-Item -ItemType Directory -Path $preflightLocalRoot -Force
+$null = New-Item -ItemType Directory -Path $preflightPackageRoot -ErrorAction Stop
+Set-CvrIdleCaptureAcl -Path $preflightPackageRoot -Directory
+$null = New-Item -ItemType Directory -Path $preflightLocalRoot -ErrorAction Stop
 Set-CvrIdleCaptureAcl -Path $preflightLocalRoot -Directory
 $captureMarkerPath = Join-Path (Join-Path $preflightLocalRoot 'capture') 'keep.txt'
 $preparedMarkerPath = Join-Path (Join-Path $preflightLocalRoot 'prepared') 'keep.txt'
@@ -231,6 +233,25 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $captureMarkerPat
 $null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPath) -Force
 [IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
 [IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
+
+$protectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
+$unprotectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
+$unprotectedPackageAcl.SetAccessRuleProtection($false, $true)
+Set-Acl -LiteralPath $preflightPackageRoot -AclObject $unprotectedPackageAcl -ErrorAction Stop
+$beforeUnprotectedPackageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+$unprotectedPackageRejected = $false
+try {
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $unprotectedPackageRejected = $_.Exception.Message -ceq 'Idle Preflight package root is not protected.'
+}
+$afterUnprotectedPackageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+Set-Acl -LiteralPath $preflightPackageRoot -AclObject $protectedPackageAcl -ErrorAction Stop
+$null = Assert-CvrIdleCaptureAcl -Path $preflightPackageRoot -Directory
+if (-not $unprotectedPackageRejected -or $afterUnprotectedPackageCaptureCount -ne $beforeUnprotectedPackageCaptureCount) {
+    throw 'Unprotected idle Preflight package root was accepted or wrote output.'
+}
+
 $targetCapture | Add-Member -NotePropertyName profileMarker -NotePropertyValue 'synthetic-profile-marker'
 $targetCapture.idleObservation.ControllerListening = [bool]$true
 $beforeRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
