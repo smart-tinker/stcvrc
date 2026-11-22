@@ -672,12 +672,22 @@ function Stop-CvrRunnerRuntime {
 }
 
 function New-CvrIdleTransactionCapture {
-    param([Parameter(Mandatory)][string]$InstallDirectory)
-    Assert-NoService
-    Assert-NoCvrProcesses
+    param(
+        [Parameter(Mandatory)][string]$InstallDirectory,
+        [Parameter(Mandatory)][object]$CoreShouldBeRunning,
+        [Parameter(Mandatory)][string]$TargetIdentity,
+        [Parameter(Mandatory)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory)][hashtable]$ExpectedPins,
+        [Parameter(Mandatory)][hashtable]$PinnedFiles,
+        [Parameter(Mandatory)][object]$CorePair,
+        [Parameter(Mandatory)][object]$LegacyState
+    )
     $verifiedDirectory = Get-InstalledCvrDirectory -ExpectedVersion '2.5.8'
     if ([IO.Path]::GetFullPath($verifiedDirectory) -ine [IO.Path]::GetFullPath($InstallDirectory)) {
         throw 'Idle baseline install directory differs from the pinned 2.5.8 directory.'
+    }
+    if ($CoreShouldBeRunning -isnot [bool] -or $CoreShouldBeRunning) {
+        throw 'Idle target capture requires strict false intent.'
     }
     $guiSha = [string]$env:CVR_258_GUI_SHA256
     $guiPath = Join-Path $InstallDirectory 'clash-verge.exe'
@@ -686,35 +696,23 @@ function New-CvrIdleTransactionCapture {
         throw 'Idle baseline CVR 2.5.8 GUI pin mismatch.'
     }
 
-    $legacyState = Get-CvrLegacyState
-    $corePair = Get-CvrCorePairPreimage -InstallDirectory $InstallDirectory
+    Assert-CvrCorePairPreimage -Preimage $CorePair -Phase 'fresh idle capture'
+    Assert-CvrLegacyState -Expected $LegacyState -Phase 'fresh idle capture'
+    $observation = Get-CvrIdleBaselineObservation -Version '2.5.8' -InstallDirectory $InstallDirectory -CoreShouldBeRunning $CoreShouldBeRunning -ExpectedProgramFilesCoreSha256 ([string]$CorePair.programFiles.sha256) -ExpectedServiceCoreSha256 ([string]$CorePair.service.sha256)
     $capture = [PSCustomObject]@{
         installDirectory = [IO.Path]::GetFullPath($InstallDirectory)
         guiSha256 = $guiSha.ToLowerInvariant()
-        coreShouldBeRunning = [bool]$false
-        corePair = $corePair
-        legacyState = $legacyState
-        idleObservation = $null
+        targetIdentity = $TargetIdentity
+        capturedAtUtc = [DateTime]::UtcNow
+        coreShouldBeRunning = $CoreShouldBeRunning
+        corePair = $CorePair
+        legacyState = $LegacyState
+        idleObservation = $observation
+        pinnedFiles = $PinnedFiles
     }
-    try {
-        $observation = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $InstallDirectory -ProgramFilesEntry $corePair.programFiles -CoreEntry $corePair.service -CoreShouldBeRunning $capture.coreShouldBeRunning
-        $null = Assert-CvrIdleBaseline @observation
-        Assert-CvrCorePairPreimage -Preimage $corePair -Phase 'captured idle baseline'
-        Assert-CvrLegacyState -Expected $legacyState -Phase 'captured idle baseline'
-        $capture.idleObservation = $observation
-    } catch {
-        $captureFailure = $_.Exception.Message
-        try {
-            Stop-CvrRunnerRuntime
-            Restore-CvrCorePairPreimage -Preimage $corePair -HelperVersion '2.5.8'
-            Restore-CvrLegacyState -State $legacyState
-            Assert-CvrCorePairPreimage -Preimage $corePair -Phase 'idle capture rollback'
-            Assert-CvrLegacyState -Expected $legacyState -Phase 'idle capture rollback'
-        } catch {
-            throw "Idle baseline capture failed and its local rollback did not verify: $($_.Exception.Message)"
-        }
-        throw "Idle baseline capture failed after restoring its preimages: $captureFailure"
-    }
+    $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    Assert-CvrCorePairPreimage -Preimage $CorePair -Phase 'fresh idle capture'
+    Assert-CvrLegacyState -Expected $LegacyState -Phase 'fresh idle capture'
     return $capture
 }
 
@@ -835,10 +833,60 @@ Stop-CvrRunnerRuntime
 Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture
 $script:legacyStateFixture = $null
 
+$script:idleCoreShouldBeRunning = [bool]$false
+$script:idleTargetIdentity = [Guid]::NewGuid().ToString('N')
+$script:idleLegacyState = Get-CvrLegacyState
+$script:idleCorePair = Get-CvrCorePairPreimage -InstallDirectory $install258
+$helper258 = Get-CvrServiceInstallHelper -Version '2.5.8'
+$helper2510 = Get-CvrServiceInstallHelper -Version '2.5.10'
+$release258 = @($manifest.releases | Where-Object { [string]$_.version -ceq '2.5.8' })
+$release2510 = @($manifest.releases | Where-Object { [string]$_.version -ceq '2.5.10' })
+if ($release258.Count -ne 1 -or $release2510.Count -ne 1) { throw 'Idle target capture release pins are ambiguous.' }
+$script:idleExpectedPins = @{
+    gui258 = [string]$env:CVR_258_GUI_SHA256
+    serviceExe258 = [string]$env:CVR_258_SERVICE_SHA256
+    programFilesCore = [string]$script:idleCorePair.programFiles.sha256
+    serviceCore = [string]$script:idleCorePair.service.sha256
+    candidateCore = [string]$coreSha
+    updateInstaller = [string]$release2510[0].assets.installer.sha256
+    updateHelper = [string]$helper2510.sha256
+    recoveryInstaller = [string]$release258[0].assets.installer.sha256
+    recoveryHelper = [string]$helper258.sha256
+}
+$script:idlePinnedFiles = @{
+    gui258 = (Join-Path $install258 'clash-verge.exe')
+    serviceExe258 = (Join-Path $serviceData 'bin\clash-verge-service.exe')
+    programFilesCore = [string]$script:idleCorePair.programFiles.path
+    serviceCore = [string]$script:idleCorePair.service.path
+    candidateCore = [string]$env:CUSTOM_CORE
+    updateInstaller = [string]$installerPaths['2.5.10']
+    updateHelper = [string]$helper2510.path
+    recoveryInstaller = [string]$installerPaths['2.5.8']
+    recoveryHelper = [string]$helper258.path
+}
+try {
+    $idleSetupObservation = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $install258 -ProgramFilesEntry $script:idleCorePair.programFiles -CoreEntry $script:idleCorePair.service -CoreShouldBeRunning $script:idleCoreShouldBeRunning
+    $null = Assert-CvrIdleBaseline @idleSetupObservation
+    Assert-CvrCorePairPreimage -Preimage $script:idleCorePair -Phase 'idle transaction setup'
+    Assert-CvrLegacyState -Expected $script:idleLegacyState -Phase 'idle transaction setup'
+} catch {
+    try {
+        Stop-CvrRunnerRuntime
+        Restore-CvrCorePairPreimage -Preimage $script:idleCorePair -HelperVersion '2.5.8'
+        Restore-CvrLegacyState -State $script:idleLegacyState
+        Assert-CvrCorePairPreimage -Preimage $script:idleCorePair -Phase 'idle transaction setup recovery'
+        Assert-CvrLegacyState -Expected $script:idleLegacyState -Phase 'idle transaction setup recovery'
+    } catch {
+        throw 'Idle transaction setup failed and its runner preimages did not verify.'
+    }
+    throw 'Idle transaction setup failed after restoring its runner preimages.'
+}
+
 $idleTransactionCallbacks = @{
-    CaptureScript = { New-CvrIdleTransactionCapture -InstallDirectory $install258 }
+    CaptureScript = { New-CvrIdleTransactionCapture -InstallDirectory $install258 -CoreShouldBeRunning $script:idleCoreShouldBeRunning -TargetIdentity $script:idleTargetIdentity -ExpectedTargetIdentity $script:idleTargetIdentity -ExpectedPins $script:idleExpectedPins -PinnedFiles $script:idlePinnedFiles -CorePair $script:idleCorePair -LegacyState $script:idleLegacyState }
     ActionScript = {
         param($capture)
+        $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity $script:idleTargetIdentity -ExpectedPins $script:idleExpectedPins
         $originalCorePair = $capture.corePair
     Assert-CvrCorePairPreimage -Preimage $originalCorePair -Phase 'captured original 2.5.8 idle core pair'
     if ($originalCorePair.programFiles.sha256 -cne $stockProgramFilesCore.sha256) { throw 'Captured idle Program Files core differs from the pinned 2.5.8 stock preimage.' }
@@ -890,6 +938,9 @@ $idleTransactionCallbacks = @{
     RestoreScript = { param($capture) Restore-CvrIdleTransaction -Capture $capture }
     VerifyScript = {
         param($capture, $restored)
+        if ($restored.CoreShouldBeRunning -isnot [bool] -or $restored.CoreShouldBeRunning -cne $capture.coreShouldBeRunning) {
+            throw 'Restored idle owner intent differs from the captured intent.'
+        }
         $null = Assert-CvrIdleBaseline @restored
         Assert-CvrCorePairPreimage -Preimage $capture.corePair -Phase 'shared idle transaction verification'
         Assert-CvrLegacyState -Expected $capture.legacyState -Phase 'shared idle transaction verification'

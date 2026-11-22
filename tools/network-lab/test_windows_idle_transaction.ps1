@@ -61,6 +61,17 @@ foreach ($invalidIntent in @($true,0)) {
 
 . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
 
+function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessage, [string]$ExpectedIdentity, [System.Collections.IDictionary]$Pins) {
+    $rejected = $false
+    try {
+        $null = Assert-CvrIdleTargetCapture -Capture $targetCapture -ExpectedTargetIdentity $ExpectedIdentity -ExpectedPins $Pins
+    } catch {
+        if ($_.Exception.Message -cne $ExpectedMessage) { throw "Idle target capture guard returned an unexpected message for $Case." }
+        $rejected = $true
+    }
+    Assert-IdleTransaction $rejected "$Case drift was accepted."
+}
+
 $targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [Guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $targetCaptureRoot) { throw 'Idle target capture fixture path unexpectedly exists.' }
 $null = New-Item -ItemType Directory -Path $targetCaptureRoot
@@ -77,8 +88,10 @@ try {
     $serviceBackup = Join-Path $serviceBackupDirectory 'verge-mihomo.exe'
     [IO.File]::WriteAllBytes($programFilesPath, [byte[]](2, 5, 8, 1))
     [IO.File]::WriteAllBytes($serviceCorePath, [byte[]](1, 1, 9, 3))
-    [IO.File]::WriteAllBytes($programFilesBackup, [IO.File]::ReadAllBytes($programFilesPath))
-    [IO.File]::WriteAllBytes($serviceBackup, [IO.File]::ReadAllBytes($serviceCorePath))
+    $programFilesBytes = [IO.File]::ReadAllBytes($programFilesPath)
+    $serviceBytes = [IO.File]::ReadAllBytes($serviceCorePath)
+    [IO.File]::WriteAllBytes($programFilesBackup, $programFilesBytes)
+    [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
     $programFilesSha = (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $serviceSha = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $programFilesAcl = Get-Acl -LiteralPath $programFilesPath
@@ -146,7 +159,61 @@ try {
     try {
         $acceptedTargetCapture = (Assert-CvrIdleTargetCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins) -ceq $true
     } catch {}
-    Assert-IdleTransaction $acceptedTargetCapture 'Expected behavior RED: the complete fresh idle target capture was not accepted.'
+    Assert-IdleTransaction $acceptedTargetCapture 'Valid fresh idle target capture was rejected.'
+    Assert-IdleTransaction ($acceptedTargetCapture -is [bool]) 'Idle target capture did not return a strict Boolean.'
+
+    Assert-IdleTargetCaptureRejected 'target identity' 'Idle target identity does not match the expected target.' 'different-target' $expectedPins
+
+    $savedTime = $targetCapture.capturedAtUtc
+    $targetCapture.capturedAtUtc = [DateTime]::UtcNow.AddMinutes(-6)
+    Assert-IdleTargetCaptureRejected 'stale capture' 'Idle target capture timestamp is missing, stale, or not UTC.' $targetIdentity $expectedPins
+    $targetCapture.capturedAtUtc = $savedTime
+
+    $targetCapture.coreShouldBeRunning = 0
+    Assert-IdleTargetCaptureRejected 'non-Boolean owner intent' 'Idle target capture requires strict false intent.' $targetIdentity $expectedPins
+    $targetCapture.coreShouldBeRunning = [bool]$true
+    Assert-IdleTargetCaptureRejected 'running owner intent' 'Idle target capture requires strict false intent.' $targetIdentity $expectedPins
+    $targetCapture.coreShouldBeRunning = [bool]$false
+
+    $targetCapture.idleObservation.OwnedGuiProcessIds = [int[]]@(101)
+    Assert-IdleTargetCaptureRejected 'owned GUI process' 'Idle baseline has owned GUI processes.' $targetIdentity $expectedPins
+    $targetCapture.idleObservation.OwnedGuiProcessIds = [int[]]@()
+    $targetCapture.idleObservation.OwnedCoreProcessIds = [int[]]@(202)
+    Assert-IdleTargetCaptureRejected 'owned core process' 'Idle baseline has owned core processes.' $targetIdentity $expectedPins
+    $targetCapture.idleObservation.OwnedCoreProcessIds = [int[]]@()
+    $targetCapture.idleObservation.ControllerListening = [bool]$true
+    Assert-IdleTargetCaptureRejected 'controller listener' 'Idle baseline controller listener is present.' $targetIdentity $expectedPins
+    $targetCapture.idleObservation.ControllerListening = [bool]$false
+    $targetCapture.idleObservation.OwnedListenerProcessIds = [int[]]@(303)
+    Assert-IdleTargetCaptureRejected 'owned listener' 'Idle baseline has owned listeners.' $targetIdentity $expectedPins
+    $targetCapture.idleObservation.OwnedListenerProcessIds = [int[]]@()
+
+    $savedInstallerPin = $expectedPins.updateInstaller
+    $expectedPins.updateInstaller = ('0' * 64)
+    Assert-IdleTargetCaptureRejected 'update installer pin drift' 'Idle target pinned input verification failed.' $targetIdentity $expectedPins
+    $expectedPins.updateInstaller = $savedInstallerPin
+
+    $savedRecoveryHelperPin = $expectedPins.recoveryHelper
+    $savedRecoveryHelperPath = $pinnedFiles.recoveryHelper
+    $null = $expectedPins.Remove('recoveryHelper')
+    $null = $pinnedFiles.Remove('recoveryHelper')
+    Assert-IdleTargetCaptureRejected 'missing rollback helper pin' 'Idle target pin set is incomplete.' $targetIdentity $expectedPins
+    $expectedPins.recoveryHelper = $savedRecoveryHelperPin
+    $pinnedFiles.recoveryHelper = $savedRecoveryHelperPath
+
+    $savedServiceBackup = $targetCapture.corePair.service.backup
+    $targetCapture.corePair.service.backup = $programFilesBackup
+    Assert-IdleTargetCaptureRejected 'aliased core preimages' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
+    $targetCapture.corePair.service.backup = $savedServiceBackup
+
+    [IO.File]::WriteAllBytes($serviceBackup, [byte[]](4, 3, 2))
+    Assert-IdleTargetCaptureRejected 'changed service preimage bytes' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
+    [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
+
+    $savedSddl = $targetCapture.corePair.programFiles.sddl
+    $targetCapture.corePair.programFiles.sddl = 'unreviewed'
+    Assert-IdleTargetCaptureRejected 'changed Program Files ACL preimage' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
+    $targetCapture.corePair.programFiles.sddl = $savedSddl
 } finally {
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
 }

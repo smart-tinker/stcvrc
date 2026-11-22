@@ -744,7 +744,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
         callbacks = source.index("$idleTransactionCallbacks = @{")
         capture_call = source.index(
-            "CaptureScript = { New-CvrIdleTransactionCapture -InstallDirectory $install258 }",
+            "CaptureScript = { New-CvrIdleTransactionCapture",
             callbacks,
         )
         update = source.index("Invoke-CvrInstaller -Version '2.5.10'", capture_call)
@@ -808,15 +808,40 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "function Restore-CvrIdleTransaction", 1
         )[0]
         for assertion in (
-            "Get-CvrCorePairPreimage",
-            "Get-CvrLegacyState",
-            "ProgramFilesEntry $corePair.programFiles",
-            "Install-CvrIdleService",
-            "Assert-CvrIdleBaseline",
-            "coreShouldBeRunning = [bool]$false",
+            "Get-CvrIdleBaselineObservation",
+            "Assert-CvrIdleTargetCapture -Capture $capture",
+            "Assert-CvrCorePairPreimage -Preimage $CorePair",
+            "Assert-CvrLegacyState -Expected $LegacyState",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, capture)
+        for mutation in (
+            "Get-CvrCorePairPreimage",
+            "Get-CvrLegacyState",
+            "Install-CvrIdleService",
+            "Assert-NoService",
+            "Assert-NoCvrProcesses",
+            "coreShouldBeRunning = [bool]$false",
+        ):
+            with self.subTest(mutation=mutation):
+                self.assertNotIn(mutation, capture)
+
+        setup = source.split("$idleTransactionCallbacks = @{", 1)[0]
+        for assertion in (
+            "$script:idleCoreShouldBeRunning = [bool]$false",
+            "$script:idleCorePair = Get-CvrCorePairPreimage -InstallDirectory $install258",
+            "$script:idleLegacyState = Get-CvrLegacyState",
+            "$idleSetupObservation = Install-CvrIdleService -Version '2.5.8'",
+        ):
+            with self.subTest(assertion=assertion):
+                self.assertIn(assertion, setup)
+        self.assertLess(
+            source.index("Install-CvrIdleService -Version '2.5.8'", 0, callbacks),
+            callbacks,
+        )
+        self.assertIn("-CoreShouldBeRunning $script:idleCoreShouldBeRunning", source[capture_call:update])
+        self.assertIn("-ExpectedTargetIdentity $script:idleTargetIdentity", source[capture_call:update])
+        self.assertIn("Restored idle owner intent differs from the captured intent.", source[verify_callback:invoke])
 
         restore_function = source.split("function Restore-CvrIdleTransaction", 1)[1].split(
             "function Invoke-NativePhase", 1
