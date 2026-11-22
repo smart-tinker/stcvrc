@@ -12,6 +12,15 @@ function Invoke-CvrIdleTransaction {
     if (-not $intent -or $intent.Value -isnot [bool] -or $intent.Value) {
         throw 'Idle transaction requires a captured strict false intent.'
     }
+    $observationProperty = $capturedBaseline.PSObject.Properties['idleObservation']
+    if (-not $observationProperty -or $observationProperty.Value -isnot [System.Collections.IDictionary]) {
+        throw 'Idle transaction requires a captured idle observation.'
+    }
+    if (-not (Get-Command -Name Assert-CvrIdleBaseline -CommandType Function -ErrorAction SilentlyContinue)) {
+        throw 'Idle transaction baseline guard is unavailable.'
+    }
+    $observation = $observationProperty.Value
+    $null = Assert-CvrIdleBaseline @observation
 
     $actionResult = $null
     $actionFailure = $null
