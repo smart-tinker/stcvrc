@@ -271,7 +271,13 @@ $receipt = $receiptText | ConvertFrom-Json
 $receiptFailures = [Collections.Generic.List[string]]::new()
 if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning) { $receiptFailures.Add('strict-false-intent') }
 if ($receipt.targetIdentity -cne $targetIdentity) { $receiptFailures.Add('target-identity') }
-if ($receipt.expectedPins.PSObject.Properties.Count -ne 9) { $receiptFailures.Add('expected-pin-count') }
+$receiptPinNames = @($receipt.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
+$expectedPinNames = @('gui258', 'serviceExe258', 'programFilesCore', 'serviceCore', 'candidateCore', 'updateInstaller', 'updateHelper', 'recoveryInstaller', 'recoveryHelper')
+$receiptPinNamesText = @($receiptPinNames | Sort-Object -CaseSensitive) -join '|'
+$expectedPinNamesText = @($expectedPinNames | Sort-Object -CaseSensitive) -join '|'
+if ($receiptPinNames.Count -ne 9 -or $receiptPinNamesText -cne $expectedPinNamesText) {
+    $receiptFailures.Add("expected-pin-fields:$($receiptPinNames.Count):$($receiptPinNames -join ',')")
+}
 if ($receipt.idleObservation.ServiceStatus -cne 'Running') { $receiptFailures.Add('service-status') }
 if ([IO.Path]::GetFileName($receipt.corePair.service.backup) -cne 'verge-mihomo.exe') { $receiptFailures.Add('service-backup-basename') }
 if ($receiptText.Contains('synthetic-profile-marker')) { $receiptFailures.Add('non-allowlisted-profile-marker') }
