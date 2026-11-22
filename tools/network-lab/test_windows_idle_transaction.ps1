@@ -4,6 +4,11 @@ if (-not (Test-Path -LiteralPath $modulePath -PathType Leaf)) {
     throw 'Expected behavior RED: shared idle transaction module is missing.'
 }
 . $modulePath
+$corePreimagePathScript = Join-Path $PSScriptRoot 'windows_core_preimage_paths.ps1'
+if (-not (Test-Path -LiteralPath $corePreimagePathScript -PathType Leaf)) {
+    throw 'Shared core preimage restore helper is missing.'
+}
+. $corePreimagePathScript
 . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
 
 $script:nativeCalls = 0
@@ -113,7 +118,23 @@ function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessag
 $targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [Guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $targetCaptureRoot) { throw 'Idle target capture fixture path unexpectedly exists.' }
 $null = New-Item -ItemType Directory -Path $targetCaptureRoot
+$programFilesFixtureRoot = $null
+$serviceFixtureRoot = $null
+$ownsProgramFilesFixtureRoot = $false
+$ownsServiceFixtureRoot = $false
 try {
+    if ([string]::IsNullOrWhiteSpace($env:ProgramFiles) -or [string]::IsNullOrWhiteSpace($env:ProgramData)) {
+        throw 'Synthetic core fixture roots are unavailable.'
+    }
+    $programFilesFixtureRoot = Join-Path $env:ProgramFiles ('stcvrc-idle-program-files-' + [Guid]::NewGuid().ToString('N'))
+    $serviceFixtureRoot = Join-Path $env:ProgramData ('stcvrc-idle-service-' + [Guid]::NewGuid().ToString('N'))
+    if ((Test-Path -LiteralPath $programFilesFixtureRoot) -or (Test-Path -LiteralPath $serviceFixtureRoot)) {
+        throw 'Synthetic core fixture path unexpectedly exists.'
+    }
+    $null = New-Item -ItemType Directory -Path $programFilesFixtureRoot -ErrorAction Stop
+    $ownsProgramFilesFixtureRoot = $true
+    $null = New-Item -ItemType Directory -Path $serviceFixtureRoot -ErrorAction Stop
+    $ownsServiceFixtureRoot = $true
     $pinPath = Join-Path $targetCaptureRoot 'pinned-input.bin'
     [IO.File]::WriteAllBytes($pinPath, [byte[]](7, 2, 5, 10))
     $pinSha = (Get-FileHash -LiteralPath $pinPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -134,8 +155,8 @@ try {
         $syntheticPinHashes[$name] = (Get-FileHash -LiteralPath $syntheticPinPaths[$name] -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 
-    $programFilesPath = Join-Path $targetCaptureRoot 'program-files-core.exe'
-    $serviceCorePath = Join-Path $targetCaptureRoot 'service-core.exe'
+    $programFilesPath = Join-Path $programFilesFixtureRoot 'verge-mihomo.exe'
+    $serviceCorePath = Join-Path $serviceFixtureRoot 'verge-mihomo.exe'
     $programFilesBackup = Join-Path $targetCaptureRoot 'program-files-preimage.exe'
     $serviceBackupDirectory = Join-Path $targetCaptureRoot 'service-preimage'
     $null = New-Item -ItemType Directory -Path $serviceBackupDirectory
@@ -287,9 +308,11 @@ try {
     } -RestoreScript {
         param($capture)
         $script:idleTransactionEvents.Add('rollback')
-        foreach ($entry in @($capture.corePair.programFiles, $capture.corePair.service)) {
-            [IO.File]::WriteAllBytes($entry.path, [IO.File]::ReadAllBytes($entry.backup))
-            Set-Acl -LiteralPath $entry.path -AclObject $entry.acl -ErrorAction Stop
+        foreach ($pair in @(
+            [PSCustomObject]@{ name = 'Program Files'; entry = $capture.corePair.programFiles },
+            [PSCustomObject]@{ name = 'service'; entry = $capture.corePair.service }
+        )) {
+            Restore-CvrCoreFilePreimage -Entry $pair.entry -Role $pair.name
         }
         $script:syntheticRuntime.intent = [bool]$capture.coreShouldBeRunning
         $script:syntheticRuntime.coreRunning = [bool]$false
@@ -523,5 +546,7 @@ $fixtureSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Ha
 } | ConvertTo-Json -Depth 5 -Compress | Write-Host
 
 } finally {
+    if ($ownsServiceFixtureRoot) { Remove-Item -LiteralPath $serviceFixtureRoot -Recurse -Force -ErrorAction Stop }
+    if ($ownsProgramFilesFixtureRoot) { Remove-Item -LiteralPath $programFilesFixtureRoot -Recurse -Force -ErrorAction Stop }
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
 }
