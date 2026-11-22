@@ -268,13 +268,15 @@ if (-not (Get-Acl -LiteralPath $preflight.CaptureDirectory).AreAccessRulesProtec
 }
 $receiptText = [IO.File]::ReadAllText($preflight.ReceiptPath)
 $receipt = $receiptText | ConvertFrom-Json
-if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning -or
-    $receipt.targetIdentity -cne $targetIdentity -or
-    $receipt.expectedPins.PSObject.Properties.Count -ne 9 -or
-    $receipt.idleObservation.ServiceStatus -cne 'Running' -or
-    [IO.Path]::GetFileName($receipt.corePair.service.backup) -cne 'verge-mihomo.exe' -or
-    $receiptText.Contains('synthetic-profile-marker')) {
-    throw 'Idle Preflight receipt did not preserve the validated allowlisted capture contract.'
+$receiptFailures = [Collections.Generic.List[string]]::new()
+if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning) { $receiptFailures.Add('strict-false-intent') }
+if ($receipt.targetIdentity -cne $targetIdentity) { $receiptFailures.Add('target-identity') }
+if ($receipt.expectedPins.PSObject.Properties.Count -ne 9) { $receiptFailures.Add('expected-pin-count') }
+if ($receipt.idleObservation.ServiceStatus -cne 'Running') { $receiptFailures.Add('service-status') }
+if ([IO.Path]::GetFileName($receipt.corePair.service.backup) -cne 'verge-mihomo.exe') { $receiptFailures.Add('service-backup-basename') }
+if ($receiptText.Contains('synthetic-profile-marker')) { $receiptFailures.Add('non-allowlisted-profile-marker') }
+if ($receiptFailures.Count) {
+    throw "Idle Preflight receipt contract failed: $($receiptFailures -join ', ')."
 }
 if ([IO.File]::ReadAllText($captureMarkerPath) -cne 'preserve-capture' -or
     [IO.File]::ReadAllText($preparedMarkerPath) -cne 'preserve-prepared') {
