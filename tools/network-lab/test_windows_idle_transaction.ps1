@@ -90,6 +90,37 @@ Assert-IdleTransactionOrder @('capture','action','restore')
 $script:idleTransactionEvents.Clear()
 $verifyFailure = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action'); 'candidate' } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore'); 'baseline' } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); $false }
 Assert-IdleTransaction ($verifyFailure.RestoreFailure -ceq 'Idle transaction restore verification did not pass.') 'False restore verification was accepted.'
+
+$script:idleTransactionEvents.Clear()
+$intentMutation = Invoke-CvrIdleTransaction -CaptureScript {
+    $script:idleTransactionEvents.Add('capture')
+    New-IdleTransactionCapture $false
+} -ActionScript {
+    param($capture)
+    $script:idleTransactionEvents.Add('action')
+    $capture.coreShouldBeRunning = [bool]$true
+    $capture.idleObservation.CoreShouldBeRunning = [bool]$true
+    'candidate'
+} -RestoreScript {
+    param($capture)
+    $script:idleTransactionEvents.Add('restore')
+    if ($capture.coreShouldBeRunning -isnot [bool] -or $capture.coreShouldBeRunning -or
+        $capture.idleObservation.CoreShouldBeRunning -isnot [bool] -or $capture.idleObservation.CoreShouldBeRunning) {
+        throw 'rollback did not receive strict false intent'
+    }
+    'baseline'
+} -VerifyScript {
+    param($capture, $restored)
+    $script:idleTransactionEvents.Add('verify')
+    ($capture.coreShouldBeRunning -is [bool] -and -not $capture.coreShouldBeRunning -and
+        $capture.idleObservation.CoreShouldBeRunning -is [bool] -and
+        -not $capture.idleObservation.CoreShouldBeRunning -and
+        $restored -ceq 'baseline')
+}
+Assert-IdleTransaction ($intentMutation.ActionFailure -ceq 'Action callback changed captured strict false intent.') 'Action intent mutation was not rejected.'
+Assert-IdleTransaction ($intentMutation.RestoreFailure -eq $null) 'Rollback did not receive the original strict false intent.'
+Assert-IdleTransactionOrder @('capture','action','restore','verify')
+Assert-IdleTransaction ($script:nativeCalls -eq 0) 'Idle intent recovery invoked a native service or process action.'
 Assert-IdleTransactionOrder @('capture','action','restore','verify')
 
 foreach ($invalidIntent in @($true,0)) {
