@@ -301,23 +301,32 @@ try {
     } -VerifyScript {
         param($capture, $restored)
         $script:idleTransactionEvents.Add('verify')
-        $pairsRestored = $true
-        foreach ($entry in @($capture.corePair.programFiles, $capture.corePair.service)) {
-            $actualSha = (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256 -ErrorAction Stop).Hash
-            $actualSddl = (Get-Acl -LiteralPath $entry.path -ErrorAction Stop).Sddl
-            $pairsRestored = $pairsRestored -and
-                $actualSha -ieq [string]$entry.sha256 -and
-                $actualSddl -ceq [string]$entry.sddl
+        if ($restored -cne 'baseline-restored') { throw 'Synthetic rollback callback result mismatch.' }
+        foreach ($pair in @(
+            [PSCustomObject]@{ name = 'Program Files'; entry = $capture.corePair.programFiles },
+            [PSCustomObject]@{ name = 'service'; entry = $capture.corePair.service }
+        )) {
+            $actualSha = (Get-FileHash -LiteralPath $pair.entry.path -Algorithm SHA256 -ErrorAction Stop).Hash
+            if ($actualSha -ine [string]$pair.entry.sha256) {
+                throw "Synthetic rollback $($pair.name) core SHA256 mismatch."
+            }
+            $actualSddl = (Get-Acl -LiteralPath $pair.entry.path -ErrorAction Stop).Sddl
+            if ($actualSddl -cne [string]$pair.entry.sddl) {
+                throw "Synthetic rollback $($pair.name) core ACL mismatch."
+            }
         }
-        return [bool](
-            $restored -ceq 'baseline-restored' -and
-            $pairsRestored -and
-            $script:syntheticRuntime.intent -ceq [bool]$false -and
-            -not $script:syntheticRuntime.coreRunning -and
-            -not $script:syntheticRuntime.controllerListening -and
-            $script:syntheticRuntime.serviceStatus -ceq [string]$capture.idleObservation.ServiceStatus -and
-            $script:syntheticRuntime.serviceCoreSha256 -ceq [string]$capture.corePair.service.sha256
-        )
+        if ($script:syntheticRuntime.intent -isnot [bool] -or $script:syntheticRuntime.intent) {
+            throw 'Synthetic rollback did not preserve false intent.'
+        }
+        if ($script:syntheticRuntime.coreRunning) { throw 'Synthetic rollback left the core running.' }
+        if ($script:syntheticRuntime.controllerListening) { throw 'Synthetic rollback left the controller listening.' }
+        if ($script:syntheticRuntime.serviceStatus -cne [string]$capture.idleObservation.ServiceStatus) {
+            throw 'Synthetic rollback service status mismatch.'
+        }
+        if ($script:syntheticRuntime.serviceCoreSha256 -cne [string]$capture.corePair.service.sha256) {
+            throw 'Synthetic rollback service core SHA256 mismatch.'
+        }
+        return [bool]$true
     }
     if ($idleTargetTransaction.ActionFailure -or $idleTargetTransaction.RestoreFailure) {
         throw ("Synthetic idle transaction failed. ActionFailure={0}; RestoreFailure={1}" -f
