@@ -218,4 +218,64 @@ try {
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
 }
 
+
+# Expected behavior RED: the public idle-only Preflight capture adapter is missing.
+if (-not (Get-Command -Name Save-CvrIdlePreflightCapture -CommandType Function -ErrorAction SilentlyContinue)) {
+    throw 'Expected behavior RED: validated idle Preflight capture writer is missing.'
+}
+
+$preflightPackageRoot = Join-Path $targetCaptureRoot 'preflight-package'
+$preflightLocalRoot = Join-Path $preflightPackageRoot 'local'
+$null = New-Item -ItemType Directory -Path $preflightLocalRoot -Force
+Set-CvrIdleCaptureAcl -Path $preflightLocalRoot -Directory
+$captureMarkerPath = Join-Path (Join-Path $preflightLocalRoot 'capture') 'keep.txt'
+$preparedMarkerPath = Join-Path (Join-Path $preflightLocalRoot 'prepared') 'keep.txt'
+$null = New-Item -ItemType Directory -Path (Split-Path -Parent $captureMarkerPath) -Force
+$null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPath) -Force
+[IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
+[IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
+$targetCapture.profileMarker = 'synthetic-profile-marker'
+
+$preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preflightDirectory = [IO.Path]::GetFullPath($preflight.CaptureDirectory)
+$preflightLocal = [IO.Path]::GetFullPath($preflightLocalRoot)
+if ([IO.Path]::GetDirectoryName($preflightDirectory) -ine $preflightLocal -or
+    [IO.Path]::GetFileName($preflightDirectory) -notmatch '^capture-idle-[0-9a-f]{32}
+ -or
+    $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'capture')) -or
+    $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared'))) {
+    throw 'Idle Preflight capture was not written to a unique protected sibling.'
+}
+if ($preflight.CaptureDirectory -ceq $preflightAgain.CaptureDirectory) {
+    throw 'Repeated idle Preflight capture reused an existing output directory.'
+}
+if (-not (Test-Path -LiteralPath $preflight.ReceiptPath -PathType Leaf)) {
+    throw 'Idle Preflight receipt file is missing.'
+}
+if (-not (Get-Acl -LiteralPath $preflight.CaptureDirectory).AreAccessRulesProtected -or
+    -not (Get-Acl -LiteralPath $preflight.ReceiptPath).AreAccessRulesProtected) {
+    throw 'Idle Preflight capture ACL is not protected.'
+}
+$receiptText = [IO.File]::ReadAllText($preflight.ReceiptPath)
+$receipt = $receiptText | ConvertFrom-Json
+if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning -or
+    $receipt.targetIdentity -cne $targetIdentity -or
+    $receipt.expectedPins.PSObject.Properties.Count -ne 9 -or
+    $receipt.idleObservation.ServiceStatus -cne 'Running' -or
+    [IO.Path]::GetFileName($receipt.corePair.service.backup) -cne 'verge-mihomo.exe' -or
+    $receiptText.Contains('synthetic-profile-marker')) {
+    throw 'Idle Preflight receipt did not preserve the validated allowlisted capture contract.'
+}
+if ([IO.File]::ReadAllText($captureMarkerPath) -cne 'preserve-capture' -or
+    [IO.File]::ReadAllText($preparedMarkerPath) -cne 'preserve-prepared') {
+    throw 'Idle Preflight modified the existing capture or prepared sibling.'
+}
+$script:saveCaptureParameters = (Get-Command Save-CvrIdlePreflightCapture).Parameters.Keys
+if ($script:saveCaptureParameters -contains 'ActionScript' -or
+    $script:saveCaptureParameters -contains 'RestoreScript') {
+    throw 'Read-only idle Preflight adapter must not accept transaction callbacks.'
+}
+$targetCapture.PSObject.Properties.Remove('profileMarker')
+
 Write-Host 'Shared idle transaction behavior checks passed.'
