@@ -231,7 +231,7 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $captureMarkerPat
 $null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPath) -Force
 [IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
 [IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
-$targetCapture.profileMarker = 'synthetic-profile-marker'
+$targetCapture | Add-Member -NotePropertyName profileMarker -NotePropertyValue 'synthetic-profile-marker'
 $targetCapture.idleObservation.ControllerListening = [bool]$true
 $beforeRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
 $rejectedSave = $false
