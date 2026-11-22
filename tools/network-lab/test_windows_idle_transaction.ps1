@@ -241,7 +241,7 @@ $preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -Expected
 $preflightDirectory = [IO.Path]::GetFullPath($preflight.CaptureDirectory)
 $preflightLocal = [IO.Path]::GetFullPath($preflightLocalRoot)
 if ([IO.Path]::GetDirectoryName($preflightDirectory) -ine $preflightLocal -or
-    [IO.Path]::GetFileName($preflightDirectory) -notmatch '^capture-idle-[0-9a-f]{32}
+    [IO.Path]::GetFileName($preflightDirectory) -notmatch '^capture-idle-[0-9a-f]{32}$' -or
     $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'capture')) -or
     $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared'))) {
     throw 'Idle Preflight capture was not written to a unique protected sibling.'
