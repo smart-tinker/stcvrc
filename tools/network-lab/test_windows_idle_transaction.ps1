@@ -214,14 +214,11 @@ try {
     $targetCapture.corePair.programFiles.sddl = 'unreviewed'
     Assert-IdleTargetCaptureRejected 'changed Program Files ACL preimage' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
     $targetCapture.corePair.programFiles.sddl = $savedSddl
-} finally {
-    Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
-}
 
 
-# Expected behavior RED: the public idle-only Preflight capture adapter is missing.
+# Public idle Preflight capture contract.
 if (-not (Get-Command -Name Save-CvrIdlePreflightCapture -CommandType Function -ErrorAction SilentlyContinue)) {
-    throw 'Expected behavior RED: validated idle Preflight capture writer is missing.'
+    throw 'Idle Preflight capture writer is missing.'
 }
 
 $preflightPackageRoot = Join-Path $targetCaptureRoot 'preflight-package'
@@ -235,6 +232,19 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPa
 [IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
 [IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
 $targetCapture.profileMarker = 'synthetic-profile-marker'
+$targetCapture.idleObservation.ControllerListening = [bool]$true
+$beforeRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+$rejectedSave = $false
+try {
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $rejectedSave = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
+}
+$targetCapture.idleObservation.ControllerListening = [bool]$false
+$afterRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCaptureCount) {
+    throw 'Rejected idle Preflight created a capture directory.'
+}
 
 $preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
 $preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
@@ -278,3 +288,6 @@ if ($script:saveCaptureParameters -contains 'ActionScript' -or
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
 Write-Host 'Shared idle transaction behavior checks passed.'
+} finally {
+    Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
+}
