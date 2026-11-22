@@ -1573,7 +1573,7 @@ $devtoolsPort=Get-FreeTcpPort; $script:devtoolsPort=$devtoolsPort; $httpPort=Get
 $dnsPort=[int]$nativePortPlan.coreDnsPort; $profileDnsPort=[int]$nativePortPlan.profileDnsPort; $appDnsPort=[int]$nativePortPlan.appDnsPort
 $script:dnsPort=$dnsPort; $script:profileDnsPort=$profileDnsPort; $script:appDnsPort=$appDnsPort
 $proxyPortA=Get-FreeTcpPort; $proxyPortB=Get-FreeTcpPort
-$subscriptionDnsPort=Get-FreeTcpPort; $subscriptionControllerPort=Get-FreeTcpPort
+$subscriptionDnsPort=[int]$nativePortPlan.subscriptionDnsPort; $subscriptionControllerPort=Get-FreeTcpPort
 $script:subscriptionDnsPort=$subscriptionDnsPort
 $script:subscriptionDnsStatePath=Join-Path $env:RUNNER_TEMP "stcvrc-native-subscription-dns-$Phase.txt"
 if (Test-Path -LiteralPath $script:subscriptionDnsStatePath) { throw 'Refusing a preexisting subscription DNS fixture state file.' }
