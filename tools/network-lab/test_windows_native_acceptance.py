@@ -469,6 +469,11 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "subscriptionDnsPort",
+                plan,
+                "the shared UDP port plan must include the subscription DNS listener",
+            )
             ports = [plan[name] for name in ("coreDnsPort", "profileDnsPort", "appDnsPort")]
             self.assertEqual(len(set(ports)), 3)
             self.assertTrue(all(0 < int(port) <= 65535 for port in ports))
