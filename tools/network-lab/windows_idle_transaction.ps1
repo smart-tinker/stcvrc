@@ -30,6 +30,27 @@ function Invoke-CvrIdleTransaction {
         if (-not $actionFailure) { $actionFailure = 'Action callback failed without a message.' }
     }
 
+    $intentAfterAction = $capturedBaseline.PSObject.Properties['coreShouldBeRunning']
+    $observationAfterAction = $capturedBaseline.PSObject.Properties['idleObservation']
+    $observationIntentAfterAction = $null
+    if ($observationAfterAction -and
+        $observationAfterAction.Value -is [System.Collections.IDictionary] -and
+        $observationAfterAction.Value.Contains('CoreShouldBeRunning')) {
+        $observationIntentAfterAction = $observationAfterAction.Value['CoreShouldBeRunning']
+    }
+    if (-not $intentAfterAction -or
+        $intentAfterAction.Value -isnot [bool] -or
+        $intentAfterAction.Value -or
+        $observationIntentAfterAction -isnot [bool] -or
+        $observationIntentAfterAction) {
+        if ($null -eq $actionFailure) {
+            $actionFailure = 'Action callback changed captured strict false intent.'
+        }
+        $null = $capturedBaseline | Add-Member -MemberType NoteProperty -Name 'coreShouldBeRunning' -Value ([bool]$false) -Force
+        $observation['CoreShouldBeRunning'] = [bool]$false
+        $null = $capturedBaseline | Add-Member -MemberType NoteProperty -Name 'idleObservation' -Value $observation -Force
+    }
+
     $restoreResult = $null
     $restoreFailure = $null
     try { $restoreResult = & $RestoreScript $capturedBaseline }

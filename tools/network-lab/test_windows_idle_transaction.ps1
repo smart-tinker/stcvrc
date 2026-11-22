@@ -90,6 +90,37 @@ Assert-IdleTransactionOrder @('capture','action','restore')
 $script:idleTransactionEvents.Clear()
 $verifyFailure = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action'); 'candidate' } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore'); 'baseline' } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); $false }
 Assert-IdleTransaction ($verifyFailure.RestoreFailure -ceq 'Idle transaction restore verification did not pass.') 'False restore verification was accepted.'
+
+$script:idleTransactionEvents.Clear()
+$intentMutation = Invoke-CvrIdleTransaction -CaptureScript {
+    $script:idleTransactionEvents.Add('capture')
+    New-IdleTransactionCapture $false
+} -ActionScript {
+    param($capture)
+    $script:idleTransactionEvents.Add('action')
+    $capture.coreShouldBeRunning = [bool]$true
+    $capture.idleObservation.CoreShouldBeRunning = [bool]$true
+    'candidate'
+} -RestoreScript {
+    param($capture)
+    $script:idleTransactionEvents.Add('restore')
+    if ($capture.coreShouldBeRunning -isnot [bool] -or $capture.coreShouldBeRunning -or
+        $capture.idleObservation.CoreShouldBeRunning -isnot [bool] -or $capture.idleObservation.CoreShouldBeRunning) {
+        throw 'rollback did not receive strict false intent'
+    }
+    'baseline'
+} -VerifyScript {
+    param($capture, $restored)
+    $script:idleTransactionEvents.Add('verify')
+    ($capture.coreShouldBeRunning -is [bool] -and -not $capture.coreShouldBeRunning -and
+        $capture.idleObservation.CoreShouldBeRunning -is [bool] -and
+        -not $capture.idleObservation.CoreShouldBeRunning -and
+        $restored -ceq 'baseline')
+}
+Assert-IdleTransaction ($intentMutation.ActionFailure -ceq 'Action callback changed captured strict false intent.') 'Action intent mutation was not rejected.'
+Assert-IdleTransaction ($intentMutation.RestoreFailure -eq $null) 'Rollback did not receive the original strict false intent.'
+Assert-IdleTransactionOrder @('capture','action','restore','verify')
+Assert-IdleTransaction ($script:nativeCalls -eq 0) 'Idle intent recovery invoked a native service or process action.'
 Assert-IdleTransactionOrder @('capture','action','restore','verify')
 
 foreach ($invalidIntent in @($true,0)) {
@@ -293,15 +324,14 @@ try {
                 throw 'Synthetic candidate core pair did not match its pin or change its ACL.'
             }
         }
-        $script:syntheticRuntime.intent = [bool]$true
-        $script:syntheticRuntime.coreRunning = [bool]$true
-        $script:syntheticRuntime.controllerListening = [bool]$true
         $script:syntheticRuntime.serviceCoreSha256 = (Get-FileHash -LiteralPath $capture.corePair.service.path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
         if ($script:syntheticRuntime.serviceCorePath -cne [IO.Path]::GetFullPath($capture.corePair.service.path) -or
             $script:syntheticRuntime.serviceCoreSha256 -cne $candidateCoreSha -or
-            -not $script:syntheticRuntime.coreRunning -or
-            -not $script:syntheticRuntime.controllerListening) {
-            throw 'Synthetic candidate acceptance failed.'
+            $script:syntheticRuntime.intent -isnot [bool] -or $script:syntheticRuntime.intent -or
+            $script:syntheticRuntime.coreRunning -or
+            $script:syntheticRuntime.controllerListening -or
+            $script:syntheticRuntime.serviceStatus -cne [string]$capture.idleObservation.ServiceStatus) {
+            throw 'Synthetic idle candidate acceptance failed.'
         }
         $script:idleTransactionEvents.Add('candidate-accepted')
         'candidate-accepted'
@@ -314,10 +344,6 @@ try {
         )) {
             Restore-CvrCoreFilePreimage -Entry $pair.entry -Role $pair.name
         }
-        $script:syntheticRuntime.intent = [bool]$capture.coreShouldBeRunning
-        $script:syntheticRuntime.coreRunning = [bool]$false
-        $script:syntheticRuntime.controllerListening = [bool]$false
-        $script:syntheticRuntime.serviceStatus = [string]$capture.idleObservation.ServiceStatus
         $script:syntheticRuntime.serviceCorePath = [IO.Path]::GetFullPath($capture.corePair.service.path)
         $script:syntheticRuntime.serviceCoreSha256 = [string]$capture.corePair.service.sha256
         'baseline-restored'
@@ -363,6 +389,54 @@ try {
     Assert-IdleTransaction ($script:syntheticRuntime.intent -ceq [bool]$false -and
         -not $script:syntheticRuntime.coreRunning -and
         -not $script:syntheticRuntime.controllerListening) 'Synthetic rollback did not restore the idle false-intent state.'
+    Assert-IdleTransaction ($script:nativeCalls -eq 0) 'Idle candidate transaction invoked a native service or process action.'
+
+    $script:idleTransactionEvents.Clear()
+    $partialCandidateFailure = Invoke-CvrIdleTargetTransaction -CaptureScript {
+        $script:idleTransactionEvents.Add('capture')
+        $targetCapture
+    } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
+        param($capture)
+        $script:idleTransactionEvents.Add('candidate-partial')
+        $candidateBytes = [IO.File]::ReadAllBytes($capture.pinnedFiles.candidateCore)
+        [IO.File]::WriteAllBytes($capture.corePair.programFiles.path, $candidateBytes)
+        $partialAcl = Get-Acl -LiteralPath $capture.corePair.programFiles.path -ErrorAction Stop
+        $partialAcl.SetAccessRuleProtection((-not [bool]$capture.corePair.programFiles.acl.AreAccessRulesProtected), $true)
+        Set-Acl -LiteralPath $capture.corePair.programFiles.path -AclObject $partialAcl -ErrorAction Stop
+        throw 'synthetic-partial-candidate-failure'
+    } -RestoreScript {
+        param($capture)
+        $script:idleTransactionEvents.Add('rollback')
+        Restore-CvrCoreFilePreimage -Entry $capture.corePair.programFiles -Role 'Program Files'
+        Restore-CvrCoreFilePreimage -Entry $capture.corePair.service -Role 'service'
+        $script:syntheticRuntime.serviceCoreSha256 = [string]$capture.corePair.service.sha256
+        'baseline-restored'
+    } -VerifyScript {
+        param($capture, $restored)
+        $script:idleTransactionEvents.Add('verify')
+        if ($restored -cne 'baseline-restored') { throw 'Synthetic partial rollback callback result mismatch.' }
+        foreach ($pair in @(
+            [PSCustomObject]@{ name = 'Program Files'; entry = $capture.corePair.programFiles },
+            [PSCustomObject]@{ name = 'service'; entry = $capture.corePair.service }
+        )) {
+            if ((Get-FileHash -LiteralPath $pair.entry.path -Algorithm SHA256 -ErrorAction Stop).Hash -ine [string]$pair.entry.sha256 -or
+                (Get-Acl -LiteralPath $pair.entry.path -ErrorAction Stop).Sddl -cne [string]$pair.entry.sddl) {
+                throw "Synthetic partial rollback $($pair.name) preimage mismatch."
+            }
+        }
+        if ($script:syntheticRuntime.intent -isnot [bool] -or $script:syntheticRuntime.intent -or
+            $script:syntheticRuntime.coreRunning -or $script:syntheticRuntime.controllerListening -or
+            $script:syntheticRuntime.serviceStatus -cne [string]$capture.idleObservation.ServiceStatus) {
+            throw 'Synthetic partial rollback changed idle runtime state.'
+        }
+        return [bool]$true
+    }
+    Assert-IdleTransaction ($partialCandidateFailure.ActionFailure -ceq 'synthetic-partial-candidate-failure') 'Partial candidate failure was not retained.'
+    Assert-IdleTransaction ($partialCandidateFailure.RestoreFailure -eq $null) 'Partial candidate rollback failed.'
+    Assert-IdleTransactionOrder @('capture','candidate-partial','rollback','verify')
+    Assert-IdleTransaction ($script:nativeCalls -eq 0) 'Partial idle rollback invoked a native service or process action.'
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case='synthetic-idle-partial-write-rollback';result='restored'})
+
     $script:targetCaptureOutcomes.Add([pscustomobject]@{case='synthetic-idle-apply-accept-rollback';result='accepted';candidateCoreSha256=$candidateCoreSha})
     $script:idleTransactionReceipt = [pscustomobject]@{
         candidateCoreSha256 = $candidateCoreSha
