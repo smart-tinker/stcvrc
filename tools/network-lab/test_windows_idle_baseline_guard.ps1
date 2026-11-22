@@ -84,4 +84,29 @@ $case = Copy-Arguments $baseline
 $case.ExpectedProgramFilesCoreSha256 = 'invalid'
 Assert-Rejected 'malformed Program Files core pin' $case 'Idle baseline Program Files core SHA256 is malformed.'
 
+$requiredPins = @{ 'scripts/required-helper.ps1' = ('a' * 64) }
+if (-not (Get-Command -Name Assert-CvrRequiredSourcePins -CommandType Function -ErrorAction SilentlyContinue)) {
+    throw 'Expected behavior RED: required source-manifest pin guard is missing.'
+}
+$validSourceIndex = @{ 'scripts/required-helper.ps1' = ('a' * 64) }
+if ((Assert-CvrRequiredSourcePins -Index $validSourceIndex -RequiredPins $requiredPins) -ne $true) {
+    throw 'The exact required source helper pin was not accepted.'
+}
+
+function Assert-RequiredSourcePinRejected([string]$Case, [hashtable]$Index, [string]$ExpectedMessage) {
+    $rejected = $false
+    try {
+        $null = Assert-CvrRequiredSourcePins -Index $Index -RequiredPins $requiredPins
+    } catch {
+        if ($_.Exception.Message -cne $ExpectedMessage) {
+            throw "$Case returned an unexpected source-pin guard message."
+        }
+        $rejected = $true
+    }
+    if (-not $rejected) { throw "$Case required source helper pin was accepted." }
+}
+
+Assert-RequiredSourcePinRejected 'missing helper' @{} 'Required source manifest helper is missing.'
+Assert-RequiredSourcePinRejected 'mismatched helper' @{ 'scripts/required-helper.ps1' = ('b' * 64) } 'Required source manifest helper pin mismatch.'
+
 Write-Host 'PowerShell idle-baseline behavior checks passed.'
