@@ -314,6 +314,7 @@ function Save-CvrIdlePreflightCapture {
             (([int]$localItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
             throw 'invalid'
         }
+        $null = Assert-CvrIdleCaptureAcl -Path $packagePath -Directory
         $null = Assert-CvrIdleCaptureAcl -Path $localPath -Directory
     } catch {
         throw 'Idle Preflight package root is not protected.'
