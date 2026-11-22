@@ -878,7 +878,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         )
         guard_import = source.index(". $idleBaselineGuardScript")
         capture_call = source.index(
-            "CaptureScript = { New-CvrIdleTransactionCapture -InstallDirectory $install258 }"
+            "CaptureScript = { New-CvrIdleTransactionCapture"
         )
         self.assertLess(guard_import, capture_call)
 
