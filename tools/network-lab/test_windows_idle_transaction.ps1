@@ -319,9 +319,14 @@ try {
             $script:syntheticRuntime.serviceCoreSha256 -ceq [string]$capture.corePair.service.sha256
         )
     }
-    Assert-IdleTransaction ($idleTargetTransaction.ActionFailure -eq $null -and
-        $idleTargetTransaction.ActionResult -ceq 'candidate-accepted' -and
-        $idleTargetTransaction.RestoreFailure -eq $null) 'Synthetic idle candidate apply, acceptance, or rollback failed.'
+    if ($idleTargetTransaction.ActionFailure -or $idleTargetTransaction.RestoreFailure) {
+        throw ("Synthetic idle transaction failed. ActionFailure={0}; RestoreFailure={1}" -f
+            [string]$idleTargetTransaction.ActionFailure,
+            [string]$idleTargetTransaction.RestoreFailure)
+    }
+    if ($idleTargetTransaction.ActionResult -cne 'candidate-accepted') {
+        throw 'Synthetic candidate acceptance marker was not returned.'
+    }
     Assert-IdleTransactionOrder @('capture','candidate-apply','candidate-accepted','rollback','verify')
     Assert-IdleTransaction ($script:syntheticRuntime.intent -ceq [bool]$false -and
         -not $script:syntheticRuntime.coreRunning -and
