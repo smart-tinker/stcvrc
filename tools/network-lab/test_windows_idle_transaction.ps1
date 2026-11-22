@@ -4,6 +4,7 @@ if (-not (Test-Path -LiteralPath $modulePath -PathType Leaf)) {
     throw 'Expected behavior RED: shared idle transaction module is missing.'
 }
 . $modulePath
+. (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
 
 function Assert-IdleTransaction([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -14,14 +15,36 @@ function Assert-IdleTransactionOrder([string[]]$Expected) {
         throw 'Shared idle transaction callback order did not match.'
     }
 }
-function New-IdleTransactionCapture($Intent) {
-    [PSCustomObject]@{ coreShouldBeRunning = $Intent }
+function New-IdleTransactionCapture($Intent, [int[]]$OwnedGuiProcessIds = @()) {
+    [PSCustomObject]@{
+        coreShouldBeRunning = $Intent
+        idleObservation = @{
+            CoreShouldBeRunning = $Intent
+            OwnedGuiProcessIds = $OwnedGuiProcessIds
+            OwnedCoreProcessIds = [int[]]@()
+            ControllerListening = [bool]$false
+            OwnedListenerProcessIds = [int[]]@()
+            ServiceStatus = 'Running'
+            ExpectedProgramFilesCoreSha256 = ('a' * 64)
+            ObservedProgramFilesCoreSha256 = ('a' * 64)
+            ExpectedServiceCoreSha256 = ('b' * 64)
+            ObservedServiceCoreSha256 = ('b' * 64)
+        }
+    }
 }
 
 $script:idleTransactionEvents = [Collections.Generic.List[string]]::new()
 $success = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action'); 'candidate' } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore'); 'baseline' } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); ($capture.coreShouldBeRunning -ceq $false -and $restored -ceq 'baseline') }
 Assert-IdleTransactionOrder @('capture','action','restore','verify')
 Assert-IdleTransaction ($success.ActionFailure -eq $null -and $success.RestoreFailure -eq $null) 'Successful transaction reported a failure.'
+
+$script:idleTransactionEvents.Clear()
+$idleGuardFailure = $null
+try {
+    $null = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false ([int[]]@(501)) } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action') } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore') } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); $true }
+} catch { $idleGuardFailure = $_.Exception.Message }
+Assert-IdleTransaction ($idleGuardFailure -ceq 'Idle baseline has owned GUI processes.') 'Invalid idle observation reached the candidate action.'
+Assert-IdleTransactionOrder @('capture')
 
 $script:idleTransactionEvents.Clear()
 $actionException = $null
@@ -58,8 +81,6 @@ foreach ($invalidIntent in @($true,0)) {
     Assert-IdleTransactionOrder @('capture')
 }
 
-
-. (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
 
 function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessage, [string]$ExpectedIdentity, [System.Collections.IDictionary]$Pins) {
     $rejected = $false
