@@ -18,6 +18,22 @@ function Get-CvrStringSha256 {
     } finally { $sha.Dispose() }
 }
 
+function Restore-CvrCoreFilePreimage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Entry,
+        [Parameter(Mandatory = $true)][ValidateSet('Program Files', 'service')][string]$Role
+    )
+
+    Copy-Item -LiteralPath $Entry.backup -Destination $Entry.path -Force -ErrorAction Stop
+    Set-Acl -LiteralPath $Entry.path -AclObject $Entry.acl -ErrorAction Stop
+    if ((Get-FileHash -LiteralPath $Entry.path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne [string]$Entry.sha256 -or
+        (Get-Acl -LiteralPath $Entry.path -ErrorAction Stop).Sddl -cne [string]$Entry.sddl) {
+        throw "$Role core hash/ACL mismatch."
+    }
+}
+
+
 function Test-CvrCorePreimageBackupPathContract {
     param([Parameter(Mandatory)][string]$Root)
     $paths = [Collections.Generic.List[string]]::new()

@@ -4,6 +4,28 @@ if (-not (Test-Path -LiteralPath $modulePath -PathType Leaf)) {
     throw 'Expected behavior RED: shared idle transaction module is missing.'
 }
 . $modulePath
+$corePreimagePathScript = Join-Path $PSScriptRoot 'windows_core_preimage_paths.ps1'
+if (-not (Test-Path -LiteralPath $corePreimagePathScript -PathType Leaf)) {
+    throw 'Shared core preimage restore helper is missing.'
+}
+. $corePreimagePathScript
+. (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
+
+$script:nativeCalls = 0
+function Start-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Stop-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Restart-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Set-Service { $script:nativeCalls++; throw 'unexpected-native-service-call' }
+function Start-Process { $script:nativeCalls++; throw 'unexpected-native-process-call' }
+function Stop-Process { $script:nativeCalls++; throw 'unexpected-native-process-call' }
+function Start-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Register-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Set-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Unregister-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Enable-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function Disable-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native-task-call' }
+function netsh { $script:nativeCalls++; throw 'unexpected-native-network-call' }
+$script:targetCaptureOutcomes = [Collections.Generic.List[object]]::new()
 
 function Assert-IdleTransaction([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -14,14 +36,36 @@ function Assert-IdleTransactionOrder([string[]]$Expected) {
         throw 'Shared idle transaction callback order did not match.'
     }
 }
-function New-IdleTransactionCapture($Intent) {
-    [PSCustomObject]@{ coreShouldBeRunning = $Intent }
+function New-IdleTransactionCapture($Intent, [int[]]$OwnedGuiProcessIds = @()) {
+    [PSCustomObject]@{
+        coreShouldBeRunning = $Intent
+        idleObservation = @{
+            CoreShouldBeRunning = $Intent
+            OwnedGuiProcessIds = $OwnedGuiProcessIds
+            OwnedCoreProcessIds = [int[]]@()
+            ControllerListening = [bool]$false
+            OwnedListenerProcessIds = [int[]]@()
+            ServiceStatus = 'Running'
+            ExpectedProgramFilesCoreSha256 = ('a' * 64)
+            ObservedProgramFilesCoreSha256 = ('a' * 64)
+            ExpectedServiceCoreSha256 = ('b' * 64)
+            ObservedServiceCoreSha256 = ('b' * 64)
+        }
+    }
 }
 
 $script:idleTransactionEvents = [Collections.Generic.List[string]]::new()
 $success = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action'); 'candidate' } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore'); 'baseline' } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); ($capture.coreShouldBeRunning -ceq $false -and $restored -ceq 'baseline') }
 Assert-IdleTransactionOrder @('capture','action','restore','verify')
 Assert-IdleTransaction ($success.ActionFailure -eq $null -and $success.RestoreFailure -eq $null) 'Successful transaction reported a failure.'
+
+$script:idleTransactionEvents.Clear()
+$idleGuardFailure = $null
+try {
+    $null = Invoke-CvrIdleTransaction -CaptureScript { $script:idleTransactionEvents.Add('capture'); New-IdleTransactionCapture $false ([int[]]@(501)) } -ActionScript { param($capture) $script:idleTransactionEvents.Add('action') } -RestoreScript { param($capture) $script:idleTransactionEvents.Add('restore') } -VerifyScript { param($capture,$restored) $script:idleTransactionEvents.Add('verify'); $true }
+} catch { $idleGuardFailure = $_.Exception.Message }
+Assert-IdleTransaction ($idleGuardFailure -ceq 'Idle baseline has owned GUI processes.') 'Invalid idle observation reached the candidate action.'
+Assert-IdleTransactionOrder @('capture')
 
 $script:idleTransactionEvents.Clear()
 $actionException = $null
@@ -59,8 +103,6 @@ foreach ($invalidIntent in @($true,0)) {
 }
 
 
-. (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
-
 function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessage, [string]$ExpectedIdentity, [System.Collections.IDictionary]$Pins) {
     $rejected = $false
     try {
@@ -70,18 +112,51 @@ function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessag
         $rejected = $true
     }
     Assert-IdleTransaction $rejected "$Case drift was accepted."
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case=$Case;result='rejected'})
 }
 
 $targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [Guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $targetCaptureRoot) { throw 'Idle target capture fixture path unexpectedly exists.' }
 $null = New-Item -ItemType Directory -Path $targetCaptureRoot
+$programFilesFixtureRoot = $null
+$serviceFixtureRoot = $null
+$ownsProgramFilesFixtureRoot = $false
+$ownsServiceFixtureRoot = $false
 try {
+    if ([string]::IsNullOrWhiteSpace($env:ProgramFiles) -or [string]::IsNullOrWhiteSpace($env:ProgramData)) {
+        throw 'Synthetic core fixture roots are unavailable.'
+    }
+    $programFilesFixtureRoot = Join-Path $env:ProgramFiles ('stcvrc-idle-program-files-' + [Guid]::NewGuid().ToString('N'))
+    $serviceFixtureRoot = Join-Path $env:ProgramData ('stcvrc-idle-service-' + [Guid]::NewGuid().ToString('N'))
+    if ((Test-Path -LiteralPath $programFilesFixtureRoot) -or (Test-Path -LiteralPath $serviceFixtureRoot)) {
+        throw 'Synthetic core fixture path unexpectedly exists.'
+    }
+    $null = New-Item -ItemType Directory -Path $programFilesFixtureRoot -ErrorAction Stop
+    $ownsProgramFilesFixtureRoot = $true
+    $null = New-Item -ItemType Directory -Path $serviceFixtureRoot -ErrorAction Stop
+    $ownsServiceFixtureRoot = $true
     $pinPath = Join-Path $targetCaptureRoot 'pinned-input.bin'
     [IO.File]::WriteAllBytes($pinPath, [byte[]](7, 2, 5, 10))
     $pinSha = (Get-FileHash -LiteralPath $pinPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $syntheticPinPaths = @{
+        candidateCore = Join-Path $targetCaptureRoot 'candidate-core.synthetic'
+        updateInstaller = Join-Path $targetCaptureRoot 'update-installer.synthetic'
+        updateHelper = Join-Path $targetCaptureRoot 'update-helper.synthetic'
+        recoveryInstaller = Join-Path $targetCaptureRoot 'recovery-installer.synthetic'
+        recoveryHelper = Join-Path $targetCaptureRoot 'recovery-helper.synthetic'
+    }
+    [IO.File]::WriteAllBytes($syntheticPinPaths.candidateCore, [byte[]](1, 19, 33, 9))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.updateInstaller, [byte[]](2, 5, 10, 2))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.updateHelper, [byte[]](2, 7, 7, 2))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.recoveryInstaller, [byte[]](2, 5, 8, 2))
+    [IO.File]::WriteAllBytes($syntheticPinPaths.recoveryHelper, [byte[]](2, 7, 6, 2))
+    $syntheticPinHashes = @{}
+    foreach ($name in @('candidateCore', 'updateInstaller', 'updateHelper', 'recoveryInstaller', 'recoveryHelper')) {
+        $syntheticPinHashes[$name] = (Get-FileHash -LiteralPath $syntheticPinPaths[$name] -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
 
-    $programFilesPath = Join-Path $targetCaptureRoot 'program-files-core.exe'
-    $serviceCorePath = Join-Path $targetCaptureRoot 'service-core.exe'
+    $programFilesPath = Join-Path $programFilesFixtureRoot 'verge-mihomo.exe'
+    $serviceCorePath = Join-Path $serviceFixtureRoot 'verge-mihomo.exe'
     $programFilesBackup = Join-Path $targetCaptureRoot 'program-files-preimage.exe'
     $serviceBackupDirectory = Join-Path $targetCaptureRoot 'service-preimage'
     $null = New-Item -ItemType Directory -Path $serviceBackupDirectory
@@ -102,22 +177,22 @@ try {
         serviceExe258 = $pinSha
         programFilesCore = $programFilesSha
         serviceCore = $serviceSha
-        candidateCore = $pinSha
-        updateInstaller = $pinSha
-        updateHelper = $pinSha
-        recoveryInstaller = $pinSha
-        recoveryHelper = $pinSha
+        candidateCore = $syntheticPinHashes.candidateCore
+        updateInstaller = $syntheticPinHashes.updateInstaller
+        updateHelper = $syntheticPinHashes.updateHelper
+        recoveryInstaller = $syntheticPinHashes.recoveryInstaller
+        recoveryHelper = $syntheticPinHashes.recoveryHelper
     }
     $pinnedFiles = @{
         gui258 = $pinPath
         serviceExe258 = $pinPath
         programFilesCore = $programFilesPath
         serviceCore = $serviceCorePath
-        candidateCore = $pinPath
-        updateInstaller = $pinPath
-        updateHelper = $pinPath
-        recoveryInstaller = $pinPath
-        recoveryHelper = $pinPath
+        candidateCore = $syntheticPinPaths.candidateCore
+        updateInstaller = $syntheticPinPaths.updateInstaller
+        updateHelper = $syntheticPinPaths.updateHelper
+        recoveryInstaller = $syntheticPinPaths.recoveryInstaller
+        recoveryHelper = $syntheticPinPaths.recoveryHelper
     }
     $targetIdentity = [Guid]::NewGuid().ToString('N')
     $targetCapture = [PSCustomObject]@{
@@ -161,6 +236,142 @@ try {
     } catch {}
     Assert-IdleTransaction $acceptedTargetCapture 'Valid fresh idle target capture was rejected.'
     Assert-IdleTransaction ($acceptedTargetCapture -is [bool]) 'Idle target capture did not return a strict Boolean.'
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case='fresh-idle-capture-with-distinct-2.5.8-and-2.5.10-pins';result='accepted'})
+    if ($expectedPins.recoveryInstaller -ceq $expectedPins.updateInstaller -or $expectedPins.recoveryHelper -ceq $expectedPins.updateHelper) { throw 'Synthetic old and new pins must be distinct.' }
+
+    $savedUpdateInstallerPath = $targetCapture.pinnedFiles.updateInstaller
+    $targetCapture.pinnedFiles.updateInstaller = $targetCapture.pinnedFiles.recoveryInstaller
+    $script:idleTransactionEvents.Clear()
+    $targetPinDriftFailure = $null
+    try {
+        $null = Invoke-CvrIdleTargetTransaction -CaptureScript {
+            $script:idleTransactionEvents.Add('capture')
+            $targetCapture
+        } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
+            param($capture)
+            $script:idleTransactionEvents.Add('candidate-apply')
+            'candidate'
+        } -RestoreScript {
+            param($capture)
+            $script:idleTransactionEvents.Add('rollback')
+            'baseline'
+        } -VerifyScript {
+            param($capture, $restored)
+            $script:idleTransactionEvents.Add('verify')
+            $true
+        }
+    } catch { $targetPinDriftFailure = $_.Exception.Message }
+    $targetCapture.pinnedFiles.updateInstaller = $savedUpdateInstallerPath
+    Assert-IdleTransaction ($targetPinDriftFailure -ceq 'Idle target pinned input verification failed.') 'Target pin drift was not rejected.'
+    Assert-IdleTransactionOrder @('capture')
+
+    $candidateCoreSha = $expectedPins.candidateCore
+    $script:syntheticRuntime = @{
+        intent = [bool]$false
+        coreRunning = [bool]$false
+        controllerListening = [bool]$false
+        serviceStatus = 'Running'
+        serviceCorePath = [IO.Path]::GetFullPath($serviceCorePath)
+        serviceCoreSha256 = $serviceSha
+    }
+    $script:idleTransactionEvents.Clear()
+    $idleTargetTransaction = Invoke-CvrIdleTargetTransaction -CaptureScript {
+        $script:idleTransactionEvents.Add('capture')
+        $targetCapture
+    } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
+        param($capture)
+        $script:idleTransactionEvents.Add('candidate-apply')
+        $candidateBytes = [IO.File]::ReadAllBytes($capture.pinnedFiles.candidateCore)
+        $coreEntries = @($capture.corePair.programFiles, $capture.corePair.service)
+        foreach ($entry in $coreEntries) {
+            [IO.File]::WriteAllBytes($entry.path, $candidateBytes)
+            $candidateAcl = Get-Acl -LiteralPath $entry.path -ErrorAction Stop
+            $candidateAcl.SetAccessRuleProtection((-not [bool]$entry.acl.AreAccessRulesProtected), $true)
+            Set-Acl -LiteralPath $entry.path -AclObject $candidateAcl -ErrorAction Stop
+            if ((Get-Acl -LiteralPath $entry.path -ErrorAction Stop).Sddl -ceq $entry.sddl -or
+                (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256 -ErrorAction Stop).Hash -ine $candidateCoreSha) {
+                throw 'Synthetic candidate core pair did not match its pin or change its ACL.'
+            }
+        }
+        $script:syntheticRuntime.intent = [bool]$true
+        $script:syntheticRuntime.coreRunning = [bool]$true
+        $script:syntheticRuntime.controllerListening = [bool]$true
+        $script:syntheticRuntime.serviceCoreSha256 = (Get-FileHash -LiteralPath $capture.corePair.service.path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        if ($script:syntheticRuntime.serviceCorePath -cne [IO.Path]::GetFullPath($capture.corePair.service.path) -or
+            $script:syntheticRuntime.serviceCoreSha256 -cne $candidateCoreSha -or
+            -not $script:syntheticRuntime.coreRunning -or
+            -not $script:syntheticRuntime.controllerListening) {
+            throw 'Synthetic candidate acceptance failed.'
+        }
+        $script:idleTransactionEvents.Add('candidate-accepted')
+        'candidate-accepted'
+    } -RestoreScript {
+        param($capture)
+        $script:idleTransactionEvents.Add('rollback')
+        foreach ($pair in @(
+            [PSCustomObject]@{ name = 'Program Files'; entry = $capture.corePair.programFiles },
+            [PSCustomObject]@{ name = 'service'; entry = $capture.corePair.service }
+        )) {
+            Restore-CvrCoreFilePreimage -Entry $pair.entry -Role $pair.name
+        }
+        $script:syntheticRuntime.intent = [bool]$capture.coreShouldBeRunning
+        $script:syntheticRuntime.coreRunning = [bool]$false
+        $script:syntheticRuntime.controllerListening = [bool]$false
+        $script:syntheticRuntime.serviceStatus = [string]$capture.idleObservation.ServiceStatus
+        $script:syntheticRuntime.serviceCorePath = [IO.Path]::GetFullPath($capture.corePair.service.path)
+        $script:syntheticRuntime.serviceCoreSha256 = [string]$capture.corePair.service.sha256
+        'baseline-restored'
+    } -VerifyScript {
+        param($capture, $restored)
+        $script:idleTransactionEvents.Add('verify')
+        if ($restored -cne 'baseline-restored') { throw 'Synthetic rollback callback result mismatch.' }
+        foreach ($pair in @(
+            [PSCustomObject]@{ name = 'Program Files'; entry = $capture.corePair.programFiles },
+            [PSCustomObject]@{ name = 'service'; entry = $capture.corePair.service }
+        )) {
+            $actualSha = (Get-FileHash -LiteralPath $pair.entry.path -Algorithm SHA256 -ErrorAction Stop).Hash
+            if ($actualSha -ine [string]$pair.entry.sha256) {
+                throw "Synthetic rollback $($pair.name) core SHA256 mismatch."
+            }
+            $actualSddl = (Get-Acl -LiteralPath $pair.entry.path -ErrorAction Stop).Sddl
+            if ($actualSddl -cne [string]$pair.entry.sddl) {
+                throw "Synthetic rollback $($pair.name) core ACL mismatch."
+            }
+        }
+        if ($script:syntheticRuntime.intent -isnot [bool] -or $script:syntheticRuntime.intent) {
+            throw 'Synthetic rollback did not preserve false intent.'
+        }
+        if ($script:syntheticRuntime.coreRunning) { throw 'Synthetic rollback left the core running.' }
+        if ($script:syntheticRuntime.controllerListening) { throw 'Synthetic rollback left the controller listening.' }
+        if ($script:syntheticRuntime.serviceStatus -cne [string]$capture.idleObservation.ServiceStatus) {
+            throw 'Synthetic rollback service status mismatch.'
+        }
+        if ($script:syntheticRuntime.serviceCoreSha256 -cne [string]$capture.corePair.service.sha256) {
+            throw 'Synthetic rollback service core SHA256 mismatch.'
+        }
+        return [bool]$true
+    }
+    if ($idleTargetTransaction.ActionFailure -or $idleTargetTransaction.RestoreFailure) {
+        throw ("Synthetic idle transaction failed. ActionFailure={0}; RestoreFailure={1}" -f
+            [string]$idleTargetTransaction.ActionFailure,
+            [string]$idleTargetTransaction.RestoreFailure)
+    }
+    if ($idleTargetTransaction.ActionResult -cne 'candidate-accepted') {
+        throw 'Synthetic candidate acceptance marker was not returned.'
+    }
+    Assert-IdleTransactionOrder @('capture','candidate-apply','candidate-accepted','rollback','verify')
+    Assert-IdleTransaction ($script:syntheticRuntime.intent -ceq [bool]$false -and
+        -not $script:syntheticRuntime.coreRunning -and
+        -not $script:syntheticRuntime.controllerListening) 'Synthetic rollback did not restore the idle false-intent state.'
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case='synthetic-idle-apply-accept-rollback';result='accepted';candidateCoreSha256=$candidateCoreSha})
+    $script:idleTransactionReceipt = [pscustomobject]@{
+        candidateCoreSha256 = $candidateCoreSha
+        restoredProgramFilesCoreSha256 = (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        restoredServiceCoreSha256 = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        finalIntent = [bool]$script:syntheticRuntime.intent
+        finalCoreRunning = [bool]$script:syntheticRuntime.coreRunning
+        finalControllerListening = [bool]$script:syntheticRuntime.controllerListening
+    }
 
     Assert-IdleTargetCaptureRejected 'target identity' 'Idle target identity does not match the expected target.' 'different-target' $expectedPins
 
@@ -192,6 +403,14 @@ try {
     $expectedPins.updateInstaller = ('0' * 64)
     Assert-IdleTargetCaptureRejected 'update installer pin drift' 'Idle target pinned input verification failed.' $targetIdentity $expectedPins
     $expectedPins.updateInstaller = $savedInstallerPin
+
+    foreach ($pinName in @('updateInstaller', 'recoveryInstaller')) {
+        $pinPathToDrift = $pinnedFiles[$pinName]
+        $pinBytesBeforeDrift = [IO.File]::ReadAllBytes($pinPathToDrift)
+        [IO.File]::WriteAllBytes($pinPathToDrift, [byte[]](0, 255, 0, 1))
+        Assert-IdleTargetCaptureRejected "$pinName bytes drift" 'Idle target pinned input verification failed.' $targetIdentity $expectedPins
+        [IO.File]::WriteAllBytes($pinPathToDrift, $pinBytesBeforeDrift)
+    }
 
     $savedRecoveryHelperPin = $expectedPins.recoveryHelper
     $savedRecoveryHelperPath = $pinnedFiles.recoveryHelper
@@ -316,7 +535,18 @@ if ($script:saveCaptureParameters -contains 'ActionScript' -or
 }
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
-Write-Host 'Shared idle transaction behavior checks passed.'
+if ($script:nativeCalls -ne 0) { throw 'Idle capture fixture reached a native action tripwire.' }
+$fixtureSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+[pscustomobject]@{
+    pass = $true
+    fixtureSha256 = $fixtureSha256
+    targetCaptureOutcomes = @($script:targetCaptureOutcomes.ToArray())
+    idleTransaction = $script:idleTransactionReceipt
+    measuredNativeCalls = $script:nativeCalls
+} | ConvertTo-Json -Depth 5 -Compress | Write-Host
+
 } finally {
+    if ($ownsServiceFixtureRoot) { Remove-Item -LiteralPath $serviceFixtureRoot -Recurse -Force -ErrorAction Stop }
+    if ($ownsProgramFilesFixtureRoot) { Remove-Item -LiteralPath $programFilesFixtureRoot -Recurse -Force -ErrorAction Stop }
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
 }

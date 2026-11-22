@@ -244,13 +244,7 @@ function Restore-CvrCorePairPreimage {
     Assert-NoCvrProcesses
     $failures = [Collections.Generic.List[string]]::new()
     try {
-        $entry = $Preimage.programFiles
-        Copy-Item -LiteralPath $entry.backup -Destination $entry.path -Force
-        Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
-        if ((Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256 -or
-            (Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
-            throw 'Program Files core hash/ACL mismatch'
-        }
+        Restore-CvrCoreFilePreimage -Entry $Preimage.programFiles -Role 'Program Files'
     } catch {
         $failures.Add('Program Files core preimage restore failed')
     }

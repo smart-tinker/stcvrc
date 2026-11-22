@@ -12,6 +12,15 @@ function Invoke-CvrIdleTransaction {
     if (-not $intent -or $intent.Value -isnot [bool] -or $intent.Value) {
         throw 'Idle transaction requires a captured strict false intent.'
     }
+    $observationProperty = $capturedBaseline.PSObject.Properties['idleObservation']
+    if (-not $observationProperty -or $observationProperty.Value -isnot [System.Collections.IDictionary]) {
+        throw 'Idle transaction requires a captured idle observation.'
+    }
+    if (-not (Get-Command -Name Assert-CvrIdleBaseline -CommandType Function -ErrorAction SilentlyContinue)) {
+        throw 'Idle transaction baseline guard is unavailable.'
+    }
+    $observation = $observationProperty.Value
+    $null = Assert-CvrIdleBaseline @observation
 
     $actionResult = $null
     $actionFailure = $null
@@ -185,6 +194,31 @@ function Assert-CvrIdleTargetCapture {
         }
     }
     return $true
+}
+
+
+function Invoke-CvrIdleTargetTransaction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$CaptureScript,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][scriptblock]$ActionScript,
+        [Parameter(Mandatory = $true)][scriptblock]$RestoreScript,
+        [Parameter(Mandatory = $true)][scriptblock]$VerifyScript
+    )
+
+    $capturedBaseline = & $CaptureScript
+    $targetCaptureValid = Assert-CvrIdleTargetCapture -Capture $capturedBaseline -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    if ($targetCaptureValid -isnot [bool] -or -not $targetCaptureValid) {
+        throw 'Idle target capture validation did not pass.'
+    }
+    $validatedCapture = $capturedBaseline
+    $validatedCaptureScript = { $validatedCapture }
+    $validatedCaptureScript = $validatedCaptureScript.GetNewClosure()
+
+    $transaction = Invoke-CvrIdleTransaction -CaptureScript $validatedCaptureScript -ActionScript $ActionScript -RestoreScript $RestoreScript -VerifyScript $VerifyScript
+    return $transaction
 }
 
 
