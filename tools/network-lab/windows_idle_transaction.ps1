@@ -186,3 +186,226 @@ function Assert-CvrIdleTargetCapture {
     }
     return $true
 }
+
+
+function Assert-CvrIdleCaptureAcl {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$Directory
+    )
+
+    try {
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        if ((([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            [bool]$item.PSIsContainer -ne [bool]$Directory) {
+            throw 'invalid'
+        }
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        if (-not $ownerSid -or -not $acl.AreAccessRulesProtected -or
+            $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $ownerSid.Value) {
+            throw 'invalid'
+        }
+
+        $expectedSids = @{}
+        $expectedSids[$ownerSid.Value] = $true
+        $expectedSids['S-1-5-18'] = $true
+        $expectedSids['S-1-5-32-544'] = $true
+        $rules = @($acl.Access)
+        if ($rules.Count -ne $expectedSids.Count) { throw 'invalid' }
+        $expectedInheritance = if ($Directory) { 3 } else { 0 }
+        $seenSids = @{}
+        foreach ($rule in $rules) {
+            $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+            if (-not $expectedSids.ContainsKey($sid) -or $seenSids.ContainsKey($sid) -or
+                $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+                $rule.IsInherited -or
+                [int]$rule.FileSystemRights -ne [int][Security.AccessControl.FileSystemRights]::FullControl -or
+                [int]$rule.InheritanceFlags -ne $expectedInheritance -or
+                [int]$rule.PropagationFlags -ne 0) {
+                throw 'invalid'
+            }
+            $seenSids[$sid] = $true
+        }
+        return $true
+    } catch {
+        throw 'Idle capture ACL validation failed.'
+    }
+}
+
+function Set-CvrIdleCaptureAcl {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$Directory
+    )
+
+    try {
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        if ((([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            [bool]$item.PSIsContainer -ne [bool]$Directory) {
+            throw 'invalid'
+        }
+        if ($Directory) {
+            if (@(Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop).Count -ne 0) {
+                throw 'nonempty'
+            }
+        } elseif ($item.Length -ne 0) {
+            throw 'nonempty'
+        }
+
+        $ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        if (-not $ownerSid) { throw 'owner' }
+        $security = if ($Directory) {
+            New-Object System.Security.AccessControl.DirectorySecurity
+        } else {
+            New-Object System.Security.AccessControl.FileSecurity
+        }
+        $security.SetAccessRuleProtection($true, $false)
+        $security.SetOwner($ownerSid)
+        $accessSids = @{}
+        $accessSids[$ownerSid.Value] = $true
+        $accessSids['S-1-5-18'] = $true
+        $accessSids['S-1-5-32-544'] = $true
+        $inheritance = [Security.AccessControl.InheritanceFlags]::None
+        if ($Directory) {
+            $inheritance = [Security.AccessControl.InheritanceFlags](
+                [int][Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+                [int][Security.AccessControl.InheritanceFlags]::ObjectInherit
+            )
+        }
+        foreach ($sidValue in $accessSids.Keys) {
+            $sid = [Security.Principal.SecurityIdentifier]::new([string]$sidValue)
+            $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+                $sid,
+                [Security.AccessControl.FileSystemRights]::FullControl,
+                $inheritance,
+                [Security.AccessControl.PropagationFlags]::None,
+                [Security.AccessControl.AccessControlType]::Allow
+            )
+            $null = $security.AddAccessRule($rule)
+        }
+        Set-Acl -LiteralPath $Path -AclObject $security -ErrorAction Stop
+        $null = Assert-CvrIdleCaptureAcl -Path $Path -Directory:$Directory
+    } catch {
+        throw 'Idle capture ACL setup failed.'
+    }
+}
+
+function Save-CvrIdlePreflightCapture {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][string]$PackageRoot
+    )
+
+    $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    try {
+        $packagePath = [IO.Path]::GetFullPath($PackageRoot)
+        $localPath = [IO.Path]::GetFullPath((Join-Path $packagePath 'local'))
+        $packageItem = Get-Item -LiteralPath $packagePath -Force -ErrorAction Stop
+        $localItem = Get-Item -LiteralPath $localPath -Force -ErrorAction Stop
+        if (-not $packageItem.PSIsContainer -or -not $localItem.PSIsContainer -or
+            [IO.Path]::GetDirectoryName($localPath) -ine $packagePath -or
+            (([int]$packageItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            (([int]$localItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            throw 'invalid'
+        }
+        $null = Assert-CvrIdleCaptureAcl -Path $packagePath -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $localPath -Directory
+    } catch {
+        throw 'Idle Preflight package root is not protected.'
+    }
+
+    $pinNames = @(
+        'gui258', 'serviceExe258', 'programFilesCore', 'serviceCore',
+        'candidateCore', 'updateInstaller', 'updateHelper',
+        'recoveryInstaller', 'recoveryHelper'
+    )
+    $storedPins = [ordered]@{}
+    foreach ($pinName in $pinNames) {
+        $storedPins[$pinName] = [string]$ExpectedPins[$pinName]
+    }
+    $observation = $Capture.idleObservation
+    $storedObservation = [ordered]@{
+        CoreShouldBeRunning = [bool]$observation.CoreShouldBeRunning
+        OwnedGuiProcessIds = @($observation.OwnedGuiProcessIds)
+        OwnedCoreProcessIds = @($observation.OwnedCoreProcessIds)
+        ControllerListening = [bool]$observation.ControllerListening
+        OwnedListenerProcessIds = @($observation.OwnedListenerProcessIds)
+        ServiceStatus = [string]$observation.ServiceStatus
+        ExpectedProgramFilesCoreSha256 = [string]$observation.ExpectedProgramFilesCoreSha256
+        ObservedProgramFilesCoreSha256 = [string]$observation.ObservedProgramFilesCoreSha256
+        ExpectedServiceCoreSha256 = [string]$observation.ExpectedServiceCoreSha256
+        ObservedServiceCoreSha256 = [string]$observation.ObservedServiceCoreSha256
+    }
+    $programFiles = $Capture.corePair.programFiles
+    $serviceCore = $Capture.corePair.service
+    $receipt = [ordered]@{
+        targetIdentity = [string]$Capture.targetIdentity
+        capturedAtUtc = $Capture.capturedAtUtc.ToString('o')
+        coreShouldBeRunning = [bool]$Capture.coreShouldBeRunning
+        expectedPins = $storedPins
+        idleObservation = $storedObservation
+        corePair = [ordered]@{
+            programFiles = [ordered]@{
+                path = [string]$programFiles.path
+                backup = [string]$programFiles.backup
+                sha256 = [string]$programFiles.sha256
+                sddl = [string]$programFiles.sddl
+            }
+            service = [ordered]@{
+                path = [string]$serviceCore.path
+                backup = [string]$serviceCore.backup
+                sha256 = [string]$serviceCore.sha256
+                sddl = [string]$serviceCore.sddl
+            }
+        }
+    }
+    $receiptBytes = [Text.UTF8Encoding]::new($false).GetBytes(
+        (ConvertTo-Json -InputObject $receipt -Depth 8 -Compress -ErrorAction Stop)
+    )
+
+    $captureDirectory = Join-Path $localPath ('capture-idle-' + [Guid]::NewGuid().ToString('N'))
+    $createdDirectory = $false
+    try {
+        if (Test-Path -LiteralPath $captureDirectory) { throw 'exists' }
+        $null = New-Item -ItemType Directory -Path $captureDirectory -ErrorAction Stop
+        $createdDirectory = $true
+        $null = Set-CvrIdleCaptureAcl -Path $captureDirectory -Directory
+
+        $receiptPath = Join-Path $captureDirectory 'capture.json'
+        $stream = [IO.File]::Open(
+            $receiptPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        $stream.Dispose()
+        $null = Set-CvrIdleCaptureAcl -Path $receiptPath
+        $stream = [IO.File]::Open(
+            $receiptPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        try {
+            $stream.Write($receiptBytes, 0, $receiptBytes.Length)
+            $stream.Flush()
+        } finally {
+            $stream.Dispose()
+        }
+        return [PSCustomObject]@{
+            CaptureDirectory = $captureDirectory
+            ReceiptPath = $receiptPath
+        }
+    } catch {
+        if ($createdDirectory) {
+            Remove-Item -LiteralPath $captureDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        throw 'Idle Preflight capture could not be written.'
+    }
+}

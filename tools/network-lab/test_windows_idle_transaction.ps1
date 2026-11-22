@@ -214,8 +214,109 @@ try {
     $targetCapture.corePair.programFiles.sddl = 'unreviewed'
     Assert-IdleTargetCaptureRejected 'changed Program Files ACL preimage' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
     $targetCapture.corePair.programFiles.sddl = $savedSddl
+
+
+# Public idle Preflight capture contract.
+if (-not (Get-Command -Name Save-CvrIdlePreflightCapture -CommandType Function -ErrorAction SilentlyContinue)) {
+    throw 'Idle Preflight capture writer is missing.'
+}
+
+$preflightPackageRoot = Join-Path $targetCaptureRoot 'preflight-package'
+$preflightLocalRoot = Join-Path $preflightPackageRoot 'local'
+$null = New-Item -ItemType Directory -Path $preflightPackageRoot -ErrorAction Stop
+Set-CvrIdleCaptureAcl -Path $preflightPackageRoot -Directory
+$null = New-Item -ItemType Directory -Path $preflightLocalRoot -ErrorAction Stop
+Set-CvrIdleCaptureAcl -Path $preflightLocalRoot -Directory
+$captureMarkerPath = Join-Path (Join-Path $preflightLocalRoot 'capture') 'keep.txt'
+$preparedMarkerPath = Join-Path (Join-Path $preflightLocalRoot 'prepared') 'keep.txt'
+$null = New-Item -ItemType Directory -Path (Split-Path -Parent $captureMarkerPath) -Force
+$null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPath) -Force
+[IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
+[IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
+
+$protectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
+$unprotectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
+$unprotectedPackageAcl.SetAccessRuleProtection($false, $true)
+Set-Acl -LiteralPath $preflightPackageRoot -AclObject $unprotectedPackageAcl -ErrorAction Stop
+$beforeUnprotectedPackageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+$unprotectedPackageRejected = $false
+try {
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $unprotectedPackageRejected = $_.Exception.Message -ceq 'Idle Preflight package root is not protected.'
+}
+$afterUnprotectedPackageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+Set-Acl -LiteralPath $preflightPackageRoot -AclObject $protectedPackageAcl -ErrorAction Stop
+$null = Assert-CvrIdleCaptureAcl -Path $preflightPackageRoot -Directory
+if (-not $unprotectedPackageRejected -or $afterUnprotectedPackageCaptureCount -ne $beforeUnprotectedPackageCaptureCount) {
+    throw 'Unprotected idle Preflight package root was accepted or wrote output.'
+}
+
+$targetCapture | Add-Member -NotePropertyName profileMarker -NotePropertyValue 'synthetic-profile-marker'
+$targetCapture.idleObservation.ControllerListening = [bool]$true
+$beforeRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+$rejectedSave = $false
+try {
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $rejectedSave = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
+}
+$targetCapture.idleObservation.ControllerListening = [bool]$false
+$afterRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCaptureCount) {
+    throw 'Rejected idle Preflight created a capture directory.'
+}
+
+$preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preflightDirectory = [IO.Path]::GetFullPath($preflight.CaptureDirectory)
+$preflightLocal = [IO.Path]::GetFullPath($preflightLocalRoot)
+if ([IO.Path]::GetDirectoryName($preflightDirectory) -ine $preflightLocal -or
+    [IO.Path]::GetFileName($preflightDirectory) -notmatch '^capture-idle-[0-9a-f]{32}$' -or
+    $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'capture')) -or
+    $preflightDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared'))) {
+    throw 'Idle Preflight capture was not written to a unique protected sibling.'
+}
+if ($preflight.CaptureDirectory -ceq $preflightAgain.CaptureDirectory) {
+    throw 'Repeated idle Preflight capture reused an existing output directory.'
+}
+if (-not (Test-Path -LiteralPath $preflight.ReceiptPath -PathType Leaf)) {
+    throw 'Idle Preflight receipt file is missing.'
+}
+if (-not (Get-Acl -LiteralPath $preflight.CaptureDirectory).AreAccessRulesProtected -or
+    -not (Get-Acl -LiteralPath $preflight.ReceiptPath).AreAccessRulesProtected) {
+    throw 'Idle Preflight capture ACL is not protected.'
+}
+$receiptText = [IO.File]::ReadAllText($preflight.ReceiptPath)
+$receipt = $receiptText | ConvertFrom-Json
+$receiptFailures = [Collections.Generic.List[string]]::new()
+if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning) { $receiptFailures.Add('strict-false-intent') }
+if ($receipt.targetIdentity -cne $targetIdentity) { $receiptFailures.Add('target-identity') }
+$receiptPinNames = @($receipt.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
+$expectedPinNames = @('gui258', 'serviceExe258', 'programFilesCore', 'serviceCore', 'candidateCore', 'updateInstaller', 'updateHelper', 'recoveryInstaller', 'recoveryHelper')
+$receiptPinNamesText = @($receiptPinNames | Sort-Object -CaseSensitive) -join '|'
+$expectedPinNamesText = @($expectedPinNames | Sort-Object -CaseSensitive) -join '|'
+if ($receiptPinNames.Count -ne 9 -or $receiptPinNamesText -cne $expectedPinNamesText) {
+    $receiptFailures.Add("expected-pin-fields:$($receiptPinNames.Count):$($receiptPinNames -join ',')")
+}
+if ($receipt.idleObservation.ServiceStatus -cne 'Running') { $receiptFailures.Add('service-status') }
+if ([IO.Path]::GetFileName($receipt.corePair.service.backup) -cne 'verge-mihomo.exe') { $receiptFailures.Add('service-backup-basename') }
+if ($receiptText.Contains('synthetic-profile-marker')) { $receiptFailures.Add('non-allowlisted-profile-marker') }
+if ($receiptFailures.Count) {
+    throw "Idle Preflight receipt contract failed: $($receiptFailures -join ', ')."
+}
+if ([IO.File]::ReadAllText($captureMarkerPath) -cne 'preserve-capture' -or
+    [IO.File]::ReadAllText($preparedMarkerPath) -cne 'preserve-prepared') {
+    throw 'Idle Preflight modified the existing capture or prepared sibling.'
+}
+$script:saveCaptureParameters = (Get-Command Save-CvrIdlePreflightCapture).Parameters.Keys
+if ($script:saveCaptureParameters -contains 'ActionScript' -or
+    $script:saveCaptureParameters -contains 'RestoreScript') {
+    throw 'Read-only idle Preflight adapter must not accept transaction callbacks.'
+}
+$targetCapture.PSObject.Properties.Remove('profileMarker')
+
+Write-Host 'Shared idle transaction behavior checks passed.'
 } finally {
     Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
 }
-
-Write-Host 'Shared idle transaction behavior checks passed.'
