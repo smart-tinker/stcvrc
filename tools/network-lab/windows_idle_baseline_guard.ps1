@@ -64,3 +64,29 @@ function Assert-CvrIdleBaseline {
 
     return $true
 }
+
+function Assert-CvrRequiredSourcePins {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Index,
+
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$RequiredPins
+    )
+
+    $sha256Pattern = '^[0-9a-fA-F]{64}$'
+    foreach ($path in $RequiredPins.Keys) {
+        if (-not $Index.Contains($path)) {
+            throw 'Required source manifest helper is missing.'
+        }
+        $expected = [string]$RequiredPins[$path]
+        $actual = [string]$Index[$path]
+        if ($expected -notmatch $sha256Pattern -or
+            $actual -notmatch $sha256Pattern -or
+            $actual -ine $expected) {
+            throw 'Required source manifest helper pin mismatch.'
+        }
+    }
+    return $true
+}
