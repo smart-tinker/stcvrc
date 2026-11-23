@@ -36,6 +36,13 @@ function Assert-IdleTransactionOrder([string[]]$Expected) {
         throw 'Shared idle transaction callback order did not match.'
     }
 }
+function Write-IdleProtectedBackup([string]$Path, [byte[]]$Bytes) {
+    $directory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($Path))
+    $null = Set-CvrIdleCaptureAcl -Path $directory -Directory
+    [IO.File]::WriteAllBytes($Path, [byte[]]@())
+    $null = Set-CvrIdleCaptureAcl -Path $Path
+    [IO.File]::WriteAllBytes($Path, $Bytes)
+}
 function New-IdleTransactionCapture($Intent, [int[]]$OwnedGuiProcessIds = @()) {
     [PSCustomObject]@{
         coreShouldBeRunning = $Intent
@@ -188,20 +195,22 @@ try {
 
     $programFilesPath = Join-Path $programFilesFixtureRoot 'verge-mihomo.exe'
     $serviceCorePath = Join-Path $serviceFixtureRoot 'verge-mihomo.exe'
-    $programFilesBackup = Join-Path $targetCaptureRoot 'program-files-preimage.exe'
-    $serviceBackupDirectory = Join-Path $targetCaptureRoot 'service-preimage'
-    $null = New-Item -ItemType Directory -Path $serviceBackupDirectory
-    $serviceBackup = Join-Path $serviceBackupDirectory 'verge-mihomo.exe'
+    $programFilesBackup = New-CvrCorePreimageBackupPath -Root $targetCaptureRoot -Label 'program-files'
+    $serviceBackup = New-CvrCorePreimageBackupPath -Root $targetCaptureRoot -Label 'service'
     [IO.File]::WriteAllBytes($programFilesPath, [byte[]](2, 5, 8, 1))
     [IO.File]::WriteAllBytes($serviceCorePath, [byte[]](1, 1, 9, 3))
     $programFilesBytes = [IO.File]::ReadAllBytes($programFilesPath)
     $serviceBytes = [IO.File]::ReadAllBytes($serviceCorePath)
-    [IO.File]::WriteAllBytes($programFilesBackup, $programFilesBytes)
-    [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
+    Write-IdleProtectedBackup -Path $programFilesBackup -Bytes $programFilesBytes
+    Write-IdleProtectedBackup -Path $serviceBackup -Bytes $serviceBytes
     $programFilesSha = (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $serviceSha = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $programFilesAcl = Get-Acl -LiteralPath $programFilesPath
     $serviceAcl = Get-Acl -LiteralPath $serviceCorePath
+    $programFilesBackupAcl = Get-Acl -LiteralPath $programFilesBackup
+    $serviceBackupAcl = Get-Acl -LiteralPath $serviceBackup
+    $programFilesBackupDirectoryAcl = Get-Acl -LiteralPath ([IO.Path]::GetDirectoryName($programFilesBackup))
+    $serviceBackupDirectoryAcl = Get-Acl -LiteralPath ([IO.Path]::GetDirectoryName($serviceBackup))
 
     $expectedPins = @{
         gui258 = $pinSha
@@ -246,14 +255,24 @@ try {
         corePair = @{
             programFiles = [PSCustomObject]@{
                 path = $programFilesPath
+                pathPin = $programFilesPath
                 backup = $programFilesBackup
+                backupPathPin = $programFilesBackup
+                backupRoot = $targetCaptureRoot
+                backupSddl = $programFilesBackupAcl.Sddl
+                backupDirectorySddl = $programFilesBackupDirectoryAcl.Sddl
                 sha256 = $programFilesSha
                 sddl = $programFilesAcl.Sddl
                 acl = $programFilesAcl
             }
             service = [PSCustomObject]@{
                 path = $serviceCorePath
+                pathPin = $serviceCorePath
                 backup = $serviceBackup
+                backupPathPin = $serviceBackup
+                backupRoot = $targetCaptureRoot
+                backupSddl = $serviceBackupAcl.Sddl
+                backupDirectorySddl = $serviceBackupDirectoryAcl.Sddl
                 sha256 = $serviceSha
                 sddl = $serviceAcl.Sddl
                 acl = $serviceAcl
@@ -499,15 +518,170 @@ try {
     Assert-IdleTargetCaptureRejected 'aliased core preimages' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
     $targetCapture.corePair.service.backup = $savedServiceBackup
 
-    [IO.File]::WriteAllBytes($serviceBackup, [byte[]](4, 3, 2))
-    Assert-IdleTargetCaptureRejected 'changed service preimage bytes' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
-    [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
+    $beforeServiceBackupDriftProgramFiles = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+    $beforeServiceBackupDriftService = [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath))
+    $beforeServiceBackupDriftProgramFilesSddl = (Get-Acl -LiteralPath $programFilesPath).Sddl
+    $beforeServiceBackupDriftServiceSddl = (Get-Acl -LiteralPath $serviceCorePath).Sddl
+    try {
+        [IO.File]::WriteAllBytes($serviceBackup, [byte[]](4, 3, 2))
+        $changedServiceSha = (Get-FileHash -LiteralPath $serviceBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+        Assert-IdleTargetCaptureRejected 'changed service preimage bytes' "Idle target core preimage verification failed: service core preimage backup validation failed at backup SHA256 (SHA256 expected=$serviceSha actual=$changedServiceSha)." $targetIdentity $expectedPins
+    } finally {
+        [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
+    }
+    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $beforeServiceBackupDriftProgramFiles -or
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath)) -cne $beforeServiceBackupDriftService -or
+        (Get-Acl -LiteralPath $programFilesPath).Sddl -cne $beforeServiceBackupDriftProgramFilesSddl -or
+        (Get-Acl -LiteralPath $serviceCorePath).Sddl -cne $beforeServiceBackupDriftServiceSddl) {
+        throw 'Changed service backup bytes altered a live core or ACL before rejection.'
+    }
 
     $savedSddl = $targetCapture.corePair.programFiles.sddl
     $targetCapture.corePair.programFiles.sddl = 'unreviewed'
     Assert-IdleTargetCaptureRejected 'changed Program Files ACL preimage' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
     $targetCapture.corePair.programFiles.sddl = $savedSddl
 
+
+
+    # The pair path must bind to its pinned file even when an alternate has exact pinned bytes and ACL.
+    $preimageGuardFailures = [Collections.Generic.List[string]]::new()
+    foreach ($case in @(
+        [PSCustomObject]@{ label='Program Files'; pin='programFilesCore'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; acl=$programFilesAcl; alternateName='program-files-alternate' },
+        [PSCustomObject]@{ label='service'; pin='serviceCore'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; acl=$serviceAcl; alternateName='service-alternate' }
+    )) {
+        $alternatePath = Join-Path ([IO.Path]::GetDirectoryName($case.originalPath)) ($case.alternateName + '-' + [Guid]::NewGuid().ToString('N') + '.exe')
+        [IO.File]::WriteAllBytes($alternatePath, [IO.File]::ReadAllBytes($case.originalPath))
+        Set-Acl -LiteralPath $alternatePath -AclObject $case.acl
+        $alternateSha = (Get-FileHash -LiteralPath $alternatePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $alternateSddl = (Get-Acl -LiteralPath $alternatePath).Sddl
+        if ([IO.Path]::GetFullPath($alternatePath) -ieq [IO.Path]::GetFullPath([string]$pinnedFiles[$case.pin]) -or
+            $alternateSha -cne [string]$expectedPins[$case.pin] -or
+            $alternateSddl -cne [string]$case.entry.sddl) {
+            throw 'Alternate live-core fixture did not preserve exact pinned bytes and ACL.'
+        }
+        $beforeProgramFiles = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+        $beforeService = [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath))
+        $beforeProgramFilesSddl = (Get-Acl -LiteralPath $programFilesPath).Sddl
+        $beforeServiceSddl = (Get-Acl -LiteralPath $serviceCorePath).Sddl
+        $script:wrongCorePathActionCalled = $false
+        $rejected = $false
+        $case.entry.path = $alternatePath
+        try {
+            $null = Invoke-CvrIdleTargetTransaction -CaptureScript { $targetCapture } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
+                $script:wrongCorePathActionCalled = $true
+            } -RestoreScript { 'restored' } -VerifyScript { param($capture, $restored) $true }
+        } catch {
+            if ($_.Exception.Message -like 'Idle target core preimage verification failed*') {
+                $rejected = $true
+            } else {
+                $preimageGuardFailures.Add("$($case.label) alternate path returned an unexpected guard error.")
+            }
+        } finally {
+            $case.entry.path = $case.originalPath
+        }
+        if (-not $rejected) { $preimageGuardFailures.Add("$($case.label) same-byte alternate path was accepted.") }
+        if ($script:wrongCorePathActionCalled) { $preimageGuardFailures.Add("$($case.label) alternate path reached the transaction action.") }
+        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $beforeProgramFiles -or
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath)) -cne $beforeService -or
+            (Get-Acl -LiteralPath $programFilesPath).Sddl -cne $beforeProgramFilesSddl -or
+            (Get-Acl -LiteralPath $serviceCorePath).Sddl -cne $beforeServiceSddl) {
+            $preimageGuardFailures.Add("$($case.label) alternate path changed a pinned live core.")
+        }
+        Remove-Item -LiteralPath $alternatePath -Force -ErrorAction Stop
+    }
+
+    # An alternate backup with exact pinned bytes and ACL still is not the pinned restore source.
+    $alternateProgramFilesBackup = New-CvrCorePreimageBackupPath -Root $targetCaptureRoot -Label 'program-files'
+    Write-IdleProtectedBackup -Path $alternateProgramFilesBackup -Bytes $programFilesBytes
+    $alternateBackupSha = (Get-FileHash -LiteralPath $alternateProgramFilesBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+    $alternateBackupSddl = (Get-Acl -LiteralPath $alternateProgramFilesBackup).Sddl
+    $alternateBackupDirectorySddl = (Get-Acl -LiteralPath ([IO.Path]::GetDirectoryName($alternateProgramFilesBackup))).Sddl
+    if ([IO.Path]::GetFullPath($alternateProgramFilesBackup) -ieq [IO.Path]::GetFullPath([string]$targetCapture.corePair.programFiles.backupPathPin) -or
+        $alternateBackupSha -cne [string]$expectedPins.programFilesCore -or
+        $alternateBackupSddl -cne [string]$targetCapture.corePair.programFiles.backupSddl -or
+        $alternateBackupDirectorySddl -cne [string]$targetCapture.corePair.programFiles.backupDirectorySddl) {
+        throw 'Alternate backup fixture did not preserve exact pinned bytes and ACL.'
+    }
+    $null = Assert-CvrIdleCaptureAcl -Path $alternateProgramFilesBackup
+    $null = Assert-CvrIdleCaptureAcl -Path ([IO.Path]::GetDirectoryName($alternateProgramFilesBackup)) -Directory
+    $programFilesEntry = $targetCapture.corePair.programFiles
+    $originalProgramFilesBackupPath = $programFilesEntry.backup
+    $liveMarker = [byte[]](0x91, 0x82, 0x73, 0x64)
+    $alternateBackupRejected = $false
+    try {
+        [IO.File]::WriteAllBytes($programFilesPath, $liveMarker)
+        $liveBeforeRestore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+        $programFilesEntry.backup = $alternateProgramFilesBackup
+        try {
+            Restore-CvrCoreFilePreimage -Entry $programFilesEntry -Role 'Program Files'
+        } catch {
+            $alternateBackupRejected = $_.Exception.Message -like 'Program Files core preimage backup validation failed at *'
+        }
+        if (-not $alternateBackupRejected) { $preimageGuardFailures.Add('same-byte alternate backup path was accepted.') }
+        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
+            $preimageGuardFailures.Add('same-byte alternate backup changed the live core before rejection.')
+        }
+    } finally {
+        $programFilesEntry.backup = $originalProgramFilesBackupPath
+        [IO.File]::WriteAllBytes($programFilesPath, $programFilesBytes)
+        Set-Acl -LiteralPath $programFilesPath -AclObject $programFilesAcl
+        Remove-Item -LiteralPath ([IO.Path]::GetDirectoryName($alternateProgramFilesBackup)) -Recurse -Force -ErrorAction Stop
+    }
+
+    # A bad backup must be rejected before Restore writes to the live core.
+    $liveMarker = [byte[]](0x91, 0x82, 0x73, 0x64)
+    $originalProgramFilesBackup = [IO.File]::ReadAllBytes($programFilesBackup)
+    $tamperedBackupRejected = $false
+    try {
+        [IO.File]::WriteAllBytes($programFilesPath, $liveMarker)
+        [IO.File]::WriteAllBytes($programFilesBackup, [byte[]](0x11, 0x22, 0x33))
+        $liveBeforeRestore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+        try {
+            Restore-CvrCoreFilePreimage -Entry $targetCapture.corePair.programFiles -Role 'Program Files'
+        } catch {
+            $tamperedBackupRejected = $_.Exception.Message -like 'Program Files core preimage backup validation failed at *'
+        }
+        if (-not $tamperedBackupRejected) { $preimageGuardFailures.Add('tampered backup bytes were not rejected before restore.') }
+        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
+            $preimageGuardFailures.Add('tampered backup bytes changed the live core before rejection.')
+        }
+    } finally {
+        [IO.File]::WriteAllBytes($programFilesBackup, $originalProgramFilesBackup)
+        [IO.File]::WriteAllBytes($programFilesPath, $programFilesBytes)
+        Set-Acl -LiteralPath $programFilesPath -AclObject $programFilesAcl
+    }
+
+    # A broadened backup ACL is also rejected before its bytes can replace the live core.
+    $originalProgramFilesBackupAcl = Get-Acl -LiteralPath $programFilesBackup
+    $tamperedBackupAclRejected = $false
+    try {
+        [IO.File]::WriteAllBytes($programFilesPath, $liveMarker)
+        $invalidBackupAcl = Get-Acl -LiteralPath $programFilesBackup
+        $usersSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
+        $usersRule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $usersSid,
+            [Security.AccessControl.FileSystemRights]::Modify,
+            [Security.AccessControl.AccessControlType]::Allow
+        )
+        $null = $invalidBackupAcl.AddAccessRule($usersRule)
+        Set-Acl -LiteralPath $programFilesBackup -AclObject $invalidBackupAcl
+        $liveBeforeRestore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+        try {
+            Restore-CvrCoreFilePreimage -Entry $targetCapture.corePair.programFiles -Role 'Program Files'
+        } catch {
+            $tamperedBackupAclRejected = $_.Exception.Message -like 'Program Files core preimage backup validation failed at *'
+        }
+        if (-not $tamperedBackupAclRejected) { $preimageGuardFailures.Add('unprotected backup ACL was not rejected before restore.') }
+        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
+            $preimageGuardFailures.Add('unprotected backup ACL changed the live core before rejection.')
+        }
+    } finally {
+        Set-Acl -LiteralPath $programFilesBackup -AclObject $originalProgramFilesBackupAcl
+        [IO.File]::WriteAllBytes($programFilesPath, $programFilesBytes)
+        Set-Acl -LiteralPath $programFilesPath -AclObject $programFilesAcl
+    }
+    Assert-IdleTransaction ($preimageGuardFailures.Count -eq 0) ("Core preimage security guard failed: " + ($preimageGuardFailures -join '; '))
+    $script:targetCaptureOutcomes.Add([pscustomobject]@{case='core-path-binding-and-prewrite-backup-validation';result='rejected-with-live-bytes-preserved'})
 
 # Public idle Preflight capture contract.
 if (-not (Get-Command -Name Save-CvrIdlePreflightCapture -CommandType Function -ErrorAction SilentlyContinue)) {
@@ -607,6 +781,99 @@ if ($script:saveCaptureParameters -contains 'ActionScript' -or
     $script:saveCaptureParameters -contains 'RestoreScript') {
     throw 'Read-only idle Preflight adapter must not accept transaction callbacks.'
 }
+
+# Public idle Preflight prepared-plan contract.
+if (-not (Get-Command -Name Save-CvrIdlePreflightPlan -CommandType Function -ErrorAction SilentlyContinue)) {
+    throw 'Expected behavior RED: guarded unique idle preflight plan writer is missing.'
+}
+
+$beforePreparedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
+$preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preparedDirectory = [IO.Path]::GetFullPath($preparedPlan.PreparedDirectory)
+$preparedAgainDirectory = [IO.Path]::GetFullPath($preparedPlanAgain.PreparedDirectory)
+$uniquePreparedOutput = (
+    [IO.Path]::GetDirectoryName($preparedDirectory) -ieq $preflightLocal -and
+    [IO.Path]::GetFileName($preparedDirectory) -match '^prepared-idle-[0-9a-f]{32}$' -and
+    $preparedDirectory -ine [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared')) -and
+    $preparedDirectory -ine $preflightDirectory -and
+    $preparedAgainDirectory -ine $preparedDirectory -and
+    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq ($beforePreparedPlanCount + 2)
+)
+Assert-IdleTransaction $uniquePreparedOutput 'Idle Preflight plans did not use unique siblings.'
+
+$planText = [IO.File]::ReadAllText($preparedPlan.PlanPath)
+$plan = $planText | ConvertFrom-Json
+$planPinNames = @($plan.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
+$planFileNames = @($plan.pinnedFiles.PSObject.Properties | ForEach-Object { $_.Name })
+$planPinsMatch = (
+    $planPinNames.Count -eq $expectedPinNames.Count -and
+    (@($planPinNames | Sort-Object -CaseSensitive) -join '|') -ceq $expectedPinNamesText -and
+    $planFileNames.Count -eq $expectedPinNames.Count -and
+    (@($planFileNames | Sort-Object -CaseSensitive) -join '|') -ceq $expectedPinNamesText
+)
+foreach ($pinName in $expectedPinNames) {
+    if ([string]$plan.expectedPins.$pinName -cne [string]$expectedPins[$pinName] -or
+        [string]$plan.pinnedFiles.$pinName -cne [string]$pinnedFiles[$pinName]) {
+        $planPinsMatch = $false
+    }
+}
+$planBindingAndBaselineMatch = (
+    $plan.coreShouldBeRunning -is [bool] -and -not $plan.coreShouldBeRunning -and
+    $plan.targetIdentity -ceq $targetIdentity -and
+    [IO.Path]::GetFullPath([string]$plan.captureDirectory) -ceq $preflightDirectory -and
+    [IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -ceq [IO.Path]::GetFullPath($preflight.ReceiptPath) -and
+    [string]$plan.captureReceiptSha256 -ceq (Get-FileHash -LiteralPath $preflight.ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant() -and
+    $plan.idleObservation.CoreShouldBeRunning -is [bool] -and -not $plan.idleObservation.CoreShouldBeRunning -and
+    $plan.idleObservation.ControllerListening -is [bool] -and -not $plan.idleObservation.ControllerListening -and
+    [string]$plan.idleObservation.ServiceStatus -ceq 'Running' -and
+    [string]$plan.idleObservation.ExpectedProgramFilesCoreSha256 -ceq $programFilesSha -and
+    [string]$plan.idleObservation.ObservedProgramFilesCoreSha256 -ceq $programFilesSha -and
+    [string]$plan.idleObservation.ExpectedServiceCoreSha256 -ceq $serviceSha -and
+    [string]$plan.idleObservation.ObservedServiceCoreSha256 -ceq $serviceSha -and
+    @($plan.idleObservation.OwnedGuiProcessIds).Count -eq 0 -and
+    @($plan.idleObservation.OwnedCoreProcessIds).Count -eq 0 -and
+    @($plan.idleObservation.OwnedListenerProcessIds).Count -eq 0 -and
+    [string]$plan.corePair.programFiles.sha256 -ceq $programFilesSha -and
+    [string]$plan.corePair.programFiles.sddl -ceq [string]$programFilesAcl.Sddl -and
+    [string]$plan.corePair.service.sha256 -ceq $serviceSha -and
+    [string]$plan.corePair.service.sddl -ceq [string]$serviceAcl.Sddl -and
+    [IO.Path]::GetFileName([string]$plan.corePair.service.backup) -ceq 'verge-mihomo.exe' -and
+    -not $planText.Contains('synthetic-profile-marker') -and
+    [IO.Path]::GetFileName($preparedPlan.PlanPath) -ceq 'plan.json' -and
+    (Get-FileHash -LiteralPath $preparedPlan.PlanPath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq [string]$preparedPlan.PlanSha256 -and
+    (Get-Acl -LiteralPath $preparedDirectory).AreAccessRulesProtected -and
+    (Get-Acl -LiteralPath $preparedPlan.PlanPath).AreAccessRulesProtected
+)
+Assert-IdleTransaction ($planPinsMatch -and $planBindingAndBaselineMatch) 'Idle Preflight plan binding, baseline, pins, ACL or allowlist failed.'
+
+$beforeRejectedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
+$targetCapture.idleObservation.ControllerListening = [bool]$true
+$rejectedPlanForListener = $false
+try {
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $rejectedPlanForListener = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
+} finally {
+    $targetCapture.idleObservation.ControllerListening = [bool]$false
+}
+Assert-IdleTransaction ($rejectedPlanForListener -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted listener drift or wrote output after rejection.'
+
+$receiptBeforePlanDrift = [IO.File]::ReadAllText($preflight.ReceiptPath)
+$receiptForPlanDrift = $receiptBeforePlanDrift | ConvertFrom-Json
+$receiptForPlanDrift.targetIdentity = [Guid]::NewGuid().ToString('N')
+[IO.File]::WriteAllText($preflight.ReceiptPath, (ConvertTo-Json -InputObject $receiptForPlanDrift -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
+$rejectedPlanForReceiptDrift = $false
+try {
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $rejectedPlanForReceiptDrift = $_.Exception.Message -ceq 'Idle Preflight capture receipt does not match the supplied capture.'
+} finally {
+    [IO.File]::WriteAllText($preflight.ReceiptPath, $receiptBeforePlanDrift, [Text.UTF8Encoding]::new($false))
+}
+Assert-IdleTransaction ($rejectedPlanForReceiptDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted receipt drift or wrote output after rejection.'
+Assert-IdleTransaction ([IO.File]::ReadAllText($captureMarkerPath) -ceq 'preserve-capture' -and [IO.File]::ReadAllText($preparedMarkerPath) -ceq 'preserve-prepared') 'Idle Preflight plan modified existing fixed siblings.'
+
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
 if ($script:nativeCalls -ne 0) { throw 'Idle capture fixture reached a native action tripwire.' }
