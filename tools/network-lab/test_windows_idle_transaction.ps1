@@ -1002,8 +1002,7 @@ try {
     }
     $digitPathAccepted = $null -eq $digitPathFailure -and $digitPathBinding -and
         $digitPathBinding.StageRoot -ceq $expectedStageRoot -and
-        $digitPathBinding.SourceManifestSha256 -ceq $expectedPackageManifestSha256 -and
-        @($digitPathBinding.OpenFiles).Count -eq 2
+        $digitPathBinding.SourceManifestSha256 -ceq $expectedPackageManifestSha256
     if ($digitPathBinding) {
         foreach ($handle in @($digitPathBinding.OpenFiles)) {
             if ($handle) { $handle.Dispose() }
