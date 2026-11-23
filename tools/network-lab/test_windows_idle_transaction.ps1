@@ -530,11 +530,10 @@ try {
     # The pair path must bind to its pinned file even when an alternate has exact pinned bytes and ACL.
     $preimageGuardFailures = [Collections.Generic.List[string]]::new()
     foreach ($case in @(
-        [PSCustomObject]@{ label='Program Files'; pin='programFilesCore'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; acl=$programFilesAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-program-files') },
-        [PSCustomObject]@{ label='service'; pin='serviceCore'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; acl=$serviceAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-service') }
+        [PSCustomObject]@{ label='Program Files'; pin='programFilesCore'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; acl=$programFilesAcl; alternateName='program-files-alternate' },
+        [PSCustomObject]@{ label='service'; pin='serviceCore'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; acl=$serviceAcl; alternateName='service-alternate' }
     )) {
-        $null = New-Item -ItemType Directory -Path $case.alternateDirectory
-        $alternatePath = Join-Path $case.alternateDirectory 'verge-mihomo.exe'
+        $alternatePath = Join-Path ([IO.Path]::GetDirectoryName($case.originalPath)) ($case.alternateName + '-' + [Guid]::NewGuid().ToString('N') + '.exe')
         [IO.File]::WriteAllBytes($alternatePath, [IO.File]::ReadAllBytes($case.originalPath))
         Set-Acl -LiteralPath $alternatePath -AclObject $case.acl
         $alternateSha = (Get-FileHash -LiteralPath $alternatePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -572,7 +571,7 @@ try {
             (Get-Acl -LiteralPath $serviceCorePath).Sddl -cne $beforeServiceSddl) {
             $preimageGuardFailures.Add("$($case.label) alternate path changed a pinned live core.")
         }
-        Remove-Item -LiteralPath $case.alternateDirectory -Recurse -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $alternatePath -Force -ErrorAction Stop
     }
 
     # An alternate backup with exact pinned bytes and ACL still is not the pinned restore source.
