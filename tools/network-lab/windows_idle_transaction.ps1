@@ -438,7 +438,7 @@ function Get-CvrIdlePackageStageBinding {
             }
             $relativePath = [string]$pathProperty.Value
             if ([IO.Path]::IsPathRooted($relativePath) -or
-                $relativePath -match '[\\:\x00-\x1f]' -or
+                $relativePath -match '[\\\\:\\x00-\\x1f]' -or
                 $relativePath.StartsWith('/')) {
                 throw 'manifest path'
             }

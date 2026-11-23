@@ -993,6 +993,9 @@ try {
         Assert-CvrIdleStageCaptureRejected -CaseName ("manifest-" + $case.Name) -StageRoot $expectedStageRoot -ManifestSha256 $candidateManifestSha256
     }
 
+    [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytesForPathCases)
+    Set-Acl -LiteralPath $stageManifestPath -AclObject $stageManifestAclForPathCases -ErrorAction Stop
+
     $digitPathBinding = $null
     $digitPathFailure = $null
     try {
