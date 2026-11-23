@@ -370,6 +370,7 @@ function Get-CvrIdlePackageStageBinding {
         [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256
     )
 
+    $openFiles = [Collections.Generic.List[IO.FileStream]]::new()
     try {
         if (-not [IO.Path]::IsPathRooted($StageRoot) -or
             -not [IO.Path]::IsPathRooted($ExpectedStageRoot) -or
@@ -383,6 +384,11 @@ function Get-CvrIdlePackageStageBinding {
             (([int]$stageItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
             throw 'stage root'
         }
+        try {
+            $null = Assert-CvrIdleCaptureAcl -Path $stagePath -Directory
+        } catch {
+            throw 'Idle Preflight package root is not protected.'
+        }
 
         $manifestPath = Join-Path $stagePath 'source-manifest.json'
         $manifestItem = Get-Item -LiteralPath $manifestPath -Force -ErrorAction Stop
@@ -390,10 +396,34 @@ function Get-CvrIdlePackageStageBinding {
             (([int]$manifestItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
             throw 'manifest'
         }
-        $manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $null = Assert-CvrIdleCaptureAcl -Path $manifestPath
+        $manifestStream = [IO.File]::Open(
+            $manifestPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $null = $openFiles.Add($manifestStream)
+        $manifestMemory = [IO.MemoryStream]::new()
+        try {
+            $manifestStream.CopyTo($manifestMemory)
+            $manifestBytes = $manifestMemory.ToArray()
+        } finally {
+            $manifestMemory.Dispose()
+        }
+        $manifestHasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $manifestSha256 = ([BitConverter]::ToString($manifestHasher.ComputeHash($manifestBytes))).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $manifestHasher.Dispose()
+        }
         if ($manifestSha256 -ine $ExpectedPackageManifestSha256) { throw 'manifest pin' }
 
-        $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json -ErrorAction Stop
+        $manifestText = [Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)
+        if ($manifestText.Length -gt 0 -and $manifestText[0] -eq [char]0xFEFF) {
+            $manifestText = $manifestText.Substring(1)
+        }
+        $manifest = ConvertFrom-Json -InputObject $manifestText -ErrorAction Stop
         if ([int]$manifest.schemaVersion -ne 1 -or @($manifest.files).Count -eq 0) {
             throw 'manifest schema'
         }
@@ -408,7 +438,7 @@ function Get-CvrIdlePackageStageBinding {
             }
             $relativePath = [string]$pathProperty.Value
             if ([IO.Path]::IsPathRooted($relativePath) -or
-                $relativePath -match '[\\:\x00-\x1f]' -or
+                $relativePath -match '[\\\\:\\x00-\\x1f]' -or
                 $relativePath.StartsWith('/')) {
                 throw 'manifest path'
             }
@@ -431,15 +461,42 @@ function Get-CvrIdlePackageStageBinding {
                     ($index -eq ($segments.Count - 1) -and $item.PSIsContainer)) {
                     throw 'staged path'
                 }
+                if ($index -lt ($segments.Count - 1)) {
+                    $null = Assert-CvrIdleCaptureAcl -Path $currentPath -Directory
+                } else {
+                    $null = Assert-CvrIdleCaptureAcl -Path $currentPath
+                    $entryStream = [IO.File]::Open(
+                        $currentPath,
+                        [IO.FileMode]::Open,
+                        [IO.FileAccess]::Read,
+                        [IO.FileShare]::Read
+                    )
+                    $null = $openFiles.Add($entryStream)
+                    $entryHasher = [Security.Cryptography.SHA256]::Create()
+                    try {
+                        $actualSha256 = ([BitConverter]::ToString($entryHasher.ComputeHash($entryStream))).Replace('-', '').ToLowerInvariant()
+                    } finally {
+                        $entryHasher.Dispose()
+                    }
+                    if ($actualSha256 -ine [string]$shaProperty.Value) { throw 'staged hash' }
+                }
             }
-            $actualSha256 = (Get-FileHash -LiteralPath $currentPath -Algorithm SHA256 -ErrorAction Stop).Hash
-            if ($actualSha256 -ine [string]$shaProperty.Value) { throw 'staged hash' }
         }
         return [PSCustomObject]@{
             StageRoot = $stagePath
             SourceManifestSha256 = $manifestSha256
+            OpenFiles = $openFiles.ToArray()
         }
     } catch {
+        $failure = $_.Exception.Message
+        foreach ($handle in $openFiles) {
+            if ($handle) {
+                try { $handle.Dispose() } catch { }
+            }
+        }
+        if ($failure -ceq 'Idle Preflight package root is not protected.') {
+            throw 'Idle Preflight package root is not protected.'
+        }
         throw 'Idle package stage binding failed.'
     }
 }
@@ -457,6 +514,7 @@ function Save-CvrIdlePreflightCapture {
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
     $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
+    try {
     try {
         $packagePath = [IO.Path]::GetFullPath($PackageRoot)
         $localPath = [IO.Path]::GetFullPath((Join-Path $packagePath 'local'))
@@ -576,6 +634,11 @@ function Save-CvrIdlePreflightCapture {
         }
         throw 'Idle Preflight capture could not be written.'
     }
+    } finally {
+        foreach ($handle in @($packageStageBinding.OpenFiles)) {
+            if ($handle) { $handle.Dispose() }
+        }
+    }
 }
 
 function Save-CvrIdlePreflightPlan {
@@ -593,6 +656,7 @@ function Save-CvrIdlePreflightPlan {
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
     $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
+    try {
 
     $pinNames = @(
         'gui258', 'serviceExe258', 'programFilesCore', 'serviceCore',
@@ -775,5 +839,10 @@ function Save-CvrIdlePreflightPlan {
 
     } finally {
         if ($receiptStream) { $receiptStream.Dispose() }
+    }
+    } finally {
+        foreach ($handle in @($packageStageBinding.OpenFiles)) {
+            if ($handle) { $handle.Dispose() }
+        }
     }
 }

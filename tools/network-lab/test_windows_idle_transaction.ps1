@@ -735,9 +735,14 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPa
 # Synthetic package identity input for the package-to-stage capture contract.
 $stageFilesRoot = Join-Path $preflightPackageRoot 'scripts'
 $null = New-Item -ItemType Directory -Path $stageFilesRoot -ErrorAction Stop
+$null = Set-CvrIdleCaptureAcl -Path $stageFilesRoot -Directory
 $stageInputPath = Join-Path $stageFilesRoot 'capture-adapter.ps1'
+[IO.File]::WriteAllBytes($stageInputPath, [byte[]]@())
+$null = Set-CvrIdleCaptureAcl -Path $stageInputPath
 [IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-input', [Text.UTF8Encoding]::new($false))
 $stageManifestPath = Join-Path $preflightPackageRoot 'source-manifest.json'
+[IO.File]::WriteAllBytes($stageManifestPath, [byte[]]@())
+$null = Set-CvrIdleCaptureAcl -Path $stageManifestPath
 $stageManifest = [ordered]@{
     schemaVersion = 1
     scope = 'synthetic package-stage contract'
@@ -796,6 +801,8 @@ function Invoke-CvrIdleStageBoundaryCase {
     param([Parameter(Mandatory = $true)][ValidateSet('Capture','Plan')][string]$WriterMode)
     $manifestBefore = [IO.File]::ReadAllBytes($stageManifestPath)
     $entryBefore = [IO.File]::ReadAllBytes($stageInputPath)
+    $manifestAclBefore = Get-Acl -LiteralPath $stageManifestPath
+    $entryAclBefore = Get-Acl -LiteralPath $stageInputPath
     $manifestReplacement = [ordered]@{
         schemaVersion = 1
         scope = 'synthetic package-stage boundary mutation'
@@ -833,6 +840,8 @@ function Invoke-CvrIdleStageBoundaryCase {
         $script:stageMutationTargets = @()
         [IO.File]::WriteAllBytes($stageManifestPath, $manifestBefore)
         [IO.File]::WriteAllBytes($stageInputPath, $entryBefore)
+        Set-Acl -LiteralPath $stageManifestPath -AclObject $manifestAclBefore -ErrorAction Stop
+        Set-Acl -LiteralPath $stageInputPath -AclObject $entryAclBefore -ErrorAction Stop
     }
     $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop)
     $created = @($after | Where-Object { $before -notcontains $_.FullName })
