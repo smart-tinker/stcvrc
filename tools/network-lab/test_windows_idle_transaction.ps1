@@ -53,6 +53,8 @@ function Get-CvrIdlePackageStageBinding {
             Wrote = $wrote
             ReplaceIOException = $replaceException -ceq 'System.IO.IOException'
             WriteIOException = $writeException -ceq 'System.IO.IOException'
+            ReplaceExceptionType = $replaceException
+            WriteExceptionType = $writeException
         }
     }
     return $binding
