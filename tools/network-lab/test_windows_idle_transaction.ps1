@@ -519,12 +519,13 @@ try {
     $preimageGuardFailures = [Collections.Generic.List[string]]::new()
     $candidatePayloadForPathTest = [IO.File]::ReadAllBytes($pinnedFiles.candidateCore)
     foreach ($case in @(
-        [PSCustomObject]@{ label='Program Files'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-program-files') },
-        [PSCustomObject]@{ label='service'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-service') }
+        [PSCustomObject]@{ label='Program Files'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; acl=$programFilesAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-program-files') },
+        [PSCustomObject]@{ label='service'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; acl=$serviceAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-service') }
     )) {
         $null = New-Item -ItemType Directory -Path $case.alternateDirectory
         $alternatePath = Join-Path $case.alternateDirectory 'verge-mihomo.exe'
         [IO.File]::WriteAllBytes($alternatePath, [IO.File]::ReadAllBytes($case.originalPath))
+        Set-Acl -LiteralPath $alternatePath -AclObject $case.acl
         $beforeProgramFiles = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
         $beforeService = [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath))
         $script:wrongCorePathActionCalled = $false
