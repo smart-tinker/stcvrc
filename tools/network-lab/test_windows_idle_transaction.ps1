@@ -864,6 +864,16 @@ function Invoke-CvrIdleStageBoundaryCase {
     foreach ($directory in $created) {
         Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
     }
+    if (-not $safe) {
+        $details = [PSCustomObject]@{
+            FailureObserved = $null -ne $failure
+            OutputWritten = [bool]$output
+            BindingMatches = [bool]$bindingMatches
+            NewOutputCount = $created.Count
+            MutationResults = $script:stageMutationResults
+        }
+        Write-Host ("Synthetic stage boundary " + $WriterMode + " diagnostic: " + (ConvertTo-Json -InputObject $details -Depth 4 -Compress))
+    }
     return [bool]$safe
 }
 
