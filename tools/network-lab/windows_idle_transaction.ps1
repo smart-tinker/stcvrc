@@ -168,19 +168,29 @@ function Assert-CvrIdleTargetCapture {
     }
     $paths = @{}
     foreach ($entryInfo in @(
-        [PSCustomObject]@{ entry = $pair.programFiles; pin = 'programFilesCore'; service = $false },
-        [PSCustomObject]@{ entry = $pair.service; pin = 'serviceCore'; service = $true }
+        [PSCustomObject]@{ entry = $pair.programFiles; pin = 'programFilesCore'; role = 'Program Files' },
+        [PSCustomObject]@{ entry = $pair.service; pin = 'serviceCore'; role = 'service' }
     )) {
         try {
             $entry = $entryInfo.entry
             $pathProperty = $entry.PSObject.Properties['path']
+            $pathPinProperty = $entry.PSObject.Properties['pathPin']
             $backupProperty = $entry.PSObject.Properties['backup']
+            $backupPathPinProperty = $entry.PSObject.Properties['backupPathPin']
+            $backupRootProperty = $entry.PSObject.Properties['backupRoot']
+            $backupSddlProperty = $entry.PSObject.Properties['backupSddl']
+            $backupDirectorySddlProperty = $entry.PSObject.Properties['backupDirectorySddl']
             $shaProperty = $entry.PSObject.Properties['sha256']
             $sddlProperty = $entry.PSObject.Properties['sddl']
             $aclProperty = $entry.PSObject.Properties['acl']
-            if (-not $pathProperty -or -not $backupProperty -or -not $shaProperty -or
-                -not $sddlProperty -or -not $aclProperty -or
-                $pathProperty.Value -isnot [string] -or $backupProperty.Value -isnot [string] -or
+            if (-not $pathProperty -or -not $pathPinProperty -or -not $backupProperty -or
+                -not $backupPathPinProperty -or -not $backupRootProperty -or
+                -not $backupSddlProperty -or -not $backupDirectorySddlProperty -or
+                -not $shaProperty -or -not $sddlProperty -or -not $aclProperty -or
+                $pathProperty.Value -isnot [string] -or $pathPinProperty.Value -isnot [string] -or
+                $backupProperty.Value -isnot [string] -or $backupPathPinProperty.Value -isnot [string] -or
+                $backupRootProperty.Value -isnot [string] -or
+                $backupSddlProperty.Value -isnot [string] -or $backupDirectorySddlProperty.Value -isnot [string] -or
                 $shaProperty.Value -isnot [string] -or $shaProperty.Value -notmatch '^[0-9a-fA-F]{64}$' -or
                 $sddlProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($sddlProperty.Value) -or
                 -not $aclProperty.Value -or [string]$aclProperty.Value.Sddl -cne [string]$sddlProperty.Value -or
@@ -189,31 +199,35 @@ function Assert-CvrIdleTargetCapture {
                 throw 'invalid'
             }
             $livePath = [IO.Path]::GetFullPath([string]$pathProperty.Value)
+            $pinnedPath = [IO.Path]::GetFullPath([string]$pinnedFiles[$entryInfo.pin])
+            if ($livePath -ine $pinnedPath -or [IO.Path]::GetFullPath([string]$pathPinProperty.Value) -ine $pinnedPath) {
+                throw 'path pin'
+            }
             $backupPath = [IO.Path]::GetFullPath([string]$backupProperty.Value)
             if ($paths.ContainsKey($livePath) -or $paths.ContainsKey($backupPath)) {
                 throw 'aliased'
             }
             $paths[$livePath] = $true
             $paths[$backupPath] = $true
-            if ($entryInfo.service -and [IO.Path]::GetFileName($backupPath) -cne 'verge-mihomo.exe') {
-                throw 'basename'
+            if (-not (Test-Path -LiteralPath $livePath -PathType Leaf -ErrorAction Stop)) {
+                throw 'missing live core'
             }
-            if (-not (Test-Path -LiteralPath $livePath -PathType Leaf -ErrorAction Stop) -or
-                -not (Test-Path -LiteralPath $backupPath -PathType Leaf -ErrorAction Stop)) {
-                throw 'missing'
-            }
+            $null = Get-CvrCorePreimageBackupBytes -Entry $entry -Role $entryInfo.role
             $liveHash = (Get-FileHash -LiteralPath $livePath -Algorithm SHA256 -ErrorAction Stop).Hash
-            $backupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256 -ErrorAction Stop).Hash
             $liveSddl = (Get-Acl -LiteralPath $livePath -ErrorAction Stop).Sddl
             if ($liveHash -ine [string]$shaProperty.Value -or
-                $backupHash -ine [string]$shaProperty.Value -or
                 $liveSddl -cne [string]$sddlProperty.Value) {
-                throw 'drift'
+                throw 'live core drift'
             }
         } catch {
+            $failure = [string]$_.Exception.Message
+            if ($failure -match '^(Program Files|service) core preimage backup validation failed at ') {
+                throw "Idle target core preimage verification failed: $failure"
+            }
             throw 'Idle target core preimage verification failed.'
         }
     }
+
     return $true
 }
 
@@ -408,13 +422,23 @@ function Save-CvrIdlePreflightCapture {
         corePair = [ordered]@{
             programFiles = [ordered]@{
                 path = [string]$programFiles.path
+                pathPin = [string]$programFiles.pathPin
                 backup = [string]$programFiles.backup
+                backupPathPin = [string]$programFiles.backupPathPin
+                backupRoot = [string]$programFiles.backupRoot
+                backupSddl = [string]$programFiles.backupSddl
+                backupDirectorySddl = [string]$programFiles.backupDirectorySddl
                 sha256 = [string]$programFiles.sha256
                 sddl = [string]$programFiles.sddl
             }
             service = [ordered]@{
                 path = [string]$serviceCore.path
+                pathPin = [string]$serviceCore.pathPin
                 backup = [string]$serviceCore.backup
+                backupPathPin = [string]$serviceCore.backupPathPin
+                backupRoot = [string]$serviceCore.backupRoot
+                backupSddl = [string]$serviceCore.backupSddl
+                backupDirectorySddl = [string]$serviceCore.backupDirectorySddl
                 sha256 = [string]$serviceCore.sha256
                 sddl = [string]$serviceCore.sddl
             }
@@ -506,13 +530,23 @@ function Save-CvrIdlePreflightPlan {
     $storedCorePair = [ordered]@{
         programFiles = [ordered]@{
             path = [string]$programFiles.path
+            pathPin = [string]$programFiles.pathPin
             backup = [string]$programFiles.backup
+            backupPathPin = [string]$programFiles.backupPathPin
+            backupRoot = [string]$programFiles.backupRoot
+            backupSddl = [string]$programFiles.backupSddl
+            backupDirectorySddl = [string]$programFiles.backupDirectorySddl
             sha256 = [string]$programFiles.sha256
             sddl = [string]$programFiles.sddl
         }
         service = [ordered]@{
             path = [string]$serviceCore.path
+            pathPin = [string]$serviceCore.pathPin
             backup = [string]$serviceCore.backup
+            backupPathPin = [string]$serviceCore.backupPathPin
+            backupRoot = [string]$serviceCore.backupRoot
+            backupSddl = [string]$serviceCore.backupSddl
+            backupDirectorySddl = [string]$serviceCore.backupDirectorySddl
             sha256 = [string]$serviceCore.sha256
             sddl = [string]$serviceCore.sddl
         }

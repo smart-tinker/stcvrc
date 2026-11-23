@@ -40,16 +40,37 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         ):
             self.assertIn(pin, source)
 
-    def test_core_preimage_backups_keep_helper_filename_and_hash_contract(self):
+    def test_core_preimage_backups_require_pinned_path_hash_and_acl(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         path_helper = (INSTALLER_SMOKE.parent / "windows_core_preimage_paths.ps1").read_text(encoding="utf-8")
+        idle_transaction = (INSTALLER_SMOKE.parent / "windows_idle_transaction.ps1").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("New-CvrCorePreimageBackupPath", source)
-        self.assertIn("Label $target.backupLabel", source)
-        self.assertIn("Label '258-stock'", source)
-        self.assertIn("GetFileName($backup) -cne 'verge-mihomo.exe'", source)
-        self.assertIn("backup SHA256 expected=", source)
-        self.assertIn("ACL SDDL SHA256 expected=", source)
+
+        self.assertIn("-Label $target.backupLabel", source)
+        self.assertIn("-Label '258-stock'", source)
+        self.assertIn("Save-CvrCorePreimageBackup", source)
+        self.assertIn("Get-CvrCorePreimageBackupBytes", source)
+        self.assertIn("backupPathPin = $backup.backupPathPin", source)
+        self.assertIn("backupDirectorySddl = $backup.backupDirectorySddl", source)
+        self.assertIn("[IO.Path]::GetFileName($backupPath) -cne 'verge-mihomo.exe'", path_helper)
+        self.assertIn("$backupPath -ine $backupPathPin", path_helper)
+        self.assertIn("backup SHA256 mismatch", path_helper)
+        self.assertIn("Assert-CvrIdleCaptureAcl -Path $backupDirectory -Directory", path_helper)
+        self.assertIn("Assert-CvrIdleCaptureAcl -Path $backupPath", path_helper)
+        self.assertIn("directory SDDL SHA256 expected=", path_helper)
+        self.assertIn("file SDDL SHA256 expected=", path_helper)
+        self.assertIn("[IO.Path]::GetFullPath([string]$pinnedFiles[$entryInfo.pin])", idle_transaction)
+        self.assertIn("Get-CvrCorePreimageBackupBytes -Entry $entry", idle_transaction)
+
+        restore = source.split("function Restore-CvrCorePairPreimage", 1)[1].split(
+            "function Save-CvrSyntheticStockCore", 1
+        )[0]
+        pf_validation = restore.index("Get-CvrCorePreimageBackupBytes -Entry $Preimage.programFiles")
+        service_validation = restore.index("Get-CvrCorePreimageBackupBytes -Entry $Preimage.service")
+        first_live_write = restore.index("Restore-CvrCoreFilePreimage -Entry $Preimage.programFiles")
+        self.assertLess(pf_validation, first_live_write)
+        self.assertLess(service_validation, first_live_write)
+
         self.assertIn("Test-CvrCorePreimageBackupPathContract", path_helper)
         check = workflow.index("Test-CvrCorePreimageBackupPathContract -Root $env:RUNNER_TEMP")
         build = workflow.index("- name: Fresh native Windows core build")

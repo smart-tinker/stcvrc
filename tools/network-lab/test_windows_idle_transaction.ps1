@@ -255,6 +255,7 @@ try {
         corePair = @{
             programFiles = [PSCustomObject]@{
                 path = $programFilesPath
+                pathPin = $programFilesPath
                 backup = $programFilesBackup
                 backupPathPin = $programFilesBackup
                 backupRoot = $targetCaptureRoot
@@ -266,6 +267,7 @@ try {
             }
             service = [PSCustomObject]@{
                 path = $serviceCorePath
+                pathPin = $serviceCorePath
                 backup = $serviceBackup
                 backupPathPin = $serviceBackup
                 backupRoot = $targetCaptureRoot
@@ -599,7 +601,7 @@ try {
         try {
             Restore-CvrCoreFilePreimage -Entry $programFilesEntry -Role 'Program Files'
         } catch {
-            $alternateBackupRejected = $_.Exception.Message -ceq 'Program Files core preimage backup validation failed.'
+            $alternateBackupRejected = $_.Exception.Message -like 'Program Files core preimage backup validation failed at *'
         }
         if (-not $alternateBackupRejected) { $preimageGuardFailures.Add('same-byte alternate backup path was accepted.') }
         if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
@@ -623,7 +625,7 @@ try {
         try {
             Restore-CvrCoreFilePreimage -Entry $targetCapture.corePair.programFiles -Role 'Program Files'
         } catch {
-            $tamperedBackupRejected = $_.Exception.Message -ceq 'Program Files core preimage backup validation failed.'
+            $tamperedBackupRejected = $_.Exception.Message -like 'Program Files core preimage backup validation failed at *'
         }
         if (-not $tamperedBackupRejected) { $preimageGuardFailures.Add('tampered backup bytes were not rejected before restore.') }
         if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
@@ -653,7 +655,7 @@ try {
         try {
             Restore-CvrCoreFilePreimage -Entry $targetCapture.corePair.programFiles -Role 'Program Files'
         } catch {
-            $tamperedBackupAclRejected = $_.Exception.Message -ceq 'Program Files core preimage backup validation failed.'
+            $tamperedBackupAclRejected = $_.Exception.Message -like 'Program Files core preimage backup validation failed at *'
         }
         if (-not $tamperedBackupAclRejected) { $preimageGuardFailures.Add('unprotected backup ACL was not rejected before restore.') }
         if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
