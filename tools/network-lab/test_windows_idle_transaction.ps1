@@ -701,6 +701,40 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPa
 [IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
 [IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
 
+# Synthetic package identity input for the package-to-stage capture contract.
+$stageFilesRoot = Join-Path $preflightPackageRoot 'scripts'
+$null = New-Item -ItemType Directory -Path $stageFilesRoot -ErrorAction Stop
+$stageInputPath = Join-Path $stageFilesRoot 'capture-adapter.ps1'
+[IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-input', [Text.UTF8Encoding]::new($false))
+$stageManifestPath = Join-Path $preflightPackageRoot 'source-manifest.json'
+$stageManifest = [ordered]@{
+    schemaVersion = 1
+    scope = 'synthetic package-stage contract'
+    files = @([ordered]@{
+        path = 'scripts/capture-adapter.ps1'
+        sha256 = (Get-FileHash -LiteralPath $stageInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+}
+[IO.File]::WriteAllText(
+    $stageManifestPath,
+    (ConvertTo-Json -InputObject $stageManifest -Depth 4 -Compress),
+    [Text.UTF8Encoding]::new($false)
+)
+$expectedPackageManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$expectedStageRoot = [IO.Path]::GetFullPath($preflightPackageRoot)
+
+$beforeUnboundStageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+$unboundStageCaptureRejected = $false
+try {
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $unboundStageCaptureRejected = $true
+}
+$afterUnboundStageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+if (-not $unboundStageCaptureRejected -or $afterUnboundStageCaptureCount -ne $beforeUnboundStageCaptureCount) {
+    throw 'Idle capture accepted a staged package without its external manifest pin.'
+}
+
 $protectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
 $unprotectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
 $unprotectedPackageAcl.SetAccessRuleProtection($false, $true)
