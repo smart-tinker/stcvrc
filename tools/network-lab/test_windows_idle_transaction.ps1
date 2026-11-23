@@ -686,8 +686,7 @@ if ([string]$plan.corePair.programFiles.sha256 -cne $programFilesSha -or
     $planFailures.Add('core-pair-preimage')
 }
 if ($planText.Contains('synthetic-profile-marker')) { $planFailures.Add('non-allowlisted-profile-marker') }
-$planFailureText = [string]::Join(', ', $planFailures.ToArray())
-if ($planFailures.Count) { throw ('Idle Preflight plan contract failed: ' + $planFailureText + '.') }
+if ($planFailures.Count) { throw 'Idle Preflight plan contract failed.' }
 
 $beforeRejectedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
 $targetCapture.idleObservation.ControllerListening = [bool]$true
