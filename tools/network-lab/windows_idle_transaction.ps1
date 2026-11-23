@@ -415,7 +415,7 @@ function Get-CvrIdlePackageStageBinding {
             $segments = $relativePath.Split([char]'/')
             if ($segments.Count -eq 0) { throw 'manifest path' }
             foreach ($segment in $segments) {
-                if ([string]::IsNullOrWhiteSpace($segment) -or $segment -ceq '.' -or $segment -ceq '..') {
+                if ([string]::IsNullOrWhiteSpace($segment) -or $segment -ceq '.' -or $segment -ceq '..' -or $segment -match '[. ]$') {
                     throw 'manifest path'
                 }
             }

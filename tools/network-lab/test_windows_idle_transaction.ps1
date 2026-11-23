@@ -779,6 +779,10 @@ try {
     [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $traversalManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
     $traversalManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-traversal' -StageRoot $expectedStageRoot -ManifestSha256 $traversalManifestSha256
+    $traversalManifest.files[0]['path'] = '.. /stage-escape.txt'
+    [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $traversalManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
+    $traversalManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-traversal-dot-space' -StageRoot $expectedStageRoot -ManifestSha256 $traversalManifestSha256
 } finally {
     [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytes)
     Remove-Item -LiteralPath $stageEscapePath -Force -ErrorAction Stop
