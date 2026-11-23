@@ -45,16 +45,16 @@ function Get-CvrIdlePackageStageBinding {
         $writeException = $null
         $replaced = $false
         $wrote = $false
-        try { [IO.File]::Replace($tempPath, [string]$target.Path, $null); $replaced = $true } catch { $replaceException = $_.Exception.GetBaseException().GetType().FullName }
+        $backupPath = $tempPath + '.backup'
+        try { [IO.File]::Replace($tempPath, [string]$target.Path, $backupPath); $replaced = $true } catch { $replaceException = $_.Exception.GetBaseException().GetType().FullName }
         try { [IO.File]::WriteAllBytes([string]$target.Path, [byte[]]$target.Bytes); $wrote = $true } catch { $writeException = $_.Exception.GetBaseException().GetType().FullName }
         if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force -ErrorAction Stop }
+        if (Test-Path -LiteralPath $backupPath) { Remove-Item -LiteralPath $backupPath -Force -ErrorAction Stop }
         $script:stageMutationResults[[string]$target.Name] = [PSCustomObject]@{
             Replaced = $replaced
             Wrote = $wrote
             ReplaceIOException = $replaceException -ceq 'System.IO.IOException'
             WriteIOException = $writeException -ceq 'System.IO.IOException'
-            ReplaceExceptionType = $replaceException
-            WriteExceptionType = $writeException
         }
     }
     return $binding
@@ -865,16 +865,6 @@ function Invoke-CvrIdleStageBoundaryCase {
     $safe = $mutationBlocked -and $null -eq $failure -and $output -and $bindingMatches -and $created.Count -eq 1
     foreach ($directory in $created) {
         Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
-    }
-    if (-not $safe) {
-        $details = [PSCustomObject]@{
-            FailureObserved = $null -ne $failure
-            OutputWritten = [bool]$output
-            BindingMatches = [bool]$bindingMatches
-            NewOutputCount = $created.Count
-            MutationResults = $script:stageMutationResults
-        }
-        Write-Host ("Synthetic stage boundary " + $WriterMode + " diagnostic: " + (ConvertTo-Json -InputObject $details -Depth 4 -Compress))
     }
     return [bool]$safe
 }
