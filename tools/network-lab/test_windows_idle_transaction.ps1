@@ -735,6 +735,55 @@ if (-not $unboundStageCaptureRejected -or $afterUnboundStageCaptureCount -ne $be
     throw 'Idle capture accepted a staged package without its external manifest pin.'
 }
 
+
+function Assert-CvrIdleStageCaptureRejected {
+    param(
+        [string]$CaseName,
+        [string]$StageRoot,
+        [string]$ManifestSha256
+    )
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+    $rejected = $false
+    try {
+        $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $StageRoot -ExpectedPackageManifestSha256 $ManifestSha256
+    } catch {
+        $rejected = $_.Exception.Message -ceq 'Idle package stage binding failed.'
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+    Assert-IdleTransaction ($rejected -and $after -eq $before) ("Idle capture accepted stage-binding case: " + $CaseName)
+}
+
+Assert-CvrIdleStageCaptureRejected -CaseName 'stage-path' -StageRoot ([IO.Path]::GetFullPath((Join-Path $targetCaptureRoot 'different-stage'))) -ManifestSha256 $expectedPackageManifestSha256
+Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-pin' -StageRoot $expectedStageRoot -ManifestSha256 '0000000000000000000000000000000000000000000000000000000000000000'
+
+$stageInputBytes = [IO.File]::ReadAllBytes($stageInputPath)
+try {
+    [IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-drift', [Text.UTF8Encoding]::new($false))
+    Assert-CvrIdleStageCaptureRejected -CaseName 'listed-file-drift' -StageRoot $expectedStageRoot -ManifestSha256 $expectedPackageManifestSha256
+} finally {
+    [IO.File]::WriteAllBytes($stageInputPath, $stageInputBytes)
+}
+
+$stageManifestBytes = [IO.File]::ReadAllBytes($stageManifestPath)
+$stageEscapePath = Join-Path $targetCaptureRoot 'stage-escape.txt'
+[IO.File]::WriteAllText($stageEscapePath, 'synthetic-stage-escape', [Text.UTF8Encoding]::new($false))
+$traversalManifest = [ordered]@{
+    schemaVersion = 1
+    scope = 'synthetic package-stage traversal rejection'
+    files = @([ordered]@{
+        path = '../stage-escape.txt'
+        sha256 = (Get-FileHash -LiteralPath $stageEscapePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+}
+try {
+    [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $traversalManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
+    $traversalManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-traversal' -StageRoot $expectedStageRoot -ManifestSha256 $traversalManifestSha256
+} finally {
+    [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytes)
+    Remove-Item -LiteralPath $stageEscapePath -Force -ErrorAction Stop
+}
+
 $protectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
 $unprotectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
 $unprotectedPackageAcl.SetAccessRuleProtection($false, $true)
@@ -742,7 +791,7 @@ Set-Acl -LiteralPath $preflightPackageRoot -AclObject $unprotectedPackageAcl -Er
 $beforeUnprotectedPackageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
 $unprotectedPackageRejected = $false
 try {
-    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $unprotectedPackageRejected = $_.Exception.Message -ceq 'Idle Preflight package root is not protected.'
 }
@@ -758,7 +807,7 @@ $targetCapture.idleObservation.ControllerListening = [bool]$true
 $beforeRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
 $rejectedSave = $false
 try {
-    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $rejectedSave = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
 }
@@ -768,8 +817,8 @@ if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCapture
     throw 'Rejected idle Preflight created a capture directory.'
 }
 
-$preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
-$preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+$preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 $preflightDirectory = [IO.Path]::GetFullPath($preflight.CaptureDirectory)
 $preflightLocal = [IO.Path]::GetFullPath($preflightLocalRoot)
 if ([IO.Path]::GetDirectoryName($preflightDirectory) -ine $preflightLocal -or
@@ -793,6 +842,7 @@ $receipt = $receiptText | ConvertFrom-Json
 $receiptFailures = [Collections.Generic.List[string]]::new()
 if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning) { $receiptFailures.Add('strict-false-intent') }
 if ($receipt.targetIdentity -cne $targetIdentity) { $receiptFailures.Add('target-identity') }
+if ([IO.Path]::GetFullPath([string]$receipt.packageStageBinding.stageRoot) -cne $expectedStageRoot -or [string]$receipt.packageStageBinding.sourceManifestSha256 -cne $expectedPackageManifestSha256) { $receiptFailures.Add('package-stage-binding') }
 $receiptPinNames = @($receipt.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
 $expectedPinNames = @('gui258', 'serviceExe258', 'programFilesCore', 'serviceCore', 'candidateCore', 'updateInstaller', 'updateHelper', 'recoveryInstaller', 'recoveryHelper')
 $receiptPinNamesText = @($receiptPinNames | Sort-Object -CaseSensitive) -join '|'
@@ -822,8 +872,22 @@ if (-not (Get-Command -Name Save-CvrIdlePreflightPlan -CommandType Function -Err
 }
 
 $beforePreparedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
-$preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
-$preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$stageInputBytesBeforePlan = [IO.File]::ReadAllBytes($stageInputPath)
+$rejectedPlanForStageDrift = $false
+try {
+    [IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-drift-before-plan', [Text.UTF8Encoding]::new($false))
+    try {
+        $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+    } catch {
+        $rejectedPlanForStageDrift = $_.Exception.Message -ceq 'Idle package stage binding failed.'
+    }
+} finally {
+    [IO.File]::WriteAllBytes($stageInputPath, $stageInputBytesBeforePlan)
+}
+Assert-IdleTransaction ($rejectedPlanForStageDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforePreparedPlanCount) 'Idle Preflight plan accepted staged package drift or wrote output.'
+
+$preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+$preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 $preparedDirectory = [IO.Path]::GetFullPath($preparedPlan.PreparedDirectory)
 $preparedAgainDirectory = [IO.Path]::GetFullPath($preparedPlanAgain.PreparedDirectory)
 $uniquePreparedOutput = (
@@ -855,6 +919,8 @@ foreach ($pinName in $expectedPinNames) {
 $planBindingAndBaselineMatch = (
     $plan.coreShouldBeRunning -is [bool] -and -not $plan.coreShouldBeRunning -and
     $plan.targetIdentity -ceq $targetIdentity -and
+    [IO.Path]::GetFullPath([string]$plan.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$plan.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256 -and
     [IO.Path]::GetFullPath([string]$plan.captureDirectory) -ceq $preflightDirectory -and
     [IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -ceq [IO.Path]::GetFullPath($preflight.ReceiptPath) -and
     [string]$plan.captureReceiptSha256 -ceq (Get-FileHash -LiteralPath $preflight.ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant() -and
@@ -885,7 +951,7 @@ $beforeRejectedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Dir
 $targetCapture.idleObservation.ControllerListening = [bool]$true
 $rejectedPlanForListener = $false
 try {
-    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $rejectedPlanForListener = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
 } finally {
@@ -899,7 +965,7 @@ $receiptForPlanDrift.targetIdentity = [Guid]::NewGuid().ToString('N')
 [IO.File]::WriteAllText($preflight.ReceiptPath, (ConvertTo-Json -InputObject $receiptForPlanDrift -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
 $rejectedPlanForReceiptDrift = $false
 try {
-    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $rejectedPlanForReceiptDrift = $_.Exception.Message -ceq 'Idle Preflight capture receipt does not match the supplied capture.'
 } finally {

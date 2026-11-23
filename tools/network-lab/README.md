@@ -41,6 +41,8 @@ The Windows job installs the verified stock CVR pair on its disposable runner an
 
 The Linux maintenance helper uses runner-owned processes and an isolated namespace without default routes. Its intent/receipt and process-identity checks are described in [the helper source](../linux-maintenance/). It does not maintain an installed user machine.
 
+The Windows idle Preflight capture and plan writers require the caller's exact stage root and externally pinned `source-manifest.json` SHA-256. They recheck every manifest-listed staged file before writing, bind that stage identity into the protected receipt and plan, and reject path traversal or staged-file drift. The pin must come from the trusted package record outside the staged tree. The shared Windows fixture exercises only synthetic files and records no operational pins.
+
 ## Failure handling and evidence
 
 Each observation belongs to its exact harness SHA, tested source SHA, executable digest, toolchain and platform. Preserve FAIL, INVALID, UNRUN and skipped outcomes separately.

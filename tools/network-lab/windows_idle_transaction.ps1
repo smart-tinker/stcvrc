@@ -362,16 +362,101 @@ function Set-CvrIdleCaptureAcl {
     }
 }
 
+function Get-CvrIdlePackageStageBinding {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256
+    )
+
+    try {
+        if (-not [IO.Path]::IsPathRooted($StageRoot) -or
+            -not [IO.Path]::IsPathRooted($ExpectedStageRoot) -or
+            $ExpectedPackageManifestSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw 'invalid'
+        }
+        $stagePath = [IO.Path]::GetFullPath($StageRoot)
+        if ($stagePath -ine [IO.Path]::GetFullPath($ExpectedStageRoot)) { throw 'stage path' }
+        $stageItem = Get-Item -LiteralPath $stagePath -Force -ErrorAction Stop
+        if (-not $stageItem.PSIsContainer -or
+            (([int]$stageItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            throw 'stage root'
+        }
+
+        $manifestPath = Join-Path $stagePath 'source-manifest.json'
+        $manifestItem = Get-Item -LiteralPath $manifestPath -Force -ErrorAction Stop
+        if ($manifestItem.PSIsContainer -or
+            (([int]$manifestItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            throw 'manifest'
+        }
+        $manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        if ($manifestSha256 -ine $ExpectedPackageManifestSha256) { throw 'manifest pin' }
+
+        $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json -ErrorAction Stop
+        if ([int]$manifest.schemaVersion -ne 1 -or @($manifest.files).Count -eq 0) {
+            throw 'manifest schema'
+        }
+        $seenPaths = @{}
+        foreach ($entry in @($manifest.files)) {
+            $pathProperty = $entry.PSObject.Properties['path']
+            $shaProperty = $entry.PSObject.Properties['sha256']
+            if (-not $pathProperty -or $pathProperty.Value -isnot [string] -or
+                -not $shaProperty -or $shaProperty.Value -isnot [string] -or
+                $shaProperty.Value -notmatch '^[0-9a-fA-F]{64}$') {
+                throw 'manifest entry'
+            }
+            $relativePath = [string]$pathProperty.Value
+            if ([IO.Path]::IsPathRooted($relativePath) -or
+                $relativePath -match '[\\:\x00-\x1f]' -or
+                $relativePath.StartsWith('/')) {
+                throw 'manifest path'
+            }
+            $segments = $relativePath.Split([char]'/')
+            if ($segments.Count -eq 0) { throw 'manifest path' }
+            foreach ($segment in $segments) {
+                if ([string]::IsNullOrWhiteSpace($segment) -or $segment -ceq '.' -or $segment -ceq '..') {
+                    throw 'manifest path'
+                }
+            }
+            if ($seenPaths.ContainsKey($relativePath)) { throw 'duplicate path' }
+            $seenPaths[$relativePath] = $true
+
+            $currentPath = $stagePath
+            for ($index = 0; $index -lt $segments.Count; $index++) {
+                $currentPath = Join-Path $currentPath $segments[$index]
+                $item = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+                if ((([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+                    ($index -lt ($segments.Count - 1) -and -not $item.PSIsContainer) -or
+                    ($index -eq ($segments.Count - 1) -and $item.PSIsContainer)) {
+                    throw 'staged path'
+                }
+            }
+            $actualSha256 = (Get-FileHash -LiteralPath $currentPath -Algorithm SHA256 -ErrorAction Stop).Hash
+            if ($actualSha256 -ine [string]$shaProperty.Value) { throw 'staged hash' }
+        }
+        return [PSCustomObject]@{
+            StageRoot = $stagePath
+            SourceManifestSha256 = $manifestSha256
+        }
+    } catch {
+        throw 'Idle package stage binding failed.'
+    }
+}
+
 function Save-CvrIdlePreflightCapture {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][object]$Capture,
         [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
         [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
-        [Parameter(Mandatory = $true)][string]$PackageRoot
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256
     )
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
     try {
         $packagePath = [IO.Path]::GetFullPath($PackageRoot)
         $localPath = [IO.Path]::GetFullPath((Join-Path $packagePath 'local'))
@@ -415,6 +500,10 @@ function Save-CvrIdlePreflightCapture {
     $serviceCore = $Capture.corePair.service
     $receipt = [ordered]@{
         targetIdentity = [string]$Capture.targetIdentity
+        packageStageBinding = [ordered]@{
+            stageRoot = [string]$packageStageBinding.StageRoot
+            sourceManifestSha256 = [string]$packageStageBinding.SourceManifestSha256
+        }
         capturedAtUtc = $Capture.capturedAtUtc.ToString('o')
         coreShouldBeRunning = [bool]$Capture.coreShouldBeRunning
         expectedPins = $storedPins
@@ -497,10 +586,13 @@ function Save-CvrIdlePreflightPlan {
         [Parameter(Mandatory = $true)][string]$ReceiptPath,
         [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
         [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
-        [Parameter(Mandatory = $true)][string]$PackageRoot
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256
     )
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
 
     $pinNames = @(
         'gui258', 'serviceExe258', 'programFilesCore', 'serviceCore',
@@ -557,6 +649,10 @@ function Save-CvrIdlePreflightPlan {
     }
     $expectedReceipt = [ordered]@{
         targetIdentity = [string]$Capture.targetIdentity
+        packageStageBinding = [ordered]@{
+            stageRoot = [string]$packageStageBinding.StageRoot
+            sourceManifestSha256 = [string]$packageStageBinding.SourceManifestSha256
+        }
         capturedAtUtc = $Capture.capturedAtUtc.ToString('o')
         coreShouldBeRunning = [bool]$Capture.coreShouldBeRunning
         expectedPins = $storedPins
