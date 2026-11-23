@@ -464,3 +464,186 @@ function Save-CvrIdlePreflightCapture {
         throw 'Idle Preflight capture could not be written.'
     }
 }
+
+function Save-CvrIdlePreflightPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][string]$CaptureDirectory,
+        [Parameter(Mandatory = $true)][string]$ReceiptPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][string]$PackageRoot
+    )
+
+    $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+
+    $pinNames = @(
+        'gui258', 'serviceExe258', 'programFilesCore', 'serviceCore',
+        'candidateCore', 'updateInstaller', 'updateHelper',
+        'recoveryInstaller', 'recoveryHelper'
+    )
+    $storedPins = [ordered]@{}
+    foreach ($pinName in $pinNames) {
+        $storedPins[$pinName] = [string]$ExpectedPins[$pinName]
+    }
+
+    $observation = $Capture.idleObservation
+    $storedObservation = [ordered]@{
+        CoreShouldBeRunning = [bool]$observation.CoreShouldBeRunning
+        OwnedGuiProcessIds = @($observation.OwnedGuiProcessIds)
+        OwnedCoreProcessIds = @($observation.OwnedCoreProcessIds)
+        ControllerListening = [bool]$observation.ControllerListening
+        OwnedListenerProcessIds = @($observation.OwnedListenerProcessIds)
+        ServiceStatus = [string]$observation.ServiceStatus
+        ExpectedProgramFilesCoreSha256 = [string]$observation.ExpectedProgramFilesCoreSha256
+        ObservedProgramFilesCoreSha256 = [string]$observation.ObservedProgramFilesCoreSha256
+        ExpectedServiceCoreSha256 = [string]$observation.ExpectedServiceCoreSha256
+        ObservedServiceCoreSha256 = [string]$observation.ObservedServiceCoreSha256
+    }
+    $programFiles = $Capture.corePair.programFiles
+    $serviceCore = $Capture.corePair.service
+    $storedCorePair = [ordered]@{
+        programFiles = [ordered]@{
+            path = [string]$programFiles.path
+            backup = [string]$programFiles.backup
+            sha256 = [string]$programFiles.sha256
+            sddl = [string]$programFiles.sddl
+        }
+        service = [ordered]@{
+            path = [string]$serviceCore.path
+            backup = [string]$serviceCore.backup
+            sha256 = [string]$serviceCore.sha256
+            sddl = [string]$serviceCore.sddl
+        }
+    }
+    $storedPinnedFiles = [ordered]@{}
+    foreach ($pinName in $pinNames) {
+        $storedPinnedFiles[$pinName] = [string]$Capture.pinnedFiles[$pinName]
+    }
+    $expectedReceipt = [ordered]@{
+        targetIdentity = [string]$Capture.targetIdentity
+        capturedAtUtc = $Capture.capturedAtUtc.ToString('o')
+        coreShouldBeRunning = [bool]$Capture.coreShouldBeRunning
+        expectedPins = $storedPins
+        idleObservation = $storedObservation
+        corePair = $storedCorePair
+    }
+    $expectedReceiptText = ConvertTo-Json -InputObject $expectedReceipt -Depth 8 -Compress -ErrorAction Stop
+
+    try {
+        $packagePath = [IO.Path]::GetFullPath($PackageRoot)
+        $localPath = [IO.Path]::GetFullPath((Join-Path $packagePath 'local'))
+        $packageItem = Get-Item -LiteralPath $packagePath -Force -ErrorAction Stop
+        $localItem = Get-Item -LiteralPath $localPath -Force -ErrorAction Stop
+        if (-not $packageItem.PSIsContainer -or -not $localItem.PSIsContainer -or
+            [IO.Path]::GetDirectoryName($localPath) -ine $packagePath -or
+            (([int]$packageItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            (([int]$localItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            throw 'invalid'
+        }
+        $null = Assert-CvrIdleCaptureAcl -Path $packagePath -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $localPath -Directory
+    } catch {
+        throw 'Idle Preflight package root is not protected.'
+    }
+
+    $receiptStream = $null
+    try {
+        $capturePath = [IO.Path]::GetFullPath($CaptureDirectory)
+        $receiptFullPath = [IO.Path]::GetFullPath($ReceiptPath)
+        $expectedReceiptPath = [IO.Path]::GetFullPath((Join-Path $capturePath 'capture.json'))
+        if ([IO.Path]::GetDirectoryName($capturePath) -ine $localPath -or
+            [IO.Path]::GetFileName($capturePath) -notmatch '^capture-idle-[0-9a-f]{32}$' -or
+            $receiptFullPath -ine $expectedReceiptPath -or
+            -not (Test-Path -LiteralPath $receiptFullPath -PathType Leaf -ErrorAction Stop)) {
+            throw 'invalid'
+        }
+        $null = Assert-CvrIdleCaptureAcl -Path $capturePath -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $receiptFullPath
+        $receiptStream = [IO.File]::Open($receiptFullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $receiptMemory = New-Object IO.MemoryStream
+        try {
+            $receiptStream.CopyTo($receiptMemory)
+            $receiptBytes = $receiptMemory.ToArray()
+        } finally {
+            $receiptMemory.Dispose()
+        }
+        $actualReceiptText = [Text.UTF8Encoding]::new($false, $true).GetString($receiptBytes)
+        if ($actualReceiptText -cne $expectedReceiptText) {
+            throw 'mismatch'
+        }
+        $receiptHasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $captureReceiptSha256 = ([BitConverter]::ToString($receiptHasher.ComputeHash($receiptBytes))).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $receiptHasher.Dispose()
+        }
+        if ($captureReceiptSha256 -notmatch '^[0-9a-f]{64}$') { throw 'hash' }
+    } catch {
+        if ($receiptStream) {
+            $receiptStream.Dispose()
+            $receiptStream = $null
+        }
+        throw 'Idle Preflight capture receipt does not match the supplied capture.'
+    }
+
+    try {
+        $plan = $expectedReceipt
+        $plan['pinnedFiles'] = $storedPinnedFiles
+        $plan['captureDirectory'] = $capturePath
+        $plan['captureReceiptPath'] = $receiptFullPath
+        $plan['captureReceiptSha256'] = $captureReceiptSha256
+        $planBytes = [Text.UTF8Encoding]::new($false).GetBytes(
+            (ConvertTo-Json -InputObject $plan -Depth 8 -Compress -ErrorAction Stop)
+        )
+        $preparedDirectory = Join-Path $localPath ('prepared-idle-' + [Guid]::NewGuid().ToString('N'))
+        $createdDirectory = $false
+        try {
+            if (Test-Path -LiteralPath $preparedDirectory) { throw 'exists' }
+            $null = New-Item -ItemType Directory -Path $preparedDirectory -ErrorAction Stop
+            $createdDirectory = $true
+            $null = Set-CvrIdleCaptureAcl -Path $preparedDirectory -Directory
+
+            $planPath = Join-Path $preparedDirectory 'plan.json'
+            $stream = [IO.File]::Open(
+                $planPath,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::None
+            )
+            $stream.Dispose()
+            $null = Set-CvrIdleCaptureAcl -Path $planPath
+            $stream = [IO.File]::Open(
+                $planPath,
+                [IO.FileMode]::Open,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::None
+            )
+            try {
+                $stream.Write($planBytes, 0, $planBytes.Length)
+                $stream.Flush()
+            } finally {
+                $stream.Dispose()
+            }
+
+            if ((Get-FileHash -LiteralPath $receiptFullPath -Algorithm SHA256 -ErrorAction Stop).Hash -ine $captureReceiptSha256) {
+                throw 'receipt-drift'
+            }
+            $planSha256 = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            return [PSCustomObject]@{
+                PreparedDirectory = $preparedDirectory
+                PlanPath = $planPath
+                PlanSha256 = $planSha256
+            }
+        } catch {
+            if ($createdDirectory) {
+                Remove-Item -LiteralPath $preparedDirectory -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            throw 'Idle Preflight plan could not be written.'
+        }
+
+    } finally {
+        if ($receiptStream) { $receiptStream.Dispose() }
+    }
+}
