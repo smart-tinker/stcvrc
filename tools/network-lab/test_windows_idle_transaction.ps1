@@ -518,9 +518,23 @@ try {
     Assert-IdleTargetCaptureRejected 'aliased core preimages' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
     $targetCapture.corePair.service.backup = $savedServiceBackup
 
-    [IO.File]::WriteAllBytes($serviceBackup, [byte[]](4, 3, 2))
-    Assert-IdleTargetCaptureRejected 'changed service preimage bytes' 'Idle target core preimage verification failed.' $targetIdentity $expectedPins
-    [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
+    $beforeServiceBackupDriftProgramFiles = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+    $beforeServiceBackupDriftService = [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath))
+    $beforeServiceBackupDriftProgramFilesSddl = (Get-Acl -LiteralPath $programFilesPath).Sddl
+    $beforeServiceBackupDriftServiceSddl = (Get-Acl -LiteralPath $serviceCorePath).Sddl
+    try {
+        [IO.File]::WriteAllBytes($serviceBackup, [byte[]](4, 3, 2))
+        $changedServiceSha = (Get-FileHash -LiteralPath $serviceBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+        Assert-IdleTargetCaptureRejected 'changed service preimage bytes' "Idle target core preimage verification failed: service core preimage backup validation failed at backup SHA256 (SHA256 expected=$serviceSha actual=$changedServiceSha)." $targetIdentity $expectedPins
+    } finally {
+        [IO.File]::WriteAllBytes($serviceBackup, $serviceBytes)
+    }
+    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $beforeServiceBackupDriftProgramFiles -or
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath)) -cne $beforeServiceBackupDriftService -or
+        (Get-Acl -LiteralPath $programFilesPath).Sddl -cne $beforeServiceBackupDriftProgramFilesSddl -or
+        (Get-Acl -LiteralPath $serviceCorePath).Sddl -cne $beforeServiceBackupDriftServiceSddl) {
+        throw 'Changed service backup bytes altered a live core or ACL before rejection.'
+    }
 
     $savedSddl = $targetCapture.corePair.programFiles.sddl
     $targetCapture.corePair.programFiles.sddl = 'unreviewed'
@@ -557,7 +571,7 @@ try {
                 $script:wrongCorePathActionCalled = $true
             } -RestoreScript { 'restored' } -VerifyScript { param($capture, $restored) $true }
         } catch {
-            if ($_.Exception.Message -ceq 'Idle target core preimage verification failed.') {
+            if ($_.Exception.Message -like 'Idle target core preimage verification failed*') {
                 $rejected = $true
             } else {
                 $preimageGuardFailures.Add("$($case.label) alternate path returned an unexpected guard error.")
