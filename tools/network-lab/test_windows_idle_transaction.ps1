@@ -207,6 +207,10 @@ try {
     $serviceSha = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $programFilesAcl = Get-Acl -LiteralPath $programFilesPath
     $serviceAcl = Get-Acl -LiteralPath $serviceCorePath
+    $programFilesBackupAcl = Get-Acl -LiteralPath $programFilesBackup
+    $serviceBackupAcl = Get-Acl -LiteralPath $serviceBackup
+    $programFilesBackupDirectoryAcl = Get-Acl -LiteralPath ([IO.Path]::GetDirectoryName($programFilesBackup))
+    $serviceBackupDirectoryAcl = Get-Acl -LiteralPath ([IO.Path]::GetDirectoryName($serviceBackup))
 
     $expectedPins = @{
         gui258 = $pinSha
@@ -252,6 +256,10 @@ try {
             programFiles = [PSCustomObject]@{
                 path = $programFilesPath
                 backup = $programFilesBackup
+                backupPathPin = $programFilesBackup
+                backupRoot = $targetCaptureRoot
+                backupSddl = $programFilesBackupAcl.Sddl
+                backupDirectorySddl = $programFilesBackupDirectoryAcl.Sddl
                 sha256 = $programFilesSha
                 sddl = $programFilesAcl.Sddl
                 acl = $programFilesAcl
@@ -259,6 +267,10 @@ try {
             service = [PSCustomObject]@{
                 path = $serviceCorePath
                 backup = $serviceBackup
+                backupPathPin = $serviceBackup
+                backupRoot = $targetCaptureRoot
+                backupSddl = $serviceBackupAcl.Sddl
+                backupDirectorySddl = $serviceBackupDirectoryAcl.Sddl
                 sha256 = $serviceSha
                 sddl = $serviceAcl.Sddl
                 acl = $serviceAcl
@@ -515,35 +527,34 @@ try {
 
 
 
-    # The pair paths must be the exact pinned cores; equal bytes at another path are not enough.
+    # The pair path must bind to its pinned file even when an alternate has exact pinned bytes and ACL.
     $preimageGuardFailures = [Collections.Generic.List[string]]::new()
-    $candidatePayloadForPathTest = [IO.File]::ReadAllBytes($pinnedFiles.candidateCore)
     foreach ($case in @(
-        [PSCustomObject]@{ label='Program Files'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; acl=$programFilesAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-program-files') },
-        [PSCustomObject]@{ label='service'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; acl=$serviceAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-service') }
+        [PSCustomObject]@{ label='Program Files'; pin='programFilesCore'; entry=$targetCapture.corePair.programFiles; originalPath=$programFilesPath; acl=$programFilesAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-program-files') },
+        [PSCustomObject]@{ label='service'; pin='serviceCore'; entry=$targetCapture.corePair.service; originalPath=$serviceCorePath; acl=$serviceAcl; alternateDirectory=(Join-Path $targetCaptureRoot 'alternate-service') }
     )) {
         $null = New-Item -ItemType Directory -Path $case.alternateDirectory
         $alternatePath = Join-Path $case.alternateDirectory 'verge-mihomo.exe'
         [IO.File]::WriteAllBytes($alternatePath, [IO.File]::ReadAllBytes($case.originalPath))
         Set-Acl -LiteralPath $alternatePath -AclObject $case.acl
+        $alternateSha = (Get-FileHash -LiteralPath $alternatePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $alternateSddl = (Get-Acl -LiteralPath $alternatePath).Sddl
+        if ([IO.Path]::GetFullPath($alternatePath) -ieq [IO.Path]::GetFullPath([string]$pinnedFiles[$case.pin]) -or
+            $alternateSha -cne [string]$expectedPins[$case.pin] -or
+            $alternateSddl -cne [string]$case.entry.sddl) {
+            throw 'Alternate live-core fixture did not preserve exact pinned bytes and ACL.'
+        }
         $beforeProgramFiles = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
         $beforeService = [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath))
+        $beforeProgramFilesSddl = (Get-Acl -LiteralPath $programFilesPath).Sddl
+        $beforeServiceSddl = (Get-Acl -LiteralPath $serviceCorePath).Sddl
         $script:wrongCorePathActionCalled = $false
         $rejected = $false
         $case.entry.path = $alternatePath
         try {
             $null = Invoke-CvrIdleTargetTransaction -CaptureScript { $targetCapture } -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
-                param($capture)
                 $script:wrongCorePathActionCalled = $true
-                [IO.File]::WriteAllBytes([string]$capture.pinnedFiles.programFilesCore, $candidatePayloadForPathTest)
-                [IO.File]::WriteAllBytes([string]$capture.pinnedFiles.serviceCore, $candidatePayloadForPathTest)
-                throw 'synthetic-invalid-core-path-action'
-            } -RestoreScript {
-                param($capture)
-                Restore-CvrCoreFilePreimage -Entry $capture.corePair.programFiles -Role 'Program Files'
-                Restore-CvrCoreFilePreimage -Entry $capture.corePair.service -Role 'service'
-                'restored'
-            } -VerifyScript { param($capture, $restored) $true }
+            } -RestoreScript { 'restored' } -VerifyScript { param($capture, $restored) $true }
         } catch {
             if ($_.Exception.Message -ceq 'Idle target core preimage verification failed.') {
                 $rejected = $true
@@ -556,14 +567,50 @@ try {
         if (-not $rejected) { $preimageGuardFailures.Add("$($case.label) same-byte alternate path was accepted.") }
         if ($script:wrongCorePathActionCalled) { $preimageGuardFailures.Add("$($case.label) alternate path reached the transaction action.") }
         if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $beforeProgramFiles -or
-            [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath)) -cne $beforeService) {
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($serviceCorePath)) -cne $beforeService -or
+            (Get-Acl -LiteralPath $programFilesPath).Sddl -cne $beforeProgramFilesSddl -or
+            (Get-Acl -LiteralPath $serviceCorePath).Sddl -cne $beforeServiceSddl) {
             $preimageGuardFailures.Add("$($case.label) alternate path changed a pinned live core.")
         }
+        Remove-Item -LiteralPath $case.alternateDirectory -Recurse -Force -ErrorAction Stop
+    }
+
+    # An alternate backup with exact pinned bytes and ACL still is not the pinned restore source.
+    $alternateProgramFilesBackup = New-CvrCorePreimageBackupPath -Root $targetCaptureRoot -Label 'program-files'
+    Write-IdleProtectedBackup -Path $alternateProgramFilesBackup -Bytes $programFilesBytes
+    $alternateBackupSha = (Get-FileHash -LiteralPath $alternateProgramFilesBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+    $alternateBackupSddl = (Get-Acl -LiteralPath $alternateProgramFilesBackup).Sddl
+    $alternateBackupDirectorySddl = (Get-Acl -LiteralPath ([IO.Path]::GetDirectoryName($alternateProgramFilesBackup))).Sddl
+    if ([IO.Path]::GetFullPath($alternateProgramFilesBackup) -ieq [IO.Path]::GetFullPath([string]$targetCapture.corePair.programFiles.backupPathPin) -or
+        $alternateBackupSha -cne [string]$expectedPins.programFilesCore -or
+        $alternateBackupSddl -cne [string]$targetCapture.corePair.programFiles.backupSddl -or
+        $alternateBackupDirectorySddl -cne [string]$targetCapture.corePair.programFiles.backupDirectorySddl) {
+        throw 'Alternate backup fixture did not preserve exact pinned bytes and ACL.'
+    }
+    $null = Assert-CvrIdleCaptureAcl -Path $alternateProgramFilesBackup
+    $null = Assert-CvrIdleCaptureAcl -Path ([IO.Path]::GetDirectoryName($alternateProgramFilesBackup)) -Directory
+    $programFilesEntry = $targetCapture.corePair.programFiles
+    $originalProgramFilesBackupPath = $programFilesEntry.backup
+    $liveMarker = [byte[]](0x91, 0x82, 0x73, 0x64)
+    $alternateBackupRejected = $false
+    try {
+        [IO.File]::WriteAllBytes($programFilesPath, $liveMarker)
+        $liveBeforeRestore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath))
+        $programFilesEntry.backup = $alternateProgramFilesBackup
+        try {
+            Restore-CvrCoreFilePreimage -Entry $programFilesEntry -Role 'Program Files'
+        } catch {
+            $alternateBackupRejected = $_.Exception.Message -ceq 'Program Files core preimage backup validation failed.'
+        }
+        if (-not $alternateBackupRejected) { $preimageGuardFailures.Add('same-byte alternate backup path was accepted.') }
+        if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($programFilesPath)) -cne $liveBeforeRestore) {
+            $preimageGuardFailures.Add('same-byte alternate backup changed the live core before rejection.')
+        }
+    } finally {
+        $programFilesEntry.backup = $originalProgramFilesBackupPath
         [IO.File]::WriteAllBytes($programFilesPath, $programFilesBytes)
         Set-Acl -LiteralPath $programFilesPath -AclObject $programFilesAcl
-        [IO.File]::WriteAllBytes($serviceCorePath, $serviceBytes)
-        Set-Acl -LiteralPath $serviceCorePath -AclObject $serviceAcl
-        Remove-Item -LiteralPath $case.alternateDirectory -Recurse -Force -ErrorAction Stop
+        Remove-Item -LiteralPath ([IO.Path]::GetDirectoryName($alternateProgramFilesBackup)) -Recurse -Force -ErrorAction Stop
     }
 
     # A bad backup must be rejected before Restore writes to the live core.
