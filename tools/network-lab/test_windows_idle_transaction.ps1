@@ -618,75 +618,60 @@ $preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirect
 $preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
 $preparedDirectory = [IO.Path]::GetFullPath($preparedPlan.PreparedDirectory)
 $preparedAgainDirectory = [IO.Path]::GetFullPath($preparedPlanAgain.PreparedDirectory)
-if ([IO.Path]::GetDirectoryName($preparedDirectory) -ine $preflightLocal -or
-    [IO.Path]::GetFileName($preparedDirectory) -notmatch '^prepared-idle-[0-9a-f]{32}
+$uniquePreparedOutput = (
+    [IO.Path]::GetDirectoryName($preparedDirectory) -ieq $preflightLocal -and
+    [IO.Path]::GetFileName($preparedDirectory) -match '^prepared-idle-[0-9a-f]{32}$' -and
+    $preparedDirectory -ine [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared')) -and
+    $preparedDirectory -ine $preflightDirectory -and
+    $preparedAgainDirectory -ine $preparedDirectory -and
+    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq ($beforePreparedPlanCount + 2)
+)
+Assert-IdleTransaction $uniquePreparedOutput 'Idle Preflight plans did not use unique siblings.'
 
-if ($script:nativeCalls -ne 0) { throw 'Idle capture fixture reached a native action tripwire.' }
-$fixtureSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
-[pscustomobject]@{
-    pass = $true
-    fixtureSha256 = $fixtureSha256
-    targetCaptureOutcomes = @($script:targetCaptureOutcomes.ToArray())
-    idleTransaction = $script:idleTransactionReceipt
-    measuredNativeCalls = $script:nativeCalls
-} | ConvertTo-Json -Depth 5 -Compress | Write-Host
-
-} finally {
-    if ($ownsServiceFixtureRoot) { Remove-Item -LiteralPath $serviceFixtureRoot -Recurse -Force -ErrorAction Stop }
-    if ($ownsProgramFilesFixtureRoot) { Remove-Item -LiteralPath $programFilesFixtureRoot -Recurse -Force -ErrorAction Stop }
-    Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
-}
- -or
-    $preparedDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared')) -or
-    $preparedDirectory -ceq $preflightDirectory -or
-    $preparedAgainDirectory -ceq $preparedDirectory -or
-    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -ne ($beforePreparedPlanCount + 2)) {
-    throw 'Idle Preflight plan was not written to unique protected siblings.'
-}
-if (-not (Test-Path -LiteralPath $preparedPlan.PlanPath -PathType Leaf) -or
-    [IO.Path]::GetFileName($preparedPlan.PlanPath) -cne 'plan.json' -or
-    (Get-FileHash -LiteralPath $preparedPlan.PlanPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$preparedPlan.PlanSha256 -or
-    -not (Get-Acl -LiteralPath $preparedDirectory).AreAccessRulesProtected -or
-    -not (Get-Acl -LiteralPath $preparedPlan.PlanPath).AreAccessRulesProtected) {
-    throw 'Idle Preflight plan is missing or not hash-bound and protected.'
-}
 $planText = [IO.File]::ReadAllText($preparedPlan.PlanPath)
 $plan = $planText | ConvertFrom-Json
-$planFailures = [Collections.Generic.List[string]]::new()
-if ($plan.coreShouldBeRunning -isnot [bool] -or $plan.coreShouldBeRunning) { $planFailures.Add('strict-false-intent') }
-if ($plan.targetIdentity -cne $targetIdentity) { $planFailures.Add('target-identity') }
-if ([IO.Path]::GetFullPath([string]$plan.captureDirectory) -cne $preflightDirectory) { $planFailures.Add('capture-directory-binding') }
-if ([IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -cne [IO.Path]::GetFullPath($preflight.ReceiptPath)) { $planFailures.Add('capture-receipt-binding') }
-if ([string]$plan.captureReceiptSha256 -cne (Get-FileHash -LiteralPath $preflight.ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()) { $planFailures.Add('capture-receipt-hash') }
 $planPinNames = @($plan.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
-if ($planPinNames.Count -ne $expectedPinNames.Count -or (@($planPinNames | Sort-Object -CaseSensitive) -join '|') -cne $expectedPinNamesText) {
-    $planFailures.Add('exact-pin-fields')
-}
-$planPinnedFileNames = @($plan.pinnedFiles.PSObject.Properties | ForEach-Object { $_.Name })
-if ($planPinnedFileNames.Count -ne $expectedPinNames.Count -or (@($planPinnedFileNames | Sort-Object -CaseSensitive) -join '|') -cne $expectedPinNamesText) {
-    $planFailures.Add('exact-pinned-file-fields')
-}
+$planFileNames = @($plan.pinnedFiles.PSObject.Properties | ForEach-Object { $_.Name })
+$planPinsMatch = (
+    $planPinNames.Count -eq $expectedPinNames.Count -and
+    (@($planPinNames | Sort-Object -CaseSensitive) -join '|') -ceq $expectedPinNamesText -and
+    $planFileNames.Count -eq $expectedPinNames.Count -and
+    (@($planFileNames | Sort-Object -CaseSensitive) -join '|') -ceq $expectedPinNamesText
+)
 foreach ($pinName in $expectedPinNames) {
     if ([string]$plan.expectedPins.$pinName -cne [string]$expectedPins[$pinName] -or
         [string]$plan.pinnedFiles.$pinName -cne [string]$pinnedFiles[$pinName]) {
-        $planFailures.Add("pin-binding:$pinName")
+        $planPinsMatch = $false
     }
 }
-if ($plan.idleObservation.ControllerListening -isnot [bool] -or $plan.idleObservation.ControllerListening -or
-    @($plan.idleObservation.OwnedGuiProcessIds).Count -ne 0 -or
-    @($plan.idleObservation.OwnedCoreProcessIds).Count -ne 0 -or
-    @($plan.idleObservation.OwnedListenerProcessIds).Count -ne 0) {
-    $planFailures.Add('idle-observation')
-}
-if ([string]$plan.corePair.programFiles.sha256 -cne $programFilesSha -or
-    [string]$plan.corePair.programFiles.sddl -cne [string]$programFilesAcl.Sddl -or
-    [string]$plan.corePair.service.sha256 -cne $serviceSha -or
-    [string]$plan.corePair.service.sddl -cne [string]$serviceAcl.Sddl -or
-    [IO.Path]::GetFileName([string]$plan.corePair.service.backup) -cne 'verge-mihomo.exe') {
-    $planFailures.Add('core-pair-preimage')
-}
-if ($planText.Contains('synthetic-profile-marker')) { $planFailures.Add('non-allowlisted-profile-marker') }
-if ($planFailures.Count) { throw 'Idle Preflight plan contract failed.' }
+$planBindingAndBaselineMatch = (
+    $plan.coreShouldBeRunning -is [bool] -and -not $plan.coreShouldBeRunning -and
+    $plan.targetIdentity -ceq $targetIdentity -and
+    [IO.Path]::GetFullPath([string]$plan.captureDirectory) -ceq $preflightDirectory -and
+    [IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -ceq [IO.Path]::GetFullPath($preflight.ReceiptPath) -and
+    [string]$plan.captureReceiptSha256 -ceq (Get-FileHash -LiteralPath $preflight.ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant() -and
+    $plan.idleObservation.CoreShouldBeRunning -is [bool] -and -not $plan.idleObservation.CoreShouldBeRunning -and
+    $plan.idleObservation.ControllerListening -is [bool] -and -not $plan.idleObservation.ControllerListening -and
+    [string]$plan.idleObservation.ServiceStatus -ceq 'Running' -and
+    [string]$plan.idleObservation.ExpectedProgramFilesCoreSha256 -ceq $programFilesSha -and
+    [string]$plan.idleObservation.ObservedProgramFilesCoreSha256 -ceq $programFilesSha -and
+    [string]$plan.idleObservation.ExpectedServiceCoreSha256 -ceq $serviceSha -and
+    [string]$plan.idleObservation.ObservedServiceCoreSha256 -ceq $serviceSha -and
+    @($plan.idleObservation.OwnedGuiProcessIds).Count -eq 0 -and
+    @($plan.idleObservation.OwnedCoreProcessIds).Count -eq 0 -and
+    @($plan.idleObservation.OwnedListenerProcessIds).Count -eq 0 -and
+    [string]$plan.corePair.programFiles.sha256 -ceq $programFilesSha -and
+    [string]$plan.corePair.programFiles.sddl -ceq [string]$programFilesAcl.Sddl -and
+    [string]$plan.corePair.service.sha256 -ceq $serviceSha -and
+    [string]$plan.corePair.service.sddl -ceq [string]$serviceAcl.Sddl -and
+    [IO.Path]::GetFileName([string]$plan.corePair.service.backup) -ceq 'verge-mihomo.exe' -and
+    -not $planText.Contains('synthetic-profile-marker') -and
+    [IO.Path]::GetFileName($preparedPlan.PlanPath) -ceq 'plan.json' -and
+    (Get-FileHash -LiteralPath $preparedPlan.PlanPath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq [string]$preparedPlan.PlanSha256 -and
+    (Get-Acl -LiteralPath $preparedDirectory).AreAccessRulesProtected -and
+    (Get-Acl -LiteralPath $preparedPlan.PlanPath).AreAccessRulesProtected
+)
+Assert-IdleTransaction ($planPinsMatch -and $planBindingAndBaselineMatch) 'Idle Preflight plan binding, baseline, pins, ACL or allowlist failed.'
 
 $beforeRejectedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
 $targetCapture.idleObservation.ControllerListening = [bool]$true
@@ -695,12 +680,10 @@ try {
     $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
 } catch {
     $rejectedPlanForListener = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
+} finally {
+    $targetCapture.idleObservation.ControllerListening = [bool]$false
 }
-$targetCapture.idleObservation.ControllerListening = [bool]$false
-if (-not $rejectedPlanForListener -or
-    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -ne $beforeRejectedPlanCount) {
-    throw 'Idle Preflight plan accepted controller drift or wrote output after rejection.'
-}
+Assert-IdleTransaction ($rejectedPlanForListener -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted listener drift or wrote output after rejection.'
 
 $receiptBeforePlanDrift = [IO.File]::ReadAllText($preflight.ReceiptPath)
 $receiptForPlanDrift = $receiptBeforePlanDrift | ConvertFrom-Json
@@ -714,14 +697,8 @@ try {
 } finally {
     [IO.File]::WriteAllText($preflight.ReceiptPath, $receiptBeforePlanDrift, [Text.UTF8Encoding]::new($false))
 }
-if (-not $rejectedPlanForReceiptDrift -or
-    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -ne $beforeRejectedPlanCount) {
-    throw 'Idle Preflight plan accepted a drifted capture receipt or wrote output after rejection.'
-}
-if ([IO.File]::ReadAllText($captureMarkerPath) -cne 'preserve-capture' -or
-    [IO.File]::ReadAllText($preparedMarkerPath) -cne 'preserve-prepared') {
-    throw 'Idle Preflight plan modified an existing capture or prepared sibling.'
-}
+Assert-IdleTransaction ($rejectedPlanForReceiptDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted receipt drift or wrote output after rejection.'
+Assert-IdleTransaction ([IO.File]::ReadAllText($captureMarkerPath) -ceq 'preserve-capture' -and [IO.File]::ReadAllText($preparedMarkerPath) -ceq 'preserve-prepared') 'Idle Preflight plan modified existing fixed siblings.'
 
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
