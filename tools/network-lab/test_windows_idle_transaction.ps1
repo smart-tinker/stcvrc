@@ -967,6 +967,54 @@ if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCapture
     throw 'Rejected idle Preflight created a capture directory.'
 }
 
+# Exercise unsafe paths with a valid no-digit staged entry and externally pinned manifest.
+$stageBoundaryInputPath = Join-Path $stageFilesRoot 'adapter.txt'
+[IO.File]::WriteAllText($stageBoundaryInputPath, 'synthetic-stage-path-input', [Text.UTF8Encoding]::new($false))
+$null = Set-CvrIdleCaptureAcl -Path $stageBoundaryInputPath
+$stageBoundaryInputSha256 = (Get-FileHash -LiteralPath $stageBoundaryInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$stageManifestBytesForPathCases = [IO.File]::ReadAllBytes($stageManifestPath)
+$stageManifestAclForPathCases = Get-Acl -LiteralPath $stageManifestPath -ErrorAction Stop
+try {
+    $stagePathRejectionCases = @(
+        [PSCustomObject]@{ Name = 'rooted'; Path = $stageBoundaryInputPath },
+        [PSCustomObject]@{ Name = 'backslash'; Path = 'scripts\adapter.txt' },
+        [PSCustomObject]@{ Name = 'colon'; Path = 'scripts/adapter.txt:stream' },
+        [PSCustomObject]@{ Name = 'control'; Path = ('scripts/' + [char]0x1f + 'adapter.txt') }
+    )
+    foreach ($case in $stagePathRejectionCases) {
+        $candidateManifest = [ordered]@{
+            schemaVersion = 1
+            scope = 'synthetic package-stage path rejection'
+            files = @([ordered]@{ path = [string]$case.Path; sha256 = $stageBoundaryInputSha256 })
+        }
+        [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $candidateManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
+        $candidateManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        Assert-CvrIdleStageCaptureRejected -CaseName ("manifest-" + $case.Name) -StageRoot $expectedStageRoot -ManifestSha256 $candidateManifestSha256
+    }
+
+    $digitPathBinding = $null
+    $digitPathFailure = $null
+    try {
+        $digitPathBinding = Get-CvrIdlePackageStageBinding -StageRoot $expectedStageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+    } catch {
+        $digitPathFailure = $_.Exception.Message
+    }
+    $digitPathAccepted = $null -eq $digitPathFailure -and $digitPathBinding -and
+        $digitPathBinding.StageRoot -ceq $expectedStageRoot -and
+        $digitPathBinding.SourceManifestSha256 -ceq $expectedPackageManifestSha256 -and
+        @($digitPathBinding.OpenFiles).Count -eq 2
+    if ($digitPathBinding) {
+        foreach ($handle in @($digitPathBinding.OpenFiles)) {
+            if ($handle) { $handle.Dispose() }
+        }
+    }
+    Assert-IdleTransaction ([bool]$digitPathAccepted) 'Valid digit-containing relative stage path was rejected.'
+} finally {
+    [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytesForPathCases)
+    Set-Acl -LiteralPath $stageManifestPath -AclObject $stageManifestAclForPathCases -ErrorAction Stop
+    Remove-Item -LiteralPath $stageBoundaryInputPath -Force -ErrorAction Stop
+}
+
 $preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 $stageEntryAclPlanSafe = Invoke-CvrIdleStageAclCase -Path $stageInputPath -WriterMode Plan
 $stageBoundaryCaptureSafe = Invoke-CvrIdleStageBoundaryCase -WriterMode Capture
