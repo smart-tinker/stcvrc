@@ -27,6 +27,37 @@ function Disable-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native
 function netsh { $script:nativeCalls++; throw 'unexpected-native-network-call' }
 $script:targetCaptureOutcomes = [Collections.Generic.List[object]]::new()
 
+$script:packageStageBindingOriginal = (Get-Command -Name Get-CvrIdlePackageStageBinding -CommandType Function).ScriptBlock
+$script:stageMutationTargets = @()
+$script:stageMutationResults = @{}
+function Get-CvrIdlePackageStageBinding {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256
+    )
+    $binding = & $script:packageStageBindingOriginal @PSBoundParameters
+    foreach ($target in @($script:stageMutationTargets)) {
+        $tempPath = Join-Path ([IO.Path]::GetDirectoryName([string]$target.Path)) ([IO.Path]::GetFileName([string]$target.Path) + '.race-' + [Guid]::NewGuid().ToString('N'))
+        [IO.File]::WriteAllBytes($tempPath, [byte[]]$target.Bytes)
+        $replaceException = $null
+        $writeException = $null
+        $replaced = $false
+        $wrote = $false
+        try { [IO.File]::Replace($tempPath, [string]$target.Path, $null); $replaced = $true } catch { $replaceException = $_.Exception.GetType().FullName }
+        try { [IO.File]::WriteAllBytes([string]$target.Path, [byte[]]$target.Bytes); $wrote = $true } catch { $writeException = $_.Exception.GetType().FullName }
+        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force -ErrorAction Stop }
+        $script:stageMutationResults[[string]$target.Name] = [PSCustomObject]@{
+            Replaced = $replaced
+            Wrote = $wrote
+            ReplaceIOException = $replaceException -ceq 'System.IO.IOException'
+            WriteIOException = $writeException -ceq 'System.IO.IOException'
+        }
+    }
+    return $binding
+}
+
 function Assert-IdleTransaction([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
@@ -723,6 +754,112 @@ $stageManifest = [ordered]@{
 $expectedPackageManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $expectedStageRoot = [IO.Path]::GetFullPath($preflightPackageRoot)
 
+function Invoke-CvrIdleStageAclCase {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet('Capture','Plan')][string]$WriterMode
+    )
+    $filter = if ($WriterMode -ceq 'Capture') { 'capture-idle-*' } else { 'prepared-idle-*' }
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop | ForEach-Object { $_.FullName })
+    $originalAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $untrustedAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $untrustedSid = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+    $untrustedRule = [Security.AccessControl.FileSystemAccessRule]::new(
+        $untrustedSid,
+        [Security.AccessControl.FileSystemRights]::Modify,
+        [Security.AccessControl.AccessControlType]::Allow
+    )
+    $null = $untrustedAcl.AddAccessRule($untrustedRule)
+    Set-Acl -LiteralPath $Path -AclObject $untrustedAcl -ErrorAction Stop
+    $failure = $null
+    try {
+        if ($WriterMode -ceq 'Capture') {
+            $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        } else {
+            $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        }
+    } catch {
+        $failure = $_.Exception.Message
+    } finally {
+        Set-Acl -LiteralPath $Path -AclObject $originalAcl -ErrorAction Stop
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop)
+    $created = @($after | Where-Object { $before -notcontains $_.FullName })
+    $rejectedWithoutOutput = $failure -ceq 'Idle package stage binding failed.' -and $created.Count -eq 0
+    foreach ($directory in $created) {
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+    }
+    return [bool]$rejectedWithoutOutput
+}
+
+function Invoke-CvrIdleStageBoundaryCase {
+    param([Parameter(Mandatory = $true)][ValidateSet('Capture','Plan')][string]$WriterMode)
+    $manifestBefore = [IO.File]::ReadAllBytes($stageManifestPath)
+    $entryBefore = [IO.File]::ReadAllBytes($stageInputPath)
+    $manifestReplacement = [ordered]@{
+        schemaVersion = 1
+        scope = 'synthetic package-stage boundary mutation'
+        files = @([ordered]@{
+            path = 'scripts/capture-adapter.ps1'
+            sha256 = (Get-FileHash -LiteralPath $stageInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+    }
+    $script:stageMutationResults = @{}
+    $script:stageMutationTargets = @(
+        [PSCustomObject]@{
+            Name = 'manifest'
+            Path = $stageManifestPath
+            Bytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $manifestReplacement -Depth 4 -Compress))
+        },
+        [PSCustomObject]@{
+            Name = 'entry'
+            Path = $stageInputPath
+            Bytes = [Text.UTF8Encoding]::new($false).GetBytes('synthetic-stage-boundary-mutation')
+        }
+    )
+    $filter = if ($WriterMode -ceq 'Capture') { 'capture-idle-*' } else { 'prepared-idle-*' }
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop | ForEach-Object { $_.FullName })
+    $output = $null
+    $failure = $null
+    try {
+        if ($WriterMode -ceq 'Capture') {
+            $output = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        } else {
+            $output = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        }
+    } catch {
+        $failure = $_.Exception.Message
+    } finally {
+        $script:stageMutationTargets = @()
+        [IO.File]::WriteAllBytes($stageManifestPath, $manifestBefore)
+        [IO.File]::WriteAllBytes($stageInputPath, $entryBefore)
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop)
+    $created = @($after | Where-Object { $before -notcontains $_.FullName })
+    $bindingMatches = $false
+    if ($output) {
+        $outputPath = if ($WriterMode -ceq 'Capture') { $output.ReceiptPath } else { $output.PlanPath }
+        $outputBinding = [IO.File]::ReadAllText($outputPath) | ConvertFrom-Json -ErrorAction Stop
+        $bindingMatches = [IO.Path]::GetFullPath([string]$outputBinding.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+            [string]$outputBinding.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+    }
+    $mutationBlocked = $script:stageMutationResults.Count -eq 2
+    foreach ($name in @('manifest','entry')) {
+        $result = $script:stageMutationResults[$name]
+        if (-not $result -or $result.Replaced -or $result.Wrote -or
+            -not $result.ReplaceIOException -or -not $result.WriteIOException) {
+            $mutationBlocked = $false
+        }
+    }
+    $safe = $mutationBlocked -and $null -eq $failure -and $output -and $bindingMatches -and $created.Count -eq 1
+    foreach ($directory in $created) {
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+    }
+    return [bool]$safe
+}
+
+$stageManifestAclCaptureSafe = Invoke-CvrIdleStageAclCase -Path $stageManifestPath -WriterMode Capture
+
 $beforeUnboundStageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
 $unboundStageCaptureRejected = $false
 try {
@@ -822,6 +959,8 @@ if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCapture
 }
 
 $preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+$stageEntryAclPlanSafe = Invoke-CvrIdleStageAclCase -Path $stageInputPath -WriterMode Plan
+$stageBoundaryCaptureSafe = Invoke-CvrIdleStageBoundaryCase -WriterMode Capture
 $preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 $preflightDirectory = [IO.Path]::GetFullPath($preflight.CaptureDirectory)
 $preflightLocal = [IO.Path]::GetFullPath($preflightLocalRoot)
@@ -875,6 +1014,7 @@ if (-not (Get-Command -Name Save-CvrIdlePreflightPlan -CommandType Function -Err
     throw 'Expected behavior RED: guarded unique idle preflight plan writer is missing.'
 }
 
+$stageBoundaryPlanSafe = Invoke-CvrIdleStageBoundaryCase -WriterMode Plan
 $beforePreparedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
 $stageInputBytesBeforePlan = [IO.File]::ReadAllBytes($stageInputPath)
 $rejectedPlanForStageDrift = $false
@@ -977,6 +1117,15 @@ try {
 }
 Assert-IdleTransaction ($rejectedPlanForReceiptDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted receipt drift or wrote output after rejection.'
 Assert-IdleTransaction ([IO.File]::ReadAllText($captureMarkerPath) -ceq 'preserve-capture' -and [IO.File]::ReadAllText($preparedMarkerPath) -ceq 'preserve-prepared') 'Idle Preflight plan modified existing fixed siblings.'
+
+$stageBindingFailures = [Collections.Generic.List[string]]::new()
+if (-not $stageManifestAclCaptureSafe) { $stageBindingFailures.Add('manifest-acl-capture') }
+if (-not $stageEntryAclPlanSafe) { $stageBindingFailures.Add('entry-acl-plan') }
+if (-not $stageBoundaryCaptureSafe) { $stageBindingFailures.Add('capture-validation-write-mutation') }
+if (-not $stageBoundaryPlanSafe) { $stageBindingFailures.Add('plan-validation-write-mutation') }
+if ($stageBindingFailures.Count) {
+    throw ("Idle package-stage race/ACL contract failed: " + ($stageBindingFailures -join ',') + '.')
+}
 
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
