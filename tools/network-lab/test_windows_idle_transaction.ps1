@@ -607,6 +607,122 @@ if ($script:saveCaptureParameters -contains 'ActionScript' -or
     $script:saveCaptureParameters -contains 'RestoreScript') {
     throw 'Read-only idle Preflight adapter must not accept transaction callbacks.'
 }
+
+# Public idle Preflight prepared-plan contract.
+if (-not (Get-Command -Name Save-CvrIdlePreflightPlan -CommandType Function -ErrorAction SilentlyContinue)) {
+    throw 'Expected behavior RED: guarded unique idle preflight plan writer is missing.'
+}
+
+$beforePreparedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
+$preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$preparedDirectory = [IO.Path]::GetFullPath($preparedPlan.PreparedDirectory)
+$preparedAgainDirectory = [IO.Path]::GetFullPath($preparedPlanAgain.PreparedDirectory)
+if ([IO.Path]::GetDirectoryName($preparedDirectory) -ine $preflightLocal -or
+    [IO.Path]::GetFileName($preparedDirectory) -notmatch '^prepared-idle-[0-9a-f]{32}
+
+if ($script:nativeCalls -ne 0) { throw 'Idle capture fixture reached a native action tripwire.' }
+$fixtureSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+[pscustomobject]@{
+    pass = $true
+    fixtureSha256 = $fixtureSha256
+    targetCaptureOutcomes = @($script:targetCaptureOutcomes.ToArray())
+    idleTransaction = $script:idleTransactionReceipt
+    measuredNativeCalls = $script:nativeCalls
+} | ConvertTo-Json -Depth 5 -Compress | Write-Host
+
+} finally {
+    if ($ownsServiceFixtureRoot) { Remove-Item -LiteralPath $serviceFixtureRoot -Recurse -Force -ErrorAction Stop }
+    if ($ownsProgramFilesFixtureRoot) { Remove-Item -LiteralPath $programFilesFixtureRoot -Recurse -Force -ErrorAction Stop }
+    Remove-Item -LiteralPath $targetCaptureRoot -Recurse -Force -ErrorAction Stop
+}
+ -or
+    $preparedDirectory -ceq [IO.Path]::GetFullPath((Join-Path $preflightLocalRoot 'prepared')) -or
+    $preparedDirectory -ceq $preflightDirectory -or
+    $preparedAgainDirectory -ceq $preparedDirectory -or
+    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -ne ($beforePreparedPlanCount + 2)) {
+    throw 'Idle Preflight plan was not written to unique protected siblings.'
+}
+if (-not (Test-Path -LiteralPath $preparedPlan.PlanPath -PathType Leaf) -or
+    [IO.Path]::GetFileName($preparedPlan.PlanPath) -cne 'plan.json' -or
+    (Get-FileHash -LiteralPath $preparedPlan.PlanPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$preparedPlan.PlanSha256 -or
+    -not (Get-Acl -LiteralPath $preparedDirectory).AreAccessRulesProtected -or
+    -not (Get-Acl -LiteralPath $preparedPlan.PlanPath).AreAccessRulesProtected) {
+    throw 'Idle Preflight plan is missing or not hash-bound and protected.'
+}
+$planText = [IO.File]::ReadAllText($preparedPlan.PlanPath)
+$plan = $planText | ConvertFrom-Json
+$planFailures = [Collections.Generic.List[string]]::new()
+if ($plan.coreShouldBeRunning -isnot [bool] -or $plan.coreShouldBeRunning) { $planFailures.Add('strict-false-intent') }
+if ($plan.targetIdentity -cne $targetIdentity) { $planFailures.Add('target-identity') }
+if ([IO.Path]::GetFullPath([string]$plan.captureDirectory) -cne $preflightDirectory) { $planFailures.Add('capture-directory-binding') }
+if ([IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -cne [IO.Path]::GetFullPath($preflight.ReceiptPath)) { $planFailures.Add('capture-receipt-binding') }
+if ([string]$plan.captureReceiptSha256 -cne (Get-FileHash -LiteralPath $preflight.ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()) { $planFailures.Add('capture-receipt-hash') }
+$planPinNames = @($plan.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
+if ($planPinNames.Count -ne $expectedPinNames.Count -or (@($planPinNames | Sort-Object -CaseSensitive) -join '|') -cne $expectedPinNamesText) {
+    $planFailures.Add('exact-pin-fields')
+}
+$planPinnedFileNames = @($plan.pinnedFiles.PSObject.Properties | ForEach-Object { $_.Name })
+if ($planPinnedFileNames.Count -ne $expectedPinNames.Count -or (@($planPinnedFileNames | Sort-Object -CaseSensitive) -join '|') -cne $expectedPinNamesText) {
+    $planFailures.Add('exact-pinned-file-fields')
+}
+foreach ($pinName in $expectedPinNames) {
+    if ([string]$plan.expectedPins.$pinName -cne [string]$expectedPins[$pinName] -or
+        [string]$plan.pinnedFiles.$pinName -cne [string]$pinnedFiles[$pinName]) {
+        $planFailures.Add("pin-binding:$pinName")
+    }
+}
+if ($plan.idleObservation.ControllerListening -isnot [bool] -or $plan.idleObservation.ControllerListening -or
+    @($plan.idleObservation.OwnedGuiProcessIds).Count -ne 0 -or
+    @($plan.idleObservation.OwnedCoreProcessIds).Count -ne 0 -or
+    @($plan.idleObservation.OwnedListenerProcessIds).Count -ne 0) {
+    $planFailures.Add('idle-observation')
+}
+if ([string]$plan.corePair.programFiles.sha256 -cne $programFilesSha -or
+    [string]$plan.corePair.programFiles.sddl -cne [string]$programFilesAcl.Sddl -or
+    [string]$plan.corePair.service.sha256 -cne $serviceSha -or
+    [string]$plan.corePair.service.sddl -cne [string]$serviceAcl.Sddl -or
+    [IO.Path]::GetFileName([string]$plan.corePair.service.backup) -cne 'verge-mihomo.exe') {
+    $planFailures.Add('core-pair-preimage')
+}
+if ($planText.Contains('synthetic-profile-marker')) { $planFailures.Add('non-allowlisted-profile-marker') }
+if ($planFailures.Count) { throw "Idle Preflight plan contract failed: $($planFailures -join ', ')." }
+
+$beforeRejectedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
+$targetCapture.idleObservation.ControllerListening = [bool]$true
+$rejectedPlanForListener = $false
+try {
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $rejectedPlanForListener = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
+}
+$targetCapture.idleObservation.ControllerListening = [bool]$false
+if (-not $rejectedPlanForListener -or
+    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -ne $beforeRejectedPlanCount) {
+    throw 'Idle Preflight plan accepted controller drift or wrote output after rejection.'
+}
+
+$receiptBeforePlanDrift = [IO.File]::ReadAllText($preflight.ReceiptPath)
+$receiptForPlanDrift = $receiptBeforePlanDrift | ConvertFrom-Json
+$receiptForPlanDrift.targetIdentity = [Guid]::NewGuid().ToString('N')
+[IO.File]::WriteAllText($preflight.ReceiptPath, (ConvertTo-Json -InputObject $receiptForPlanDrift -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
+$rejectedPlanForReceiptDrift = $false
+try {
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $rejectedPlanForReceiptDrift = $_.Exception.Message -ceq 'Idle Preflight capture receipt does not match the supplied capture.'
+} finally {
+    [IO.File]::WriteAllText($preflight.ReceiptPath, $receiptBeforePlanDrift, [Text.UTF8Encoding]::new($false))
+}
+if (-not $rejectedPlanForReceiptDrift -or
+    @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -ne $beforeRejectedPlanCount) {
+    throw 'Idle Preflight plan accepted a drifted capture receipt or wrote output after rejection.'
+}
+if ([IO.File]::ReadAllText($captureMarkerPath) -cne 'preserve-capture' -or
+    [IO.File]::ReadAllText($preparedMarkerPath) -cne 'preserve-prepared') {
+    throw 'Idle Preflight plan modified an existing capture or prepared sibling.'
+}
+
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
 if ($script:nativeCalls -ne 0) { throw 'Idle capture fixture reached a native action tripwire.' }
