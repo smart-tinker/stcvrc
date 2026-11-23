@@ -969,8 +969,9 @@ if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCapture
 
 # Exercise unsafe paths with a valid no-digit staged entry and externally pinned manifest.
 $stageBoundaryInputPath = Join-Path $stageFilesRoot 'adapter.txt'
-[IO.File]::WriteAllText($stageBoundaryInputPath, 'synthetic-stage-path-input', [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllBytes($stageBoundaryInputPath, [byte[]]@())
 $null = Set-CvrIdleCaptureAcl -Path $stageBoundaryInputPath
+[IO.File]::WriteAllText($stageBoundaryInputPath, 'synthetic-stage-path-input', [Text.UTF8Encoding]::new($false))
 $stageBoundaryInputSha256 = (Get-FileHash -LiteralPath $stageBoundaryInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $stageManifestBytesForPathCases = [IO.File]::ReadAllBytes($stageManifestPath)
 $stageManifestAclForPathCases = Get-Acl -LiteralPath $stageManifestPath -ErrorAction Stop
