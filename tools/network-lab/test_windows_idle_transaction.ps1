@@ -1571,10 +1571,22 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
             CallDirectory = $callDirectory
         }
     } finally {
-        if ($process) { $process.Dispose() }
-        if ($callDirectory -and $childStopped -and (-not $started -or ($process -and $process.HasExited))) {
-            Remove-Item -LiteralPath $callDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        $supervisorExitedForCleanup = -not $started
+        if ($started -and $process) {
+            try { $supervisorExitedForCleanup = [bool]$process.HasExited } catch { $supervisorExitedForCleanup = $false }
         }
+        if ($callDirectory -and $childStopped -and $supervisorExitedForCleanup -and (Test-Path -LiteralPath $callDirectory -PathType Container)) {
+            try {
+                Remove-Item -LiteralPath $callDirectory -Recurse -Force -ErrorAction Stop
+            } catch {
+                $cleanupException = $_.Exception.GetBaseException()
+                $cleanupHResult = '0x{0:X8}' -f [int]$cleanupException.HResult
+                Write-Host ('package-writer case=' + $caseLabel + ' stage=call-directory-cleanup error-type=' + $cleanupException.GetType().FullName + ' hresult=' + $cleanupHResult)
+            }
+        } elseif ($callDirectory -and $childStopped) {
+            Write-Host ('package-writer case=' + $caseLabel + ' stage=call-directory-cleanup skipped=supervisor-not-exited')
+        }
+        if ($process) { $process.Dispose() }
     }
 }
 
