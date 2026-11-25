@@ -1238,8 +1238,8 @@ try {
 }
 Assert-IdleTransaction ($null -eq $portablePlanErrorId -and $null -ne $portablePlan) 'The shared portable Plan entrypoint did not produce a bound plan.'
 
-$portableCaptureRecord = Get-Content -LiteralPath $portableCapture.ReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-$portablePlanRecord = Get-Content -LiteralPath $portablePlan.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+$portableCaptureRecord = [IO.File]::ReadAllText($portableCapture.ReceiptPath) | ConvertFrom-Json -ErrorAction Stop
+$portablePlanRecord = [IO.File]::ReadAllText($portablePlan.PlanPath) | ConvertFrom-Json -ErrorAction Stop
 $portableCaptureBound = [IO.Path]::GetFullPath([string]$portableCaptureRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
     [string]$portableCaptureRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
 $portablePlanBound = [IO.Path]::GetFullPath([string]$portablePlanRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
@@ -1507,7 +1507,7 @@ $captureCliBefore = Get-CvrPackageWriterOutputCount 'Capture'
 $captureCliResult = Invoke-CvrPackageWriterCli -CaseName 'capture-valid' -Arguments $validCaptureCliArguments
 Assert-IdleTransaction ($captureCliResult.State -ceq 'completed' -and $captureCliResult.ExitCode -eq 0 -and $captureCliResult.ChildStopped) ("The actual Capture package-writer command failed: " + (Get-CvrPackageWriterDiagnostic $captureCliResult.StdErr))
 $captureCli = $captureCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
-$captureCliReceipt = Get-Content -LiteralPath $captureCli.ReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+$captureCliReceipt = [IO.File]::ReadAllText($captureCli.ReceiptPath) | ConvertFrom-Json -ErrorAction Stop
 Assert-IdleTransaction (
     (Get-CvrPackageWriterOutputCount 'Capture') -eq ($captureCliBefore + 1) -and
     [IO.Path]::GetFullPath([string]$captureCliReceipt.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
@@ -1531,7 +1531,7 @@ $planCliBefore = Get-CvrPackageWriterOutputCount 'Plan'
 $planCliResult = Invoke-CvrPackageWriterCli -CaseName 'plan-valid' -Arguments $validPlanCliArguments
 Assert-IdleTransaction ($planCliResult.State -ceq 'completed' -and $planCliResult.ExitCode -eq 0 -and $planCliResult.ChildStopped) ("The actual Plan package-writer command failed: " + (Get-CvrPackageWriterDiagnostic $planCliResult.StdErr))
 $planCli = $planCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
-$planCliRecord = Get-Content -LiteralPath $planCli.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+$planCliRecord = [IO.File]::ReadAllText($planCli.PlanPath) | ConvertFrom-Json -ErrorAction Stop
 $planCliSha256 = (Get-FileHash -LiteralPath $planCli.PlanPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
 Assert-IdleTransaction (
     (Get-CvrPackageWriterOutputCount 'Plan') -eq ($planCliBefore + 1) -and
