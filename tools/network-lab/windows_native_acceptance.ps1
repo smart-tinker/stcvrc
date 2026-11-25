@@ -13,6 +13,9 @@ if (-not $env:STCVRC_NATIVE_PORT_PLAN) { throw 'The shared native DNS port plan 
 $portPlanScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_port_plan.ps1'
 if (-not (Test-Path -LiteralPath $portPlanScript -PathType Leaf)) { throw 'The native DNS port-plan helper is missing.' }
 . $portPlanScript
+$udpFixturePortsScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_udp_ports.py'
+if (-not (Test-Path -LiteralPath $udpFixturePortsScript -PathType Leaf)) { throw 'The native UDP fixture-port helper is missing.' }
+$env:STCVRC_NATIVE_UDP_PORTS_SCRIPT = $udpFixturePortsScript
 $corePreimageScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_preimage_paths.ps1'
 if (-not (Test-Path -LiteralPath $corePreimageScript -PathType Leaf)) { throw 'The native core preimage helper is missing.' }
 . $corePreimageScript
@@ -1585,12 +1588,11 @@ foreach ($path in @($script:serverStdoutPath,$script:serverStderrPath)) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
 }
 $serverCode=@'
-import os, socket, threading
+import os, socket, sys, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+sys.path.insert(0, os.path.dirname(os.environ["STCVRC_NATIVE_UDP_PORTS_SCRIPT"]))
+from windows_native_udp_ports import bind_dns_fixture_sockets
 HTTP_PORT=int(os.environ["STCVRC_NATIVE_HTTP_PORT"])
-PROFILE_DNS_PORT=int(os.environ["STCVRC_NATIVE_PROFILE_DNS_PORT"])
-APP_DNS_PORT=int(os.environ["STCVRC_NATIVE_APP_DNS_PORT"])
-SUBSCRIPTION_DNS_PORT=int(os.environ["STCVRC_NATIVE_SUBSCRIPTION_DNS_PORT"])
 SUBSCRIPTION_CONTROLLER_PORT=int(os.environ["STCVRC_NATIVE_SUBSCRIPTION_CONTROLLER_PORT"])
 CORE_DNS_PORT=int(os.environ["STCVRC_NATIVE_CORE_DNS_PORT"])
 PROXY_PORT_A=int(os.environ["STCVRC_NATIVE_PROXY_PORT_A"])
@@ -1664,8 +1666,14 @@ rules:
         self.send_header("Content-Length",str(len(body))); self.send_header("Connection","close")
         self.end_headers(); self.wfile.write(body)
     def log_message(self,fmt,*args): print("HTTP "+(fmt%args),flush=True)
-def dns_server(port,label):
-    sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.bind(("127.0.0.1",port))
+http_server=HTTPServer(("127.0.0.1",HTTP_PORT),Handler)
+dns_sockets,dns_collisions=bind_dns_fixture_sockets(os.environ["STCVRC_NATIVE_PORT_PLAN"])
+PROFILE_DNS_PORT=int(dns_sockets["profileDnsPort"].getsockname()[1])
+APP_DNS_PORT=int(dns_sockets["appDnsPort"].getsockname()[1])
+SUBSCRIPTION_DNS_PORT=int(dns_sockets["subscriptionDnsPort"].getsockname()[1])
+if dns_collisions:
+    print("Native DNS UDP plan collision recovered: "+",".join(dns_collisions),flush=True)
+def dns_server(sock,label):
     while True:
         packet,peer=sock.recvfrom(4096)
         if len(packet)<17: continue
@@ -1681,10 +1689,10 @@ def dns_server(port,label):
         response=packet[:2]+bytes.fromhex("8180")+packet[4:6]+bytes.fromhex("000100000000")
         response+=packet[12:end]+bytes.fromhex("c00c000100010000000500047f000001")
         sock.sendto(response,peer)
-threading.Thread(target=dns_server,args=(PROFILE_DNS_PORT,"profile"),daemon=True).start()
-threading.Thread(target=dns_server,args=(APP_DNS_PORT,"app"),daemon=True).start()
-threading.Thread(target=dns_server,args=(SUBSCRIPTION_DNS_PORT,"subscription"),daemon=True).start()
-HTTPServer(("127.0.0.1",HTTP_PORT),Handler).serve_forever()
+threading.Thread(target=dns_server,args=(dns_sockets["profileDnsPort"],"profile"),daemon=True).start()
+threading.Thread(target=dns_server,args=(dns_sockets["appDnsPort"],"app"),daemon=True).start()
+threading.Thread(target=dns_server,args=(dns_sockets["subscriptionDnsPort"],"subscription"),daemon=True).start()
+http_server.serve_forever()
 '@
 [IO.File]::WriteAllText($serverPath,$serverCode,[Text.UTF8Encoding]::new($false))
 $env:STCVRC_NATIVE_HTTP_PORT=[string]$httpPort
@@ -1708,6 +1716,17 @@ try {
         try { $probe=[Net.Sockets.TcpClient]::new(); $task=$probe.ConnectAsync([Net.IPAddress]::Loopback,$httpPort); if ($task.Wait(300)) { $serverReady=$true; $probe.Dispose(); break }; $probe.Dispose() } catch { Start-Sleep -Milliseconds 100 }
     }
     if (-not $serverReady) { throw 'Synthetic HTTP/DNS server did not become ready.' }
+    $nativePortPlan = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
+    $dnsPort = [int]$nativePortPlan.coreDnsPort
+    $profileDnsPort = [int]$nativePortPlan.profileDnsPort
+    $appDnsPort = [int]$nativePortPlan.appDnsPort
+    $subscriptionDnsPort = [int]$nativePortPlan.subscriptionDnsPort
+    $script:dnsPort = $dnsPort
+    $script:profileDnsPort = $profileDnsPort
+    $script:appDnsPort = $appDnsPort
+    $script:subscriptionDnsPort = $subscriptionDnsPort
+    Set-Content -LiteralPath $script:subscriptionDnsStatePath -Value ([string]$profileDnsPort) -NoNewline -Encoding ascii
+    Write-Host 'Native UDP fixture sockets are bound; the shared port plan was re-read.'
     [void](Invoke-TunHttp -FakeAddress '127.0.0.1' -FixtureName 'fixture-server-health.invalid' -Port $httpPort)
     Write-Host 'Synthetic fixture HTTP server passed its direct-loopback health check.'
     if ($Phase -eq 'recovery') {

@@ -567,7 +567,7 @@ jobs:
           & $powershell51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $test
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 SSH fixture cleanup checks failed.' }
 
-      - name: Reproduce native UDP port-plan collision before build
+      - name: Test native UDP port-plan collision recovery before build
         run: |
           $ErrorActionPreference = 'Stop'
           $test = Join-Path $env:PR_SOURCE 'tools\network-lab\test_windows_native_port_plan.py'
