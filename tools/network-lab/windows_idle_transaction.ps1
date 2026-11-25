@@ -171,7 +171,6 @@ function Assert-CvrIdleTargetCapture {
         [PSCustomObject]@{ entry = $pair.programFiles; pin = 'programFilesCore'; role = 'Program Files' },
         [PSCustomObject]@{ entry = $pair.service; pin = 'serviceCore'; role = 'service' }
     )) {
-        $guardFailureStage = 'entry-metadata'
         try {
             $entry = $entryInfo.entry
             $pathProperty = $entry.PSObject.Properties['path']
@@ -199,26 +198,21 @@ function Assert-CvrIdleTargetCapture {
                 [string]$ExpectedPins[$entryInfo.pin] -ine [string]$shaProperty.Value) {
                 throw 'invalid'
             }
-            $guardFailureStage = 'live-path-pin'
             $livePath = [IO.Path]::GetFullPath([string]$pathProperty.Value)
             $pinnedPath = [IO.Path]::GetFullPath([string]$pinnedFiles[$entryInfo.pin])
             if ($livePath -ine $pinnedPath -or [IO.Path]::GetFullPath([string]$pathPinProperty.Value) -ine $pinnedPath) {
                 throw 'path pin'
             }
-            $guardFailureStage = 'unique-preimage-paths'
             $backupPath = [IO.Path]::GetFullPath([string]$backupProperty.Value)
             if ($paths.ContainsKey($livePath) -or $paths.ContainsKey($backupPath)) {
                 throw 'aliased'
             }
             $paths[$livePath] = $true
             $paths[$backupPath] = $true
-            $guardFailureStage = 'live-core-presence'
             if (-not (Test-Path -LiteralPath $livePath -PathType Leaf -ErrorAction Stop)) {
                 throw 'missing live core'
             }
-            $guardFailureStage = 'backup-preimage'
             $null = Get-CvrCorePreimageBackupBytes -Entry $entry -Role $entryInfo.role
-            $guardFailureStage = 'live-core-hash-acl'
             $liveHash = (Get-FileHash -LiteralPath $livePath -Algorithm SHA256 -ErrorAction Stop).Hash
             $liveSddl = (Get-Acl -LiteralPath $livePath -ErrorAction Stop).Sddl
             if ($liveHash -ine [string]$shaProperty.Value -or
@@ -230,11 +224,7 @@ function Assert-CvrIdleTargetCapture {
             if ($failure -match '^(Program Files|service) core preimage backup validation failed at ') {
                 throw "Idle target core preimage verification failed: $failure"
             }
-            $guardException = [System.Management.Automation.RuntimeException]::new('Idle target core preimage verification failed.')
-            $guardException.Data['IdleTargetCaptureFailureStage'] = $guardFailureStage
-            $guardRole = if ($entryInfo.role -ceq 'Program Files') { 'program-files' } else { 'service' }
-            $guardException.Data['IdleTargetCaptureFailureRole'] = $guardRole
-            throw $guardException
+            throw 'Idle target core preimage verification failed.'
         }
     }
 

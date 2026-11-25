@@ -10,6 +10,7 @@ $stage = 'load-helpers'
 $requestShape = 'unread'
 
 try {
+    . (Join-Path $PSScriptRoot 'windows_core_preimage_paths.ps1')
     . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
     . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
 
@@ -110,14 +111,6 @@ try {
     $errorType = $_.Exception.GetBaseException().GetType().Name
     $lineNumber = 0
     if ($_.InvocationInfo) { $lineNumber = [int]$_.InvocationInfo.ScriptLineNumber }
-    $guardStage = 'none'
-    $candidateGuardStage = [string]$_.Exception.Data['IdleTargetCaptureFailureStage']
-    if ($candidateGuardStage -match '^(entry-metadata|live-path-pin|unique-preimage-paths|live-core-presence|backup-preimage|live-core-hash-acl)$') {
-        $guardStage = $candidateGuardStage
-    }
-    $guardRole = 'none'
-    $candidateGuardRole = [string]$_.Exception.Data['IdleTargetCaptureFailureRole']
-    if ($candidateGuardRole -match '^(program-files|service)$') { $guardRole = $candidateGuardRole }
-    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape guard=$guardStage role=$guardRole type=$errorType line=$lineNumber).")
+    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape type=$errorType line=$lineNumber).")
     exit 1
 }
