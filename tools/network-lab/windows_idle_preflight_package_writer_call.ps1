@@ -15,7 +15,7 @@ param(
     [string]$PinnedFilePathsBase64,
     [switch]$SyntheticRequest,
     [ValidateRange(0, 30)][int]$SyntheticSerializationDelaySeconds = 0,
-    [switch]$SyntheticExitBeforeWriterPidWrite,
+    [switch]$SyntheticWaitBeforeWriterPidWrite,
     [Parameter(Mandatory = $true)][string]$CallDirectory
 )
 
@@ -135,7 +135,7 @@ try {
     if ($SyntheticSerializationDelaySeconds -gt 0 -and -not $SyntheticRequest) {
         throw 'serialization delay requires a synthetic request'
     }
-    if ($SyntheticExitBeforeWriterPidWrite -and -not $SyntheticRequest) {
+    if ($SyntheticWaitBeforeWriterPidWrite -and -not $SyntheticRequest) {
         throw 'writer PID interruption requires a synthetic request'
     }
 
@@ -174,14 +174,17 @@ try {
     $started = $true
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
-    if ($SyntheticExitBeforeWriterPidWrite) {
+    if ($SyntheticWaitBeforeWriterPidWrite) {
         $stage = 'writer-pid'
         Write-CvrPackageWriterMarker 'before-writer-pid'
         $readyPath = Join-Path ([IO.Path]::GetDirectoryName($WriterScriptPath)) 'synthetic-writer-ready.txt'
         $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
         while (-not (Test-Path -LiteralPath $readyPath -PathType Leaf) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
         if (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) { throw 'Synthetic writer start handshake timed out.' }
-        [Environment]::Exit(86)
+        $readyIdentity = [IO.File]::ReadAllText($readyPath, [Text.UTF8Encoding]::new($false, $true))
+        if (Test-Path -LiteralPath $writerPidPath -PathType Leaf) { throw 'Synthetic writer PID record was created before interruption.' }
+        [IO.File]::WriteAllText($readyPath, ($readyIdentity + '|writer-pid-absent'), [Text.UTF8Encoding]::new($false))
+        Start-Sleep -Seconds 60
     }
     $writerPidRecord = [string]$process.Id + '|' + [string]$process.StartTime.ToUniversalTime().Ticks
     [IO.File]::WriteAllText($writerPidPath, $writerPidRecord, [Text.UTF8Encoding]::new($false))

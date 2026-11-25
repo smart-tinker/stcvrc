@@ -1392,8 +1392,8 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
         if ($Arguments.ContainsKey('SyntheticSerializationDelaySeconds')) {
             $commandLineParts += @('-SyntheticSerializationDelaySeconds', (Quote-CvrPackageWriterArgument ([string]$Arguments.SyntheticSerializationDelaySeconds)))
         }
-        if ($Arguments.ContainsKey('SyntheticExitBeforeWriterPidWrite') -and $Arguments.SyntheticExitBeforeWriterPidWrite) {
-            $commandLineParts += '-SyntheticExitBeforeWriterPidWrite'
+        if ($Arguments.ContainsKey('SyntheticWaitBeforeWriterPidWrite') -and $Arguments.SyntheticWaitBeforeWriterPidWrite) {
+            $commandLineParts += '-SyntheticWaitBeforeWriterPidWrite'
         }
 
         $startInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -1731,45 +1731,52 @@ $pidGapWriterLines = @(
 $pidGapResult = $null
 $pidGapProcess = $null
 $pidGapStartTicks = 0L
+$pidGapWriterStopped = $false
 try {
     $beforePidGapCaptureCount = Get-CvrPackageWriterOutputCount 'Capture'
     $pidGapResult = Invoke-CvrPackageWriterCli -CaseName 'writer-start-before-pid' -Arguments @{
         Mode = 'Capture'
         ScriptPath = $pidGapWriterPath
         TimeoutSeconds = 15
-        SyntheticExitBeforeWriterPidWrite = $true
+        SyntheticWaitBeforeWriterPidWrite = $true
         Request = @{ synthetic = $true }
     }
     $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
     while (-not (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
     Assert-IdleTransaction (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) 'Synthetic writer did not reach the start-before-pid window.'
     $identityParts = [IO.File]::ReadAllText($pidGapIdentityPath, [Text.UTF8Encoding]::new($false, $true)).Split('|')
-    if ($identityParts.Count -ne 2) { throw 'Synthetic writer identity receipt was malformed.' }
+    if ($identityParts.Count -ne 3 -or $identityParts[2] -cne 'writer-pid-absent') { throw 'Synthetic writer PID-gap receipt was invalid.' }
     $pidGapStartTicks = [long]$identityParts[1]
-    $pidGapProcess = [Diagnostics.Process]::GetProcessById([int]$identityParts[0])
-    $pidGapProcess.Refresh()
-    $writerStillRunning = -not $pidGapProcess.HasExited
-    if ($writerStillRunning) { $writerStillRunning = ($pidGapProcess.StartTime.ToUniversalTime().Ticks -eq $pidGapStartTicks) }
-    Assert-IdleTransaction $writerStillRunning 'Synthetic writer was not alive after the PID-write interruption.'
-    $writerPidMissing = -not (Test-Path -LiteralPath (Join-Path $pidGapResult.CallDirectory 'writer.pid') -PathType Leaf)
-    $writerPidGapStageValid = (
-        ($pidGapResult.State -ceq 'failure' -and $pidGapResult.Stage -ceq 'writer-pid') -or
-        ($pidGapResult.State -ceq 'timeout' -and $pidGapResult.Stage -ceq 'stdout-read')
-    )
-    $pidGapDiagnostic = 'state={0} stage={1} child-stopped={2} pid-recorded={3} elapsed-ms={4}.' -f @(
+    try {
+        $pidGapProcess = [Diagnostics.Process]::GetProcessById([int]$identityParts[0])
+        $pidGapProcess.Refresh()
+        if ($pidGapProcess.HasExited) { $pidGapWriterStopped = $true }
+        else { $pidGapWriterStopped = ($pidGapProcess.StartTime.ToUniversalTime().Ticks -ne $pidGapStartTicks) }
+    } catch [ArgumentException] {
+        $pidGapWriterStopped = $true
+    } catch {
+        $pidGapWriterStopped = $false
+    }
+    $pidGapCallDirectoryRemoved = $pidGapResult.CallDirectory -and -not (Test-Path -LiteralPath $pidGapResult.CallDirectory -PathType Container)
+    $pidGapDiagnostic = 'state={0} stage={1} child-stopped={2} writer-stopped={3} pid-absent={4} call-directory-present={5} elapsed-ms={6}.' -f @(
         [string]$pidGapResult.State,
         [string]$pidGapResult.Stage,
         [string]$pidGapResult.ChildStopped,
-        [string](-not $writerPidMissing),
+        [string]$pidGapWriterStopped,
+        [string]$true,
+        [string](-not $pidGapCallDirectoryRemoved),
         [string]$pidGapResult.ElapsedMilliseconds
     )
     Assert-IdleTransaction (
-        $writerPidMissing -and
-        $writerPidGapStageValid -and
-        -not $pidGapResult.ChildStopped -and
-        $pidGapResult.ElapsedMilliseconds -le 15000 -and
+        $pidGapResult.State -ceq 'timeout' -and
+        $pidGapResult.Stage -ceq 'writer-pid' -and
+        $pidGapResult.ChildStopped -and
+        $pidGapWriterStopped -and
+        $pidGapCallDirectoryRemoved -and
+        $pidGapResult.ElapsedMilliseconds -le 16000 -and
+        [string]::IsNullOrEmpty($pidGapResult.StdOut) -and
         (Get-CvrPackageWriterOutputCount 'Capture') -eq $beforePidGapCaptureCount
-    ) ('Writer PID gap did not fail closed: ' + $pidGapDiagnostic)
+    ) ('Writer PID gap cleanup was not proven: ' + $pidGapDiagnostic)
 } finally {
     if ($pidGapProcess) {
         try {
@@ -1787,7 +1794,7 @@ try {
 }
 $script:targetCaptureOutcomes.Add([pscustomobject]@{
     case = 'powershell51-writer-start-before-pid'
-    result = 'missing writer PID and absent tree-kill proof are reported as child-stopped=false'
+    result = 'absent writer PID receipt is followed by verified process-tree cleanup against the synthetic PID and start time'
 })
 
 $delayedWriterPath = Join-Path $targetCaptureRoot 'synthetic-delayed-writer.ps1'
