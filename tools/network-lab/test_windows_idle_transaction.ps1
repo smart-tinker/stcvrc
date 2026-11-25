@@ -1304,42 +1304,129 @@ function Quote-CvrPackageWriterArgument([string]$Value) {
     return '"' + $Value + '"'
 }
 
-function Invoke-CvrPackageWriterCli([hashtable]$Arguments) {
-    $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $commandLineParts = @(
-        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File',
-        (Quote-CvrPackageWriterArgument $packageWriterCliPath),
-        '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode))
-    )
-
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $powershell51
-    $startInfo.Arguments = $commandLineParts -join ' '
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardInput = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $startInfo
-    if (-not $process.Start()) { throw 'Synthetic package-writer CLI did not start.' }
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
+function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
+    $caseLabel = $CaseName -replace '[^A-Za-z0-9-]', '-'
+    $timeoutSeconds = if ($Arguments.ContainsKey('TimeoutSeconds')) { [int]$Arguments.TimeoutSeconds } else { 45 }
+    if ($timeoutSeconds -lt 10 -or $timeoutSeconds -gt 60) { throw 'Invalid synthetic process timeout.' }
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $workBudgetMilliseconds = ($timeoutSeconds - 5) * 1000
+    $process = $null
+    $started = $false
+    $stdoutTask = $null
+    $stderrTask = $null
+    $state = 'failure'
+    $stage = 'request-serialize'
+    Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
     try {
         $requestJson = ConvertTo-Json -InputObject $Arguments.Request -Depth 16 -Compress -ErrorAction Stop
-        $process.StandardInput.Write($requestJson)
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-request-serialize")
+        $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $scriptPath = if ($Arguments.ContainsKey('ScriptPath')) { [string]$Arguments.ScriptPath } else { $packageWriterCliPath }
+        $commandLineParts = @(
+            '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File',
+            (Quote-CvrPackageWriterArgument $scriptPath),
+            '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode))
+        )
+
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $powershell51
+        $startInfo.Arguments = $commandLineParts -join ' '
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        $stage = 'process-start'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        if (-not $process.Start()) { throw 'start failed' }
+        $started = $true
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdin-write'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $stdinTask = $process.StandardInput.WriteAsync($requestJson + [Environment]::NewLine)
+        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
+        if (-not $stdinTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin timeout' }
+        $stdinTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdin-flush'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $flushTask = $process.StandardInput.FlushAsync()
+        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
+        if (-not $flushTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin flush timeout' }
+        $flushTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'process-wait'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
+        if (-not $process.WaitForExit($remainingMilliseconds)) { $state = 'timeout'; throw 'process timeout' }
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdout-read'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $remainingMilliseconds = [int][Math]::Max(1, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+        if (-not $stdoutTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdout timeout' }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stderr-read'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $remainingMilliseconds = [int][Math]::Max(1, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+        if (-not $stderrTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stderr timeout' }
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $state = 'completed'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=complete exit=" + $process.ExitCode)
+        return [PSCustomObject]@{
+            State = $state
+            Stage = 'complete'
+            ExitCode = $process.ExitCode
+            StdOut = $stdout
+            StdErr = $stderr
+            ChildStopped = [bool]$process.HasExited
+            ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+        }
+    } catch {
+        $failedStage = $stage
+        $childStopped = -not $started
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-cleanup")
+        if ($started) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill()
+                    $cleanupMilliseconds = [int][Math]::Max(0, [Math]::Min(5000, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds)))
+                    if ($cleanupMilliseconds -gt 0) { $null = $process.WaitForExit($cleanupMilliseconds) }
+                }
+                $childStopped = [bool]$process.HasExited
+            } catch { $childStopped = $false }
+        }
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-cleanup-output")
+        foreach ($task in @($stdoutTask, $stderrTask)) {
+            if ($task -and -not $task.IsCompleted) {
+                $cleanupMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+                if ($cleanupMilliseconds -gt 0) {
+                    try { $null = $task.Wait($cleanupMilliseconds) } catch { }
+                }
+            }
+        }
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-cleanup-output")
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-cleanup child-stopped=" + $childStopped)
+        return [PSCustomObject]@{
+            State = $state
+            Stage = $failedStage
+            ExitCode = $null
+            StdOut = ''
+            StdErr = ''
+            ChildStopped = $childStopped
+            ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+        }
     } finally {
-        $process.StandardInput.Close()
-    }
-    if (-not $process.WaitForExit(60000)) {
-        $process.Kill()
-        $null = $process.WaitForExit()
-        throw 'Synthetic package-writer CLI timed out.'
-    }
-    return [PSCustomObject]@{
-        ExitCode = $process.ExitCode
-        StdOut = $stdoutTask.GetAwaiter().GetResult()
-        StdErr = $stderrTask.GetAwaiter().GetResult()
+        if ($process) { $process.Dispose() }
     }
 }
 
@@ -1350,10 +1437,10 @@ function Get-CvrPackageWriterOutputCount([string]$Mode) {
 
 function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Arguments) {
     $before = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
-    $result = Invoke-CvrPackageWriterCli $Arguments
+    $result = Invoke-CvrPackageWriterCli -CaseName $CaseName -Arguments $Arguments
     $after = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
     Assert-IdleTransaction (
-        $result.ExitCode -ne 0 -and [string]::IsNullOrEmpty($result.StdOut) -and $after -eq $before
+        $result.State -ceq 'completed' -and $result.ExitCode -ne 0 -and $result.ChildStopped -and [string]::IsNullOrEmpty($result.StdOut) -and $after -eq $before
     ) ("Package writer CLI " + $CaseName + " was accepted or wrote output.")
 }
 
@@ -1369,8 +1456,8 @@ $validCaptureCliArguments = @{
     }
 }
 $captureCliBefore = Get-CvrPackageWriterOutputCount 'Capture'
-$captureCliResult = Invoke-CvrPackageWriterCli $validCaptureCliArguments
-Assert-IdleTransaction ($captureCliResult.ExitCode -eq 0) 'The actual Capture package-writer command failed.'
+$captureCliResult = Invoke-CvrPackageWriterCli -CaseName 'capture-valid' -Arguments $validCaptureCliArguments
+Assert-IdleTransaction ($captureCliResult.State -ceq 'completed' -and $captureCliResult.ExitCode -eq 0 -and $captureCliResult.ChildStopped) 'The actual Capture package-writer command failed.'
 $captureCli = $captureCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
 $captureCliReceipt = Get-Content -LiteralPath $captureCli.ReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
 Assert-IdleTransaction (
@@ -1393,8 +1480,8 @@ $validPlanCliArguments = @{
     }
 }
 $planCliBefore = Get-CvrPackageWriterOutputCount 'Plan'
-$planCliResult = Invoke-CvrPackageWriterCli $validPlanCliArguments
-Assert-IdleTransaction ($planCliResult.ExitCode -eq 0) 'The actual Plan package-writer command failed.'
+$planCliResult = Invoke-CvrPackageWriterCli -CaseName 'plan-valid' -Arguments $validPlanCliArguments
+Assert-IdleTransaction ($planCliResult.State -ceq 'completed' -and $planCliResult.ExitCode -eq 0 -and $planCliResult.ChildStopped) 'The actual Plan package-writer command failed.'
 $planCli = $planCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
 $planCliRecord = Get-Content -LiteralPath $planCli.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
 $planCliSha256 = (Get-FileHash -LiteralPath $planCli.PlanPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
@@ -1428,6 +1515,36 @@ foreach ($mode in @('Capture', 'Plan')) {
     $wrongDigest['Request']['ExpectedPackageManifestSha256'] = ('0' * 64)
     Assert-CvrPackageWriterCliRejects ($mode + ' wrong external manifest digest') $wrongDigest
 }
+
+
+$delayedWriterPath = Join-Path $targetCaptureRoot 'synthetic-delayed-writer.ps1'
+$delayedWriterLines = @(
+    'param([string]$Mode)'
+    '$null = [Console]::In.ReadLine()'
+    'Start-Sleep -Seconds 60'
+)
+[IO.File]::WriteAllLines($delayedWriterPath, [string[]]$delayedWriterLines, [Text.UTF8Encoding]::new($false))
+$beforeDelayedWriterCount = Get-CvrPackageWriterOutputCount 'Capture'
+$delayedWriterResult = Invoke-CvrPackageWriterCli -CaseName 'delayed-synthetic' -Arguments @{
+    Mode = 'Capture'
+    ScriptPath = $delayedWriterPath
+    TimeoutSeconds = 15
+    Request = @{ synthetic = $true }
+}
+Assert-IdleTransaction (
+    $delayedWriterResult.State -ceq 'timeout' -and
+    $delayedWriterResult.Stage -ceq 'process-wait' -and
+    $delayedWriterResult.ChildStopped -and
+    $delayedWriterResult.ElapsedMilliseconds -le 20000 -and
+    [string]::IsNullOrEmpty($delayedWriterResult.StdOut) -and
+    (Get-CvrPackageWriterOutputCount 'Capture') -eq $beforeDelayedWriterCount
+) 'A delayed synthetic package writer was not bounded and reaped before output.'
+
+
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'powershell51-package-writer-timeout'
+    result = 'delayed child timed out in process-wait and was reaped before output'
+})
 
 $script:targetCaptureOutcomes.Add([pscustomobject]@{
     case = 'powershell51-package-writer-cli'

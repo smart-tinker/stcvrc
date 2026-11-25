@@ -11,7 +11,7 @@ try {
     . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
     . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
 
-    $requestText = [Console]::In.ReadToEnd()
+    $requestText = [Console]::In.ReadLine()
     $request = ConvertFrom-Json -InputObject $requestText -ErrorAction Stop
     if ($request -isnot [PSCustomObject]) { throw 'invalid request' }
 
