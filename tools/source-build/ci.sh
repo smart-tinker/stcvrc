@@ -188,6 +188,7 @@ gobwas_version="v1.5.0"
 dhcp_version="v0.0.0-20260719225207-c76316d4aa82"
 chacha_version="v0.1.6-0.20250812085457-7b981d42c3ba"
 go mod edit -modfile=.ci-build.mod -require="github.com/gobwas/ws@$gobwas_version"
+go mod edit -modfile=.ci-build.mod -droprequire=github.com/gobwas/pool
 go mod edit -modfile=.ci-build.mod -require="github.com/insomniacslk/dhcp@$dhcp_version"
 go mod edit -modfile=.ci-build.mod -require="github.com/metacubex/chacha@$chacha_version"
 GOFLAGS="-modfile=$(native_path "$core/.ci-build.mod")"
@@ -202,6 +203,10 @@ go mod verify
 go list -m all > "$root/output/modules.txt"
 grep -Fqx 'github.com/anchore/go-lzo v0.1.1' "$root/output/modules.txt"
 grep -Fqx "github.com/gobwas/ws $gobwas_version" "$root/output/modules.txt"
+if grep -Fq "github.com/gobwas/pool " "$root/output/modules.txt"; then
+  printf 'Obsolete gobwas/pool remains in the candidate graph.\n' >&2
+  exit 1
+fi
 grep -Fqx "github.com/insomniacslk/dhcp $dhcp_version" "$root/output/modules.txt"
 grep -Fqx "github.com/metacubex/chacha $chacha_version" "$root/output/modules.txt"
 if grep -Fq 'github.com/gobwas/ws v1.4.0' "$root/output/modules.txt"; then
@@ -233,8 +238,17 @@ GOOS=windows GOARCH=amd64 go build -tags=with_gvisor -trimpath -buildvcs=false -
 git diff --exit-code
 if [[ "$host" == windows ]]; then "$root/output/verge-mihomo.exe" -v; else "$root/output/core-linux" -v; fi
 go version -m "$root/output/verge-mihomo.exe" | tee "$root/output/windows-module-metadata.txt"
-grep -Fq "dep github.com/gobwas/ws $gobwas_version " "$root/output/windows-module-metadata.txt"
-grep -Fq "dep github.com/insomniacslk/dhcp $dhcp_version " "$root/output/windows-module-metadata.txt"
+check_module_metadata() {
+  awk -v module="$1" -v version="$2" '
+    $1 == "dep" && $2 == module {
+      found++
+      if ($3 != version) wrong=1
+    }
+    END { if (found != 1 || wrong) exit 1 }
+  ' "$root/output/windows-module-metadata.txt"
+}
+check_module_metadata github.com/gobwas/ws "$gobwas_version"
+check_module_metadata github.com/insomniacslk/dhcp "$dhcp_version"
 
 if [[ "$host" == linux ]]; then
 mkdir "$root/xray"
