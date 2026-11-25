@@ -45,9 +45,17 @@ try {
         $errorType = $_.Exception.GetType().Name
     }
     $diagnosticPattern = 'stage=remove-directory process_exited=true pid=\d+ exit_code=0 attempts=[2-9]\d* error_type=[A-Za-z]+Exception error_hresult=0x[0-9a-f]{8} executable_exists=true directory_exists=true timeout_seconds=2'
-    if (-not $cleanupError -or $cleanupError -notmatch $diagnosticPattern -or
-        $cleanupError.IndexOf($lockedRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
-        throw "SSH fixture lock regression failed: expected bounded redacted process/handle evidence; observed_error_type=$errorType elapsed_ms=$($watch.ElapsedMilliseconds)."
+    $safeFields = @()
+    foreach ($name in @('stage','process_exited','pid','exit_code','attempts','error_type','error_hresult','executable_exists','directory_exists','timeout_seconds')) {
+        $field = [regex]::Match([string]$cleanupError, "(?:^|[ (])$name=([A-Za-z0-9_.-]+)")
+        $value = if ($field.Success) { $field.Groups[1].Value } else { 'missing' }
+        $safeFields += "$name=$value"
+    }
+    $runnerPathPresent = $false
+    if ($cleanupError) { $runnerPathPresent = $cleanupError.IndexOf($lockedRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+    if (-not $cleanupError -or $cleanupError -notmatch $diagnosticPattern -or $runnerPathPresent) {
+        $safeDiagnostic = $safeFields -join ' '
+        throw "SSH fixture lock regression failed: expected bounded redacted process/handle evidence; fields=$safeDiagnostic runner_path_present=$($runnerPathPresent.ToString().ToLowerInvariant()) observed_error_type=$errorType elapsed_ms=$($watch.ElapsedMilliseconds)."
     }
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf) -or -not (Test-Path -LiteralPath $lockedRoot -PathType Container)) {
         throw 'SSH fixture lock failure did not preserve the locked executable and directory.'
