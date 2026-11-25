@@ -1309,14 +1309,8 @@ function Invoke-CvrPackageWriterCli([hashtable]$Arguments) {
     $commandLineParts = @(
         '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File',
         (Quote-CvrPackageWriterArgument $packageWriterCliPath),
-        '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode)),
-        '-PackageRoot', (Quote-CvrPackageWriterArgument ([string]$Arguments.PackageRoot))
+        '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode))
     )
-    foreach ($name in @('ExpectedStageRoot', 'ExpectedPackageManifestSha256')) {
-        if ($Arguments.ContainsKey($name)) {
-            $commandLineParts += @("-$name", (Quote-CvrPackageWriterArgument ([string]$Arguments[$name])))
-        }
-    }
 
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = $powershell51
@@ -1365,13 +1359,13 @@ function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Argume
 
 $validCaptureCliArguments = @{
     Mode = 'Capture'
-    PackageRoot = $preflightPackageRoot
-    ExpectedStageRoot = $expectedStageRoot
-    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
     Request = @{
         Capture = $targetCapture
         ExpectedTargetIdentity = $targetIdentity
         ExpectedPins = $expectedPins
+        PackageRoot = $preflightPackageRoot
+        ExpectedStageRoot = $expectedStageRoot
+        ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
     }
 }
 $captureCliBefore = Get-CvrPackageWriterOutputCount 'Capture'
@@ -1387,15 +1381,15 @@ Assert-IdleTransaction (
 
 $validPlanCliArguments = @{
     Mode = 'Plan'
-    PackageRoot = $preflightPackageRoot
-    ExpectedStageRoot = $expectedStageRoot
-    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
     Request = @{
         Capture = $targetCapture
         CaptureDirectory = [string]$captureCli.CaptureDirectory
         ReceiptPath = [string]$captureCli.ReceiptPath
         ExpectedTargetIdentity = $targetIdentity
         ExpectedPins = $expectedPins
+        PackageRoot = $preflightPackageRoot
+        ExpectedStageRoot = $expectedStageRoot
+        ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
     }
 }
 $planCliBefore = Get-CvrPackageWriterOutputCount 'Plan'
@@ -1403,29 +1397,35 @@ $planCliResult = Invoke-CvrPackageWriterCli $validPlanCliArguments
 Assert-IdleTransaction ($planCliResult.ExitCode -eq 0) 'The actual Plan package-writer command failed.'
 $planCli = $planCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
 $planCliRecord = Get-Content -LiteralPath $planCli.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+$planCliSha256 = (Get-FileHash -LiteralPath $planCli.PlanPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
 Assert-IdleTransaction (
     (Get-CvrPackageWriterOutputCount 'Plan') -eq ($planCliBefore + 1) -and
     [IO.Path]::GetFullPath([string]$planCliRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
-    [string]$planCliRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+    [string]$planCliRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256 -and
+    [string]$planCli.PlanSha256 -ceq $planCliSha256
 ) 'The actual Plan command did not write a stage-bound plan.'
 
 foreach ($mode in @('Capture', 'Plan')) {
     $validArguments = if ($mode -eq 'Capture') { $validCaptureCliArguments.Clone() } else { $validPlanCliArguments.Clone() }
 
     $missingRoot = $validArguments.Clone()
-    $null = $missingRoot.Remove('ExpectedStageRoot')
+    $missingRoot['Request'] = $validArguments['Request'].Clone()
+    $null = $missingRoot['Request'].Remove('ExpectedStageRoot')
     Assert-CvrPackageWriterCliRejects ($mode + ' missing expected stage root') $missingRoot
 
     $missingDigest = $validArguments.Clone()
-    $null = $missingDigest.Remove('ExpectedPackageManifestSha256')
+    $missingDigest['Request'] = $validArguments['Request'].Clone()
+    $null = $missingDigest['Request'].Remove('ExpectedPackageManifestSha256')
     Assert-CvrPackageWriterCliRejects ($mode + ' missing external manifest digest') $missingDigest
 
     $wrongRoot = $validArguments.Clone()
-    $wrongRoot['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+    $wrongRoot['Request'] = $validArguments['Request'].Clone()
+    $wrongRoot['Request']['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
     Assert-CvrPackageWriterCliRejects ($mode + ' wrong expected stage root') $wrongRoot
 
     $wrongDigest = $validArguments.Clone()
-    $wrongDigest['ExpectedPackageManifestSha256'] = ('0' * 64)
+    $wrongDigest['Request'] = $validArguments['Request'].Clone()
+    $wrongDigest['Request']['ExpectedPackageManifestSha256'] = ('0' * 64)
     Assert-CvrPackageWriterCliRejects ($mode + ' wrong external manifest digest') $wrongDigest
 }
 
