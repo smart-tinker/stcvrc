@@ -86,16 +86,7 @@ func init() {
 		panic(err)
 	}
 
-	imageExist := func(image string) bool {
-		for _, item := range list {
-			for _, tag := range item.RepoTags {
-				if image == tag {
-					return true
-				}
-			}
-		}
-		return false
-	}
+
 
 	images := []string{
 		ImageShadowsocks,
@@ -112,7 +103,7 @@ func init() {
 	}
 
 	for _, image := range images {
-		if imageExist(image) {
+		if hasLocalImageReference(list, image) {
 			continue
 		}
 
