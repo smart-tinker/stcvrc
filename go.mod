@@ -7,7 +7,7 @@ require (
 	github.com/coreos/go-iptables v0.8.0
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/enfein/mieru/v3 v3.34.0
-	github.com/gobwas/ws v1.4.0
+	github.com/gobwas/ws v1.5.0
 	github.com/gofrs/uuid/v5 v5.4.0
 	github.com/golang/snappy v1.0.0
 	github.com/metacubex/age v0.0.0-20260603010618-28d156b4ea78
@@ -62,7 +62,7 @@ require (
 )
 
 require (
-	github.com/insomniacslk/dhcp v0.0.0-20250109001534-8abf58130905
+	github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82
 	github.com/klauspost/compress v1.20.2
 	github.com/mdlayher/netlink v1.7.2
 	github.com/miekg/dns v1.1.63

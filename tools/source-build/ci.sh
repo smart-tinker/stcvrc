@@ -184,17 +184,34 @@ cd "$core"
 cp go.mod .ci-build.mod
 cp go.sum .ci-build.sum
 go mod edit -modfile=.ci-build.mod -replace=github.com/easytier/easytier/easytier-go=./third_party/easytier-go
+gobwas_version="v1.5.0"
+dhcp_version="v0.0.0-20260719225207-c76316d4aa82"
 chacha_version="v0.1.6-0.20250812085457-7b981d42c3ba"
+go mod edit -modfile=.ci-build.mod -require="github.com/gobwas/ws@$gobwas_version"
+go mod edit -modfile=.ci-build.mod -require="github.com/insomniacslk/dhcp@$dhcp_version"
 go mod edit -modfile=.ci-build.mod -require="github.com/metacubex/chacha@$chacha_version"
 GOFLAGS="-modfile=$(native_path "$core/.ci-build.mod")"
 export GOFLAGS
-go mod download "github.com/metacubex/chacha@$chacha_version"
+go mod download \
+  "github.com/gobwas/ws@$gobwas_version" \
+  "github.com/insomniacslk/dhcp@$dhcp_version" \
+  "github.com/metacubex/chacha@$chacha_version"
 GOFLAGS="-modfile=$(native_path "$core/.ci-build.mod") -mod=readonly -p=2"
 export GOFLAGS
 go mod verify
 go list -m all > "$root/output/modules.txt"
 grep -Fqx 'github.com/anchore/go-lzo v0.1.1' "$root/output/modules.txt"
+grep -Fqx "github.com/gobwas/ws $gobwas_version" "$root/output/modules.txt"
+grep -Fqx "github.com/insomniacslk/dhcp $dhcp_version" "$root/output/modules.txt"
 grep -Fqx "github.com/metacubex/chacha $chacha_version" "$root/output/modules.txt"
+if grep -Fq 'github.com/gobwas/ws v1.4.0' "$root/output/modules.txt"; then
+  printf 'Old vulnerable gobwas/ws remains in the candidate graph.\n' >&2
+  exit 1
+fi
+if grep -Fq 'github.com/insomniacslk/dhcp v0.0.0-20250109001534-8abf58130905' "$root/output/modules.txt"; then
+  printf 'Old vulnerable insomniacslk/dhcp remains in the candidate graph.\n' >&2
+  exit 1
+fi
 if grep -Fq 'github.com/metacubex/chacha v0.1.5' "$root/output/modules.txt"; then
   printf 'Old unlicensed chacha tag remains in the candidate graph.\n' >&2
   exit 1
@@ -207,15 +224,17 @@ go test -tags=with_gvisor -count=1 -timeout=240s github.com/easytier/easytier/ea
 go test -tags=with_gvisor -count=1 -timeout=240s ./transport/openvpn ./transport/v2ray-plugin ./adapter/outbound ./adapter/outboundgroup
 GOFLAGS='-mod=readonly -p=2' go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 govulncheck -tags=with_gvisor ./... | tee "$root/output/govulncheck.txt"
-version=1.19.33-STCVRC-rc.9
-build_time=2026-11-12T00:00:00Z
+version=1.19.33-STCVRC-rc.10
+build_time=2026-11-25T00:00:00Z
 ldflags="-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$version -X github.com/metacubex/mihomo/constant.BuildTime=$build_time"
 export STCVRC_BUILD_LDFLAGS="$ldflags"
 GOOS=linux GOARCH=amd64 go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$root/output/core-linux" .
 GOOS=windows GOARCH=amd64 go build -tags=with_gvisor -trimpath -buildvcs=false -ldflags "$ldflags" -o "$root/output/verge-mihomo.exe" .
 git diff --exit-code
 if [[ "$host" == windows ]]; then "$root/output/verge-mihomo.exe" -v; else "$root/output/core-linux" -v; fi
-go version -m "$root/output/verge-mihomo.exe"
+go version -m "$root/output/verge-mihomo.exe" | tee "$root/output/windows-module-metadata.txt"
+grep -Fq "dep github.com/gobwas/ws $gobwas_version " "$root/output/windows-module-metadata.txt"
+grep -Fq "dep github.com/insomniacslk/dhcp $dhcp_version " "$root/output/windows-module-metadata.txt"
 
 if [[ "$host" == linux ]]; then
 mkdir "$root/xray"
@@ -274,6 +293,7 @@ report = {
     "modfile_sha256": digest(modfile),
     "modsum_sha256": digest(modsum),
     "chacha_module": {"path": "github.com/metacubex/chacha", "version": "v0.1.6-0.20250812085457-7b981d42c3ba", "source_commit": "7b981d42c3baca5a004e7b0ecfb9b67ee20e583a"},
+    "selected_dependency_versions": {"github.com/gobwas/ws": "v1.5.0", "github.com/insomniacslk/dhcp": "v0.0.0-20260719225207-c76316d4aa82"},
     "generated_easytier_files": {path: digest(easytier/path) for path in sorted(changed) if path != fixture_patch},
     "build_test_only_patches": {path: digest(easytier/path) for path in build_test_patches},
     "go_version": "1.26.11",
@@ -281,8 +301,8 @@ report = {
     "protoc_version": "35.1",
     "protoc_gen_go_version": "1.36.11",
     "binaryen_version": "131",
-    "version": "1.19.33-STCVRC-rc.9",
-    "build_time": "2026-11-12T00:00:00Z",
+    "version": "1.19.33-STCVRC-rc.10",
+    "build_time": "2026-11-25T00:00:00Z",
     "artifacts": [
         {"name": name, "target": "windows/amd64" if name.endswith(".exe") else "linux/amd64", "sha256": digest(output/name), "size": (output/name).stat().st_size}
         for name in ("core-linux", "verge-mihomo.exe")
