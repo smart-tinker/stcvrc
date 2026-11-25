@@ -59,6 +59,7 @@ if ($null -eq $vcRuntime -or [int]$vcRuntime.Installed -ne 1) {
 
 if (-not $env:APPDATA -or -not $env:PR_SOURCE -or -not $env:CUSTOM_CORE) { throw 'Required runner paths are missing.' }
 . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_preimage_paths.ps1')
+. (Join-Path $PSScriptRoot 'windows_core_identity.ps1')
 $legacyStateTransactionScript = Join-Path $PSScriptRoot 'windows_legacy_state_transaction.ps1'
 if (-not (Test-Path -LiteralPath $legacyStateTransactionScript -PathType Leaf)) { throw 'The shared legacy-state transaction helper is missing.' }
 . $legacyStateTransactionScript
@@ -97,11 +98,12 @@ if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].si
 if ((Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
     throw 'Fresh STCVRC core bytes do not match the build report SHA256.'
 }
-$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-$expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText"
-$coreVersion = (& $env:CUSTOM_CORE -v 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $coreVersion -cne $expectedCoreVersion) {
-    throw "Fresh Windows core version mismatch. Expected [$expectedCoreVersion]; got [$coreVersion]."
+Assert-StcvrcWindowsCoreVersionOutputVectors
+$expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build
+$coreVersionLines = @(& $env:CUSTOM_CORE -v 2>&1 | ForEach-Object { [string]$_ })
+$coreExit = $LASTEXITCODE
+if ($coreExit -ne 0 -or -not (Test-StcvrcWindowsCoreVersionOutput -VersionLines $coreVersionLines -ExpectedIdentity $expectedCoreVersion)) {
+    throw "Fresh Windows core version mismatch. Expected [$expectedCoreVersion]; got [$($coreVersionLines -join "`n")]."
 }
 
 $installerPaths = @{

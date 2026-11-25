@@ -286,15 +286,37 @@ class CIContractTests(unittest.TestCase):
         for guard in ("1.19.33-STCVRC-rc.10", "$build.core_source_commit",
                       "a884ad53a3999dd35acab979e0bb040c47f6dbc9", "$build.selected_dependency_versions",
                       "github.com/gobwas/ws", "github.com/insomniacslk/dhcp",
-                      "$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString(\"yyyy-MM-ddTHH:mm:ss'Z'\", [Globalization.CultureInfo]::InvariantCulture)",
-                      "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText\""):
+                      "windows_core_identity.ps1",
+                      "$expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build",
+                      "Test-StcvrcWindowsCoreVersionOutput -VersionLines",
+                      "Assert-StcvrcWindowsCoreVersionOutputVectors"):
             with self.subTest(guard=guard):
                 self.assertIn(guard, installer)
         self.assertNotIn("$manifest.windowsNativeCandidate", installer)
         self.assertNotIn("stcvrc-1.19.33-rc.9", installer)
         identity = installer.split("$coreSha = [string]$coreEntries[0].sha256", 1)[1].split("$installerPaths =", 1)[0]
+        self.assertLess(identity.index("(Get-Item -LiteralPath $env:CUSTOM_CORE).Length"),
+                        identity.index("$env:CUSTOM_CORE -v"))
         self.assertLess(identity.index("Get-FileHash -LiteralPath $env:CUSTOM_CORE"),
                         identity.index("$env:CUSTOM_CORE -v"))
+        workflow_identity = WORKFLOWS["test.yml"].split(
+            "      - name: Verify and extract pinned CVR installers without running them", 1
+        )[1].split("      - name: Install, native acceptance, then recover to 2.5.8", 1)[0]
+        self.assertIn("Get-StcvrcWindowsCoreVersionIdentity -Build $build", workflow_identity)
+        self.assertIn("Test-StcvrcWindowsCoreVersionOutput -VersionLines", workflow_identity)
+        self.assertNotIn("StartsWith(", workflow_identity)
+        self.assertLess(workflow_identity.index('core.stat().st_size == entry["size"]'),
+                        workflow_identity.index("$stockCore -v"))
+        self.assertLess(workflow_identity.index("Get-Item -LiteralPath $stockCore"),
+                        workflow_identity.index("$stockCore -v"))
+        self.assertLess(workflow_identity.index("Get-FileHash -LiteralPath $stockCore"),
+                        workflow_identity.index("$stockCore -v"))
+        identity_helper = (HERE / "windows_core_identity.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Get-StcvrcWindowsCoreVersionIdentity", identity_helper)
+        self.assertIn("function Test-StcvrcWindowsCoreVersionOutput", identity_helper)
+        self.assertIn("function Assert-StcvrcWindowsCoreVersionOutputVectors", identity_helper)
+        self.assertIn("'Use tags: with_gvisor'", identity_helper)
+        self.assertIn("$expected.Replace('rc.10', 'rc.9')", identity_helper)
 
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]

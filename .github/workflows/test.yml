@@ -509,7 +509,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_core_identity.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -619,6 +619,7 @@ jobs:
         if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' }}
         run: |
           $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_identity.ps1')
           $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           $build = Get-Content -LiteralPath $env:STCVRC_BUILD_JSON -Raw | ConvertFrom-Json
@@ -694,16 +695,14 @@ jobs:
                 if ($name -eq 'verge-mihomo.exe') { $stockCore = $file.FullName }
               }
               Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $stockCore -Force
+              if ((Get-Item -LiteralPath $stockCore).Length -ne (Get-Item -LiteralPath $env:CUSTOM_CORE).Length) { throw 'Fresh custom core size changed after staging' }
               $stagedHash = (Get-FileHash -LiteralPath $stockCore -Algorithm SHA256).Hash.ToLowerInvariant()
               if ($stagedHash -ne $env:CUSTOM_CORE_SHA256) { throw 'Fresh custom core did not replace the extracted stock core bytes' }
-              $coreVersionOutput = & $stockCore -v 2>&1
+              $coreVersionLines = @(& $stockCore -v 2>&1 | ForEach-Object { [string]$_ })
               $coreExit = $LASTEXITCODE
-              $coreVersionOutput = $coreVersionOutput -join "`n"
-              if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
-              $buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-              $expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText"
-              if (-not $coreVersionOutput.StartsWith($expectedCoreVersion, [System.StringComparison]::Ordinal)) {
-                throw "Fresh custom core -v reported an unexpected version. Expected prefix: [$expectedCoreVersion]; actual: [$coreVersionOutput]"
+              $expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build
+              if ($coreExit -ne 0 -or -not (Test-StcvrcWindowsCoreVersionOutput -VersionLines $coreVersionLines -ExpectedIdentity $expectedCoreVersion)) {
+                throw "Fresh custom core -v reported an unexpected identity. Expected: [$expectedCoreVersion]; actual: [$($coreVersionLines -join "`n")]"
               }
               Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nThe SHA-verified freshly built 1.19.33 Windows/amd64 core passed its CLI -v identity check. This does not establish a live core, GUI, service, TUN, or DNS result; those are checked by the following native acceptance script."
             }

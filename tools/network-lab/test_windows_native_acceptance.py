@@ -38,14 +38,18 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$build.selected_dependency_versions.'github.com/insomniacslk/dhcp' -cne 'v0.0.0-20260719225207-c76316d4aa82'",
             "$coreEntries[0].size",
             "Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256",
-            "$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString(\"yyyy-MM-ddTHH:mm:ss'Z'\", [Globalization.CultureInfo]::InvariantCulture)",
-            "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText\"",
+            "windows_core_identity.ps1",
+            "$expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build",
+            "Test-StcvrcWindowsCoreVersionOutput -VersionLines",
+            "Assert-StcvrcWindowsCoreVersionOutputVectors",
         ):
             with self.subTest(identity=identity):
                 self.assertIn(identity, source)
         self.assertNotIn("$manifest.windowsNativeCandidate", source)
         self.assertNotIn("stcvrc-1.19.33-rc.9", source)
         identity = source.split("$coreSha = [string]$coreEntries[0].sha256", 1)[1].split("$installerPaths =", 1)[0]
+        self.assertLess(identity.index("(Get-Item -LiteralPath $env:CUSTOM_CORE).Length"),
+                        identity.index("$env:CUSTOM_CORE -v"))
         self.assertLess(identity.index("Get-FileHash -LiteralPath $env:CUSTOM_CORE"),
                         identity.index("$env:CUSTOM_CORE -v"))
 
