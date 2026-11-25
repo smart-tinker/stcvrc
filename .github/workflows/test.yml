@@ -773,7 +773,7 @@ jobs:
           root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
           recipe="$(cygpath -u "$PR_SOURCE")"
           out="$root/output"
-          tag=stcvrc-1.19.33-rc.9
+          tag=stcvrc-1.19.33-rc.10
           repo=smart-tinker/stcvrc
           python - "$root" "$recipe" "$tag" <<'PY'
           import hashlib, json, os, re, shutil, sys
@@ -783,6 +783,12 @@ jobs:
           out = root / "output"
           digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
           build = json.loads((out / "build.json").read_text(encoding="utf-8"))
+          assert build["version"] == "1.19.33-STCVRC-rc.10"
+          assert build["core_source_commit"] == "a884ad53a3999dd35acab979e0bb040c47f6dbc9"
+          assert build["selected_dependency_versions"] == {
+              "github.com/gobwas/ws": "v1.5.0",
+              "github.com/insomniacslk/dhcp": "v0.0.0-20260719225207-c76316d4aa82",
+          }
           native_sha, native_wasm = os.environ["NATIVE_CORE_SHA256"], os.environ["NATIVE_WASM_SHA256"]
           assert re.fullmatch(r"[0-9a-f]{64}", native_sha) and re.fullmatch(r"[0-9a-f]{64}", native_wasm)
           assert build["recipe_commit"] == os.environ["HEAD_SHA"] and build["build_host"] == "windows/amd64"
@@ -818,7 +824,7 @@ jobs:
           PY
           notes="$out/RC-NOTES.md"
           cat > "$notes" <<'EOF'
-          Unpublished STCVRC 1.19.33 RC9, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
+          Unpublished STCVRC 1.19.33 RC10, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
           The Windows core and embedded EasyTier WASM were rebuilt from exact public source.
           Core and WASM digests match the same workflow's successful native Windows GUI/service/TUN/DNS/update/recovery job.
           THIRD-PARTY-NOTICES.txt and THIRD-PARTY-SOURCES.json describe the actual Windows build graph, toolchains and embedded runtime assets.
@@ -835,7 +841,7 @@ jobs:
             upload=()
             for name in "${assets[@]}"; do upload+=("$out/$name"); done
             gh release create "$tag" "${upload[@]}" --repo "$repo" --draft --prerelease --target "$HEAD_SHA" \
-              --title 'STCVRC 1.19.33 RC9 — source-built candidate' --notes-file "$notes"
+              --title 'STCVRC 1.19.33 RC10 — source-built candidate' --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
           [[ "$release_id" =~ ^[0-9]+$ ]]

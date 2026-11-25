@@ -286,21 +286,24 @@ SOFTWARE.""",
         builder = (ROOT / "tools" / "source-build" / "ci.sh").read_text(encoding="utf-8")
         self.assertIn('chacha_version="v0.1.6-0.20250812085457-7b981d42c3ba"', builder)
         self.assertIn('go mod edit -modfile=.ci-build.mod -require="github.com/metacubex/chacha@$chacha_version"', builder)
-        self.assertIn('go mod download "github.com/metacubex/chacha@$chacha_version"', builder)
+        download = builder.split("go mod download", 1)[1].split("GOFLAGS=", 1)[0]
+        self.assertIn('"github.com/metacubex/chacha@$chacha_version"', download)
         self.assertIn('grep -Fqx "github.com/metacubex/chacha $chacha_version" "$root/output/modules.txt"', builder)
         self.assertIn('"modsum_sha256": digest(modsum)', builder)
 
 
-    def test_next_draft_rc_uses_fresh_rc9_tag_and_matching_core_version(self):
+    def test_next_draft_rc_uses_fresh_rc10_tag_and_matching_core_version(self):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         assembler = workflow.split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
         builder = (ROOT / "tools" / "source-build" / "ci.sh").read_text(encoding="utf-8")
 
-        self.assertIn("tag=stcvrc-1.19.33-rc.9", assembler)
-        self.assertIn("STCVRC 1.19.33 RC9", assembler)
+        self.assertIn("tag=stcvrc-1.19.33-rc.10", assembler)
+        self.assertIn("STCVRC 1.19.33 RC10", assembler)
         self.assertNotIn("rc.8", assembler)
-        self.assertIn("version=1.19.33-STCVRC-rc.9", builder)
-        self.assertIn('"version": "1.19.33-STCVRC-rc.9"', builder)
+        self.assertIn("version=1.19.33-STCVRC-rc.10", builder)
+        self.assertIn('"version": "1.19.33-STCVRC-rc.10"', builder)
+        self.assertIn('assert build["core_source_commit"] == "a884ad53a3999dd35acab979e0bb040c47f6dbc9"', assembler)
+        self.assertIn('"selected_dependency_versions"] ==', assembler)
 
 
     def test_current_rc9_packet_is_in_the_provenance_record(self):

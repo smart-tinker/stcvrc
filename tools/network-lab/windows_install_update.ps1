@@ -85,16 +85,16 @@ if ($LASTEXITCODE -ne 0 -or $build.schema_version -ne 1 -or $build.build_host -n
 $coreEntries = @($build.artifacts | Where-Object { $_.name -eq 'verge-mihomo.exe' -and $_.target -eq 'windows/amd64' })
 if ($coreEntries.Count -ne 1 -or $coreEntries[0].sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$coreEntries[0].size -lt 1) { throw 'Fresh Windows artifact identity is invalid.' }
 $coreSha = [string]$coreEntries[0].sha256
-$nativeCandidate = $manifest.windowsNativeCandidate
-if ($nativeCandidate.releaseId -ne 446278043 -or
-    $nativeCandidate.tag -cne 'stcvrc-1.19.33-rc.9' -or
-    $nativeCandidate.candidate -cne 'STCVRC 1.19.33 RC9' -or
-    $nativeCandidate.assetId -ne 751963784 -or
-    $nativeCandidate.assetName -cne 'verge-mihomo.exe' -or
-    [long]$nativeCandidate.assetSize -ne 60833280 -or
-    [long]$coreEntries[0].size -ne [long]$nativeCandidate.assetSize -or
-    $coreSha -cne [string]$nativeCandidate.sha256) {
-    throw 'Fresh Windows core does not match the exact STCVRC 1.19.33 RC9 release asset pin.'
+# windowsNativeCandidate in inputs.json is the historical RC9 pin; validate the fresh RC10 build report here.
+if ($build.version -cne '1.19.33-STCVRC-rc.10' -or
+    $build.core_source_commit -cne 'a884ad53a3999dd35acab979e0bb040c47f6dbc9' -or
+    $build.selected_dependency_versions.'github.com/gobwas/ws' -cne 'v1.5.0' -or
+    $build.selected_dependency_versions.'github.com/insomniacslk/dhcp' -cne 'v0.0.0-20260719225207-c76316d4aa82') {
+    throw 'Fresh Windows build is not the dependency-updated RC10 candidate.'
+}
+$coreVersion = (& $env:CUSTOM_CORE -v 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $coreVersion -cne 'Mihomo Meta 1.19.33-STCVRC-rc.10 windows amd64') {
+    throw 'Fresh Windows core reports the wrong candidate version.'
 }
 if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].size) { throw 'Fresh Windows artifact size changed after build.' }
 if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf) -or
