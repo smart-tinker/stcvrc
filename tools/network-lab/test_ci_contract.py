@@ -286,7 +286,8 @@ class CIContractTests(unittest.TestCase):
         for guard in ("1.19.33-STCVRC-rc.10", "$build.core_source_commit",
                       "a884ad53a3999dd35acab979e0bb040c47f6dbc9", "$build.selected_dependency_versions",
                       "github.com/gobwas/ws", "github.com/insomniacslk/dhcp",
-                      "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $($build.build_time)\""):
+                      "$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString(\"yyyy-MM-ddTHH:mm:ss'Z'\", [Globalization.CultureInfo]::InvariantCulture)",
+                      "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText\""):
             with self.subTest(guard=guard):
                 self.assertIn(guard, installer)
         self.assertNotIn("$manifest.windowsNativeCandidate", installer)

@@ -38,7 +38,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$build.selected_dependency_versions.'github.com/insomniacslk/dhcp' -cne 'v0.0.0-20260719225207-c76316d4aa82'",
             "$coreEntries[0].size",
             "Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256",
-            "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $($build.build_time)\"",
+            "$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString(\"yyyy-MM-ddTHH:mm:ss'Z'\", [Globalization.CultureInfo]::InvariantCulture)",
+            "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText\"",
         ):
             with self.subTest(identity=identity):
                 self.assertIn(identity, source)
