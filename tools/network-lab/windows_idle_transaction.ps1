@@ -846,3 +846,34 @@ function Save-CvrIdlePreflightPlan {
         }
     }
 }
+
+function Invoke-CvrIdlePreflightPackageWriter {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('Capture', 'Plan')][string]$Mode,
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256,
+        [string]$CaptureDirectory,
+        [string]$ReceiptPath
+    )
+
+    $writerArguments = @{
+        Capture = $Capture
+        ExpectedTargetIdentity = $ExpectedTargetIdentity
+        ExpectedPins = $ExpectedPins
+        PackageRoot = $PackageRoot
+        ExpectedStageRoot = $ExpectedStageRoot
+        ExpectedPackageManifestSha256 = $ExpectedPackageManifestSha256
+    }
+    if ($Mode -eq 'Capture') {
+        return Save-CvrIdlePreflightCapture @writerArguments
+    }
+
+    $writerArguments.CaptureDirectory = $CaptureDirectory
+    $writerArguments.ReceiptPath = $ReceiptPath
+    return Save-CvrIdlePreflightPlan @writerArguments
+}
