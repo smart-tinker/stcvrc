@@ -6,8 +6,10 @@ import unittest
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 WORKFLOW = (ROOT / ".github/workflows/stcvrc-network-lab.yml").read_text()
-WORKFLOWS = {path.name: path.read_text() for path in
-             (ROOT / ".github/workflows").glob("*.y*ml")}
+WORKFLOWS = {
+    path.name: path.read_text(encoding="utf-8")
+    for path in (ROOT / ".github/workflows").glob("*.y*ml")
+}
 SCRIPT = (HERE / "ci.sh").read_text()
 WINDOWS = (HERE / "windows.py").read_text(encoding="utf-8")
 SS_TESTS = (ROOT / "test/ss_test.go").read_text()
