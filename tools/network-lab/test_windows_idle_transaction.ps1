@@ -1565,6 +1565,24 @@ foreach ($mode in @('Capture', 'Plan')) {
 }
 
 
+# The whole-call timeout must include request serialization, before a writer child exists.
+$slowSerializationRequest = [PSCustomObject]@{ synthetic = $true }
+$null = $slowSerializationRequest | Add-Member -MemberType ScriptProperty -Name delayed -Value {
+    Start-Sleep -Seconds 15
+    'complete'
+} -Force
+$slowSerializationResult = Invoke-CvrPackageWriterCli -CaseName 'serialization-stall' -Arguments @{
+    Mode = 'Capture'
+    TimeoutSeconds = 10
+    Request = $slowSerializationRequest
+}
+Assert-IdleTransaction (
+    $slowSerializationResult.State -ceq 'timeout' -and
+    $slowSerializationResult.Stage -ceq 'request-serialize' -and
+    $slowSerializationResult.ChildStopped -and
+    $slowSerializationResult.ElapsedMilliseconds -le 15000
+) 'Synchronous request serialization exceeded the whole-call deadline.'
+
 $delayedWriterPath = Join-Path $targetCaptureRoot 'synthetic-delayed-writer.ps1'
 $delayedWriterLines = @(
     'param([string]$Mode)'
