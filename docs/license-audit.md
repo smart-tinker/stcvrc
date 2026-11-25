@@ -4,9 +4,13 @@ This record separates historical 1.19.29, 1.19.33 RC1/RC2, RC7 and RC8 records f
 
 The machine-readable pins, asset hashes, source commits, toolchains and build flags are in [license-provenance.json](license-provenance.json).
 
-## Fresh RC9 inputs and review packet
+## Current dependency-updated candidate
 
-The current recipe is [tools/source-build/ci.sh](../tools/source-build/ci.sh). It starts from fresh checkouts, rebuilds the selected [STCVRC source](https://github.com/smart-tinker/stcvrc/tree/a884ad53a3999dd35acab979e0bb040c47f6dbc9) against Mihomo v1.19.33, and regenerates EasyTier Go bindings and WASM from [EasyTier commit 3463190](https://github.com/EasyTier/EasyTier/tree/3463190838eb642ba8324c6a4011acdea52495a8). The actual core graph is tested with that locally built source replacement. No previous STCVRC executable or embedded WASM is a build input; official CVR 2.5.8 and 2.5.10 installers are migration/recovery inputs only.
+The source-check recipe labels the fresh .33 dependency graph as `1.19.33-STCVRC-rc.10` and selects `github.com/gobwas/ws v1.5.0` and `github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82` in the root module, nested test module, and isolated candidate build. The existing RC9 packet and `candidate-1.19.33-rc.9` record below remain unchanged. PR checks build and license-audit RC10 in runner-local temporary directories; they do not assemble a release packet or establish separate installed-package acceptance.
+
+## Existing RC9 inputs and review packet
+
+The RC9 packet was built by [tools/source-build/ci.sh](../tools/source-build/ci.sh) from fresh checkouts, using the selected [STCVRC source](https://github.com/smart-tinker/stcvrc/tree/a884ad53a3999dd35acab979e0bb040c47f6dbc9) against Mihomo v1.19.33 and regenerating EasyTier Go bindings and WASM from [EasyTier commit 3463190](https://github.com/EasyTier/EasyTier/tree/3463190838eb642ba8324c6a4011acdea52495a8). The actual core graph is tested with that locally built source replacement. No previous STCVRC executable or embedded WASM is a build input; official CVR 2.5.8 and 2.5.10 installers are migration/recovery inputs only.
 
 [Manual assembly run 43743504334](https://github.com/smart-tinker/stcvrc/actions/runs/43743504334) passed all eight jobs on main commit `3d3b0ec8ee1f11086277eec5f57436c0d9446d01`. It created GitHub draft release ID 446278043 with metadata tag `stcvrc-1.19.33-rc.9`. The release remains unpublished; the corresponding Git tag ref was absent when checked. All seven uploaded files were read back byte-for-byte and hashed. The run created zero Actions artifacts.
 
