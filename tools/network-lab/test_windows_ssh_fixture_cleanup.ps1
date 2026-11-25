@@ -44,7 +44,7 @@ try {
         $cleanupError = [string]$_.Exception.Message
         $errorType = $_.Exception.GetType().Name
     }
-    $diagnosticPattern = 'stage=remove-directory process_exited=true pid=\d+ exit_code=0 attempts=[2-9]\d* error_type=[A-Za-z]+Exception error_hresult=0x[0-9a-f]{8} executable_exists=true directory_exists=true timeout_seconds=2'
+    $diagnosticPattern = 'stage=remove-directory process_exited=true pid=\d+ exit_code=0 attempts=(?:[2-9]|[1-9]\d+) error_type=[A-Za-z]+Exception error_hresult=0x[0-9a-f]{8} executable_exists=true directory_exists=true timeout_seconds=2'
     $safeFields = @()
     foreach ($name in @('stage','process_exited','pid','exit_code','attempts','error_type','error_hresult','executable_exists','directory_exists','timeout_seconds')) {
         $field = [regex]::Match([string]$cleanupError, "(?:^|[ (])$name=([A-Za-z0-9_.-]+)")
