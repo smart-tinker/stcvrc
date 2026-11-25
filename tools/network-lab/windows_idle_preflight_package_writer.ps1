@@ -110,6 +110,11 @@ try {
     $errorType = $_.Exception.GetBaseException().GetType().Name
     $lineNumber = 0
     if ($_.InvocationInfo) { $lineNumber = [int]$_.InvocationInfo.ScriptLineNumber }
-    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape type=$errorType line=$lineNumber).")
+    $guardStage = 'none'
+    $candidateGuardStage = [string]$_.Exception.Data['IdleTargetCaptureFailureStage']
+    if ($candidateGuardStage -match '^(entry-metadata|live-path-pin|unique-preimage-paths|live-core-presence|live-core-hash-acl|other)$') {
+        $guardStage = $candidateGuardStage
+    }
+    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape guard=$guardStage type=$errorType line=$lineNumber).")
     exit 1
 }

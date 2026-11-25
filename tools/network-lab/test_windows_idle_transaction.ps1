@@ -1448,7 +1448,7 @@ function Get-CvrPackageWriterOutputCount([string]$Mode) {
 
 function Get-CvrPackageWriterDiagnostic([string]$StdErr) {
     $diagnostic = ([string]$StdErr).Trim()
-    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ shape=(?:unread|empty|object|partial) type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
+    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ shape=(?:unread|empty|object|partial) guard=(?:none|entry-metadata|live-path-pin|unique-preimage-paths|live-core-presence|live-core-hash-acl|other) type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
         return $Matches[0]
     }
     return 'unclassified child failure'

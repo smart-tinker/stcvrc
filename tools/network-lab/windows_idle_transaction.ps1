@@ -224,7 +224,17 @@ function Assert-CvrIdleTargetCapture {
             if ($failure -match '^(Program Files|service) core preimage backup validation failed at ') {
                 throw "Idle target core preimage verification failed: $failure"
             }
-            throw 'Idle target core preimage verification failed.'
+            $guardFailureStage = switch -CaseSensitive -Exact ($failure) {
+                'invalid' { 'entry-metadata' }
+                'path pin' { 'live-path-pin' }
+                'aliased' { 'unique-preimage-paths' }
+                'missing live core' { 'live-core-presence' }
+                'live core drift' { 'live-core-hash-acl' }
+                default { 'other' }
+            }
+            $guardException = [System.Management.Automation.RuntimeException]::new('Idle target core preimage verification failed.')
+            $guardException.Data['IdleTargetCaptureFailureStage'] = $guardFailureStage
+            throw $guardException
         }
     }
 
