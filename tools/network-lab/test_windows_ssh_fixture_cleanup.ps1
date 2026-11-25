@@ -11,8 +11,9 @@ function New-SshFixtureTestRoot {
     return $path
 }
 function Assert-SshFixtureRemoved {
-    param($Result, [string]$Root)
-    if (-not $Result.ProcessExited -or -not $Result.ExecutableRemoved -or -not $Result.DirectoryRemoved -or
+    param($Result, [string]$Root, $Process)
+    $Process.Refresh()
+    if (-not $Process.HasExited -or -not $Result.ProcessExited -or -not $Result.ExecutableRemoved -or -not $Result.DirectoryRemoved -or
         (Test-Path -LiteralPath (Join-Path $Root 'ssh-fixture.exe')) -or (Test-Path -LiteralPath $Root)) {
         throw 'SSH fixture cleanup did not prove process exit and executable/directory removal.'
     }
@@ -26,7 +27,7 @@ try {
     $positiveRoot = New-SshFixtureTestRoot
     $positiveProcess = Start-Process -FilePath $powershell -ArgumentList @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 30') -PassThru
     $positive = Remove-StcvrcSshFixture -Fixture ([pscustomobject]@{ Root=$positiveRoot; Process=$positiveProcess }) -TimeoutSeconds 5
-    Assert-SshFixtureRemoved -Result $positive -Root $positiveRoot
+    Assert-SshFixtureRemoved -Result $positive -Root $positiveRoot -Process $positiveProcess
     Write-Host "SSH fixture cleanup positive: process_exited=true executable_removed=true directory_removed=true pid=$($positive.ProcessId) exit_code=$($positive.ExitCode)"
 
     $lockedRoot = New-SshFixtureTestRoot
@@ -43,8 +44,10 @@ try {
         $cleanupError = [string]$_.Exception.Message
         $errorType = $_.Exception.GetType().Name
     }
-    if (-not $cleanupError -or $cleanupError -notmatch 'stage=remove-directory process_exited=true pid=\d+ .*attempts=\d+ .*error_type=[A-Za-z]+Exception') {
-        throw "SSH fixture lock regression failed: expected bounded process/handle evidence; observed_error_type=$errorType elapsed_ms=$($watch.ElapsedMilliseconds)."
+    $diagnosticPattern = 'stage=remove-directory process_exited=true pid=\d+ exit_code=0 attempts=[2-9]\d* error_type=[A-Za-z]+Exception error_hresult=0x[0-9a-f]{8} executable_exists=true directory_exists=true timeout_seconds=2'
+    if (-not $cleanupError -or $cleanupError -notmatch $diagnosticPattern -or
+        $cleanupError.IndexOf($lockedRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        throw "SSH fixture lock regression failed: expected bounded redacted process/handle evidence; observed_error_type=$errorType elapsed_ms=$($watch.ElapsedMilliseconds)."
     }
     if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf) -or -not (Test-Path -LiteralPath $lockedRoot -PathType Container)) {
         throw 'SSH fixture lock failure did not preserve the locked executable and directory.'
@@ -54,7 +57,7 @@ try {
     $lock.Dispose()
     $lock = $null
     $retry = Remove-StcvrcSshFixture -Fixture ([pscustomobject]@{ Root=$lockedRoot; Process=$lockedProcess }) -TimeoutSeconds 5
-    Assert-SshFixtureRemoved -Result $retry -Root $lockedRoot
+    Assert-SshFixtureRemoved -Result $retry -Root $lockedRoot -Process $lockedProcess
     Write-Host 'SSH fixture cleanup lock release: executable_removed=true directory_removed=true'
 } finally {
     if ($lock) { $lock.Dispose() }
