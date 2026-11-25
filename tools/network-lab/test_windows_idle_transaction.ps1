@@ -1294,60 +1294,145 @@ $script:targetCaptureOutcomes.Add([pscustomobject]@{
     result = 'bound-identity-and-rejected-missing-or-mismatched-inputs-before-output'
 })
 
-$stageBindingCliPath = Join-Path $PSScriptRoot 'windows_idle_package_stage_binding.ps1'
-if (-not (Test-Path -LiteralPath $stageBindingCliPath -PathType Leaf)) {
-    throw 'Expected behavior RED: executable Plan package-stage binding entrypoint is missing.'
+$packageWriterCliPath = Join-Path $PSScriptRoot 'windows_idle_preflight_package_writer.ps1'
+if (-not (Test-Path -LiteralPath $packageWriterCliPath -PathType Leaf)) {
+    throw 'Expected behavior RED: executable Capture and Plan package writer is missing.'
 }
-. $stageBindingCliPath
 
-$planStageBinding = Get-CvrIdlePackageStageBindingReceipt -StageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
-Assert-IdleTransaction (
-    [IO.Path]::GetFullPath([string]$planStageBinding.stageRoot) -ceq $expectedStageRoot -and
-    [string]$planStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
-) 'The executable Plan caller did not return the verified stage identity.'
+function Quote-CvrPackageWriterArgument([string]$Value) {
+    if ($Value.Contains('"')) { throw 'Unsafe synthetic package-writer argument.' }
+    return '"' + $Value + '"'
+}
 
-function Assert-CvrIdlePlanBindingRejects {
-    param(
-        [Parameter(Mandatory = $true)][string]$CaseName,
-        [Parameter(Mandatory = $true)][hashtable]$Arguments
+function Invoke-CvrPackageWriterCli([hashtable]$Arguments) {
+    $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $commandLineParts = @(
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File',
+        (Quote-CvrPackageWriterArgument $packageWriterCliPath),
+        '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode)),
+        '-PackageRoot', (Quote-CvrPackageWriterArgument ([string]$Arguments.PackageRoot))
     )
-    $before = @(
-        Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop
-    ).Count
-    $rejected = $false
-    try {
-        $null = Get-CvrIdlePackageStageBindingReceipt @Arguments
-    } catch {
-        $rejected = $true
+    foreach ($name in @('ExpectedStageRoot', 'ExpectedPackageManifestSha256')) {
+        if ($Arguments.ContainsKey($name)) {
+            $commandLineParts += @("-$name", (Quote-CvrPackageWriterArgument ([string]$Arguments[$name])))
+        }
     }
-    $after = @(
-        Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop
-    ).Count
-    Assert-IdleTransaction ($rejected -and $after -eq $before) ("Plan caller " + $CaseName + " was accepted or wrote output.")
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $powershell51
+    $startInfo.Arguments = $commandLineParts -join ' '
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw 'Synthetic package-writer CLI did not start.' }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    try {
+        $requestJson = ConvertTo-Json -InputObject $Arguments.Request -Depth 16 -Compress -ErrorAction Stop
+        $process.StandardInput.Write($requestJson)
+    } finally {
+        $process.StandardInput.Close()
+    }
+    if (-not $process.WaitForExit(60000)) {
+        $process.Kill()
+        $null = $process.WaitForExit()
+        throw 'Synthetic package-writer CLI timed out.'
+    }
+    return [PSCustomObject]@{
+        ExitCode = $process.ExitCode
+        StdOut = $stdoutTask.GetAwaiter().GetResult()
+        StdErr = $stderrTask.GetAwaiter().GetResult()
+    }
 }
 
-$missingPlanCliRoot = @{
-    StageRoot = $preflightPackageRoot
-    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+function Get-CvrPackageWriterOutputCount([string]$Mode) {
+    $filter = if ($Mode -eq 'Capture') { 'capture-idle-*' } else { 'prepared-idle-*' }
+    return @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop).Count
 }
-Assert-CvrIdlePlanBindingRejects -CaseName 'missing expected stage root' -Arguments $missingPlanCliRoot
-$missingPlanCliDigest = @{
-    StageRoot = $preflightPackageRoot
+
+function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Arguments) {
+    $before = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
+    $result = Invoke-CvrPackageWriterCli $Arguments
+    $after = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
+    Assert-IdleTransaction (
+        $result.ExitCode -ne 0 -and [string]::IsNullOrEmpty($result.StdOut) -and $after -eq $before
+    ) ("Package writer CLI " + $CaseName + " was accepted or wrote output.")
+}
+
+$validCaptureCliArguments = @{
+    Mode = 'Capture'
+    PackageRoot = $preflightPackageRoot
     ExpectedStageRoot = $expectedStageRoot
-}
-Assert-CvrIdlePlanBindingRejects -CaseName 'missing external manifest digest' -Arguments $missingPlanCliDigest
-$wrongPlanCliRoot = @{
-    StageRoot = $preflightPackageRoot
-    ExpectedStageRoot = (Join-Path $targetCaptureRoot 'different-stage')
     ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+    Request = @{
+        Capture = $targetCapture
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+    }
 }
-Assert-CvrIdlePlanBindingRejects -CaseName 'wrong expected stage root' -Arguments $wrongPlanCliRoot
-$wrongPlanCliDigest = @{
-    StageRoot = $preflightPackageRoot
+$captureCliBefore = Get-CvrPackageWriterOutputCount 'Capture'
+$captureCliResult = Invoke-CvrPackageWriterCli $validCaptureCliArguments
+Assert-IdleTransaction ($captureCliResult.ExitCode -eq 0) 'The actual Capture package-writer command failed.'
+$captureCli = $captureCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
+$captureCliReceipt = Get-Content -LiteralPath $captureCli.ReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+Assert-IdleTransaction (
+    (Get-CvrPackageWriterOutputCount 'Capture') -eq ($captureCliBefore + 1) -and
+    [IO.Path]::GetFullPath([string]$captureCliReceipt.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$captureCliReceipt.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+) 'The actual Capture command did not write a stage-bound receipt.'
+
+$validPlanCliArguments = @{
+    Mode = 'Plan'
+    PackageRoot = $preflightPackageRoot
     ExpectedStageRoot = $expectedStageRoot
-    ExpectedPackageManifestSha256 = ('0' * 64)
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+    Request = @{
+        Capture = $targetCapture
+        CaptureDirectory = [string]$captureCli.CaptureDirectory
+        ReceiptPath = [string]$captureCli.ReceiptPath
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+    }
 }
-Assert-CvrIdlePlanBindingRejects -CaseName 'wrong external manifest digest' -Arguments $wrongPlanCliDigest
+$planCliBefore = Get-CvrPackageWriterOutputCount 'Plan'
+$planCliResult = Invoke-CvrPackageWriterCli $validPlanCliArguments
+Assert-IdleTransaction ($planCliResult.ExitCode -eq 0) 'The actual Plan package-writer command failed.'
+$planCli = $planCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
+$planCliRecord = Get-Content -LiteralPath $planCli.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+Assert-IdleTransaction (
+    (Get-CvrPackageWriterOutputCount 'Plan') -eq ($planCliBefore + 1) -and
+    [IO.Path]::GetFullPath([string]$planCliRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$planCliRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+) 'The actual Plan command did not write a stage-bound plan.'
+
+foreach ($mode in @('Capture', 'Plan')) {
+    $validArguments = if ($mode -eq 'Capture') { $validCaptureCliArguments.Clone() } else { $validPlanCliArguments.Clone() }
+
+    $missingRoot = $validArguments.Clone()
+    $null = $missingRoot.Remove('ExpectedStageRoot')
+    Assert-CvrPackageWriterCliRejects ($mode + ' missing expected stage root') $missingRoot
+
+    $missingDigest = $validArguments.Clone()
+    $null = $missingDigest.Remove('ExpectedPackageManifestSha256')
+    Assert-CvrPackageWriterCliRejects ($mode + ' missing external manifest digest') $missingDigest
+
+    $wrongRoot = $validArguments.Clone()
+    $wrongRoot['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+    Assert-CvrPackageWriterCliRejects ($mode + ' wrong expected stage root') $wrongRoot
+
+    $wrongDigest = $validArguments.Clone()
+    $wrongDigest['ExpectedPackageManifestSha256'] = ('0' * 64)
+    Assert-CvrPackageWriterCliRejects ($mode + ' wrong external manifest digest') $wrongDigest
+}
+
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'powershell51-package-writer-cli'
+    result = 'capture-and-plan-bound-with-eight-fail-closed-rejections-before-output'
+})
 
 $stageBindingFailures = [Collections.Generic.List[string]]::new()
 if (-not $stageManifestAclCaptureSafe) { $stageBindingFailures.Add('manifest-acl-capture') }
