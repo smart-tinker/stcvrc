@@ -1180,6 +1180,120 @@ try {
 Assert-IdleTransaction ($rejectedPlanForReceiptDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted receipt drift or wrote output after rejection.'
 Assert-IdleTransaction ([IO.File]::ReadAllText($captureMarkerPath) -ceq 'preserve-capture' -and [IO.File]::ReadAllText($preparedMarkerPath) -ceq 'preserve-prepared') 'Idle Preflight plan modified existing fixed siblings.'
 
+
+# Reproduce the prepared Capture caller's pre-binding argument set, then exercise
+# one data-free entrypoint for both Capture and Plan.
+$legacyCaptureArguments = @{
+    Capture = $targetCapture
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $expectedPins
+    PackageRoot = $preflightPackageRoot
+}
+$legacyCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*' -ErrorAction Stop).Count
+$legacyCaptureErrorId = $null
+try {
+    $null = Save-CvrIdlePreflightCapture @legacyCaptureArguments
+} catch {
+    $legacyCaptureErrorId = [string]$_.FullyQualifiedErrorId
+}
+$legacyCaptureCountAfter = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*' -ErrorAction Stop).Count
+Assert-IdleTransaction ($legacyCaptureErrorId -like '*MissingMandatoryParameter*' -and $legacyCaptureCountAfter -eq $legacyCaptureCount) 'The prepared Capture caller must supply the external stage root and manifest digest before writing.'
+Write-Host 'Legacy Capture caller arguments rejected before output: missing external stage identity.'
+
+$portableCaptureArguments = @{
+    Mode = 'Capture'
+    Capture = $targetCapture
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $expectedPins
+    PackageRoot = $preflightPackageRoot
+    ExpectedStageRoot = $expectedStageRoot
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+}
+$portableCapture = $null
+$portableCaptureErrorId = $null
+try {
+    $portableCapture = Invoke-CvrIdlePreflightPackageWriter @portableCaptureArguments
+} catch {
+    $portableCaptureErrorId = [string]$_.FullyQualifiedErrorId
+}
+Assert-IdleTransaction ($null -eq $portableCaptureErrorId -and $null -ne $portableCapture) 'The shared portable Capture entrypoint did not produce a bound capture.'
+
+$portablePlanArguments = @{
+    Mode = 'Plan'
+    Capture = $targetCapture
+    CaptureDirectory = $portableCapture.CaptureDirectory
+    ReceiptPath = $portableCapture.ReceiptPath
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $expectedPins
+    PackageRoot = $preflightPackageRoot
+    ExpectedStageRoot = $expectedStageRoot
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+}
+$portablePlanErrorId = $null
+$portablePlan = $null
+try {
+    $portablePlan = Invoke-CvrIdlePreflightPackageWriter @portablePlanArguments
+} catch {
+    $portablePlanErrorId = [string]$_.FullyQualifiedErrorId
+}
+Assert-IdleTransaction ($null -eq $portablePlanErrorId -and $null -ne $portablePlan) 'The shared portable Plan entrypoint did not produce a bound plan.'
+
+$portableCaptureRecord = Get-Content -LiteralPath $portableCapture.ReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+$portablePlanRecord = Get-Content -LiteralPath $portablePlan.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+$portableCaptureBound = [IO.Path]::GetFullPath([string]$portableCaptureRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$portableCaptureRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+$portablePlanBound = [IO.Path]::GetFullPath([string]$portablePlanRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$portablePlanRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+Assert-IdleTransaction ($portableCaptureBound -and $portablePlanBound) 'Capture or Plan did not persist the independently supplied stage identity.'
+
+function Assert-CvrIdlePortableWriterRejects {
+    param(
+        [Parameter(Mandatory = $true)][string]$CaseName,
+        [Parameter(Mandatory = $true)][hashtable]$Arguments,
+        [Parameter(Mandatory = $true)][ValidateSet('capture-idle-*','prepared-idle-*')][string]$OutputFilter
+    )
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $OutputFilter -ErrorAction Stop).Count
+    $rejected = $false
+    try {
+        $null = Invoke-CvrIdlePreflightPackageWriter @Arguments
+    } catch {
+        $rejected = $true
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $OutputFilter -ErrorAction Stop).Count
+    Assert-IdleTransaction ($rejected -and $after -eq $before) ("Portable " + $CaseName + " entrypoint did not reject before output.")
+}
+
+$missingCaptureStageRoot = $portableCaptureArguments.Clone()
+$null = $missingCaptureStageRoot.Remove('ExpectedStageRoot')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture missing stage root' -Arguments $missingCaptureStageRoot -OutputFilter 'capture-idle-*'
+$missingCaptureManifestPin = $portableCaptureArguments.Clone()
+$null = $missingCaptureManifestPin.Remove('ExpectedPackageManifestSha256')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture missing manifest digest' -Arguments $missingCaptureManifestPin -OutputFilter 'capture-idle-*'
+$wrongCaptureStageRoot = $portableCaptureArguments.Clone()
+$wrongCaptureStageRoot['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture wrong stage root' -Arguments $wrongCaptureStageRoot -OutputFilter 'capture-idle-*'
+$wrongCaptureManifestPin = $portableCaptureArguments.Clone()
+$wrongCaptureManifestPin['ExpectedPackageManifestSha256'] = '0000000000000000000000000000000000000000000000000000000000000000'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture wrong manifest digest' -Arguments $wrongCaptureManifestPin -OutputFilter 'capture-idle-*'
+
+$missingPlanStageRoot = $portablePlanArguments.Clone()
+$null = $missingPlanStageRoot.Remove('ExpectedStageRoot')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan missing stage root' -Arguments $missingPlanStageRoot -OutputFilter 'prepared-idle-*'
+$missingPlanManifestPin = $portablePlanArguments.Clone()
+$null = $missingPlanManifestPin.Remove('ExpectedPackageManifestSha256')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan missing manifest digest' -Arguments $missingPlanManifestPin -OutputFilter 'prepared-idle-*'
+$wrongPlanStageRoot = $portablePlanArguments.Clone()
+$wrongPlanStageRoot['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan wrong stage root' -Arguments $wrongPlanStageRoot -OutputFilter 'prepared-idle-*'
+$wrongPlanManifestPin = $portablePlanArguments.Clone()
+$wrongPlanManifestPin['ExpectedPackageManifestSha256'] = '0000000000000000000000000000000000000000000000000000000000000000'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan wrong manifest digest' -Arguments $wrongPlanManifestPin -OutputFilter 'prepared-idle-*'
+
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'portable-capture-plan-stage-binding'
+    result = 'bound-identity-and-rejected-missing-or-mismatched-inputs-before-output'
+})
+
 $stageBindingFailures = [Collections.Generic.List[string]]::new()
 if (-not $stageManifestAclCaptureSafe) { $stageBindingFailures.Add('manifest-acl-capture') }
 if (-not $stageEntryAclPlanSafe) { $stageBindingFailures.Add('entry-acl-plan') }
