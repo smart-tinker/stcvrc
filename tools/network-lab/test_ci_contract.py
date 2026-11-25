@@ -284,11 +284,14 @@ class CIContractTests(unittest.TestCase):
         for guard in ("1.19.33-STCVRC-rc.10", "$build.core_source_commit",
                       "a884ad53a3999dd35acab979e0bb040c47f6dbc9", "$build.selected_dependency_versions",
                       "github.com/gobwas/ws", "github.com/insomniacslk/dhcp",
-                      "Mihomo Meta 1.19.33-STCVRC-rc.10 windows amd64"):
+                      "$expectedCoreVersion = \"Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $($build.build_time)\""):
             with self.subTest(guard=guard):
                 self.assertIn(guard, installer)
         self.assertNotIn("$manifest.windowsNativeCandidate", installer)
         self.assertNotIn("stcvrc-1.19.33-rc.9", installer)
+        identity = installer.split("$coreSha = [string]$coreEntries[0].sha256", 1)[1].split("$installerPaths =", 1)[0]
+        self.assertLess(identity.index("Get-FileHash -LiteralPath $env:CUSTOM_CORE"),
+                        identity.index("$env:CUSTOM_CORE -v"))
 
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]

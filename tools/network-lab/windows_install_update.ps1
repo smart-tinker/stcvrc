@@ -92,14 +92,15 @@ if ($build.version -cne '1.19.33-STCVRC-rc.10' -or
     $build.selected_dependency_versions.'github.com/insomniacslk/dhcp' -cne 'v0.0.0-20260719225207-c76316d4aa82') {
     throw 'Fresh Windows build is not the dependency-updated RC10 candidate.'
 }
-$coreVersion = (& $env:CUSTOM_CORE -v 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $coreVersion -cne 'Mihomo Meta 1.19.33-STCVRC-rc.10 windows amd64') {
-    throw 'Fresh Windows core reports the wrong candidate version.'
-}
+if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf)) { throw 'Fresh STCVRC core is missing.' }
 if ((Get-Item -LiteralPath $env:CUSTOM_CORE).Length -ne [long]$coreEntries[0].size) { throw 'Fresh Windows artifact size changed after build.' }
-if (-not (Test-Path -LiteralPath $env:CUSTOM_CORE -PathType Leaf) -or
-    (Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
-    throw 'Fresh STCVRC core bytes do not match the pinned SHA256.'
+if ((Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coreSha) {
+    throw 'Fresh STCVRC core bytes do not match the build report SHA256.'
+}
+$expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $($build.build_time)"
+$coreVersion = (& $env:CUSTOM_CORE -v 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $coreVersion -cne $expectedCoreVersion) {
+    throw "Fresh Windows core version mismatch. Expected [$expectedCoreVersion]; got [$coreVersion]."
 }
 
 $installerPaths = @{
