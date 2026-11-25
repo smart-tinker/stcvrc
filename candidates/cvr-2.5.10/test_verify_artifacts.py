@@ -327,13 +327,17 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
     def test_windows_job_executes_and_identifies_only_the_fresh_custom_core(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
         block = workflow.split('  cvr-windows-payload:\n', 1)[1].split('  assemble-draft-rc:\n', 1)[0]
-        self.assertIn('$coreVersionOutput = & $stockCore -v 2>&1', block)
-        self.assertIn('if ($coreExit -ne 0)', block)
-        self.assertIn('$buildTimeText = ([DateTime]$build.build_time).ToUniversalTime()', block)
-        self.assertIn('ToString("yyyy-MM-ddTHH:mm:ss', block)
-        self.assertIn('$expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText"', block)
-        self.assertIn('StartsWith($expectedCoreVersion', block)
-        self.assertLess(block.index('if ($stagedHash -ne $env:CUSTOM_CORE_SHA256)'), block.index('$coreVersionOutput = & $stockCore -v 2>&1'))
+        version_check = '$coreVersionLines = @(& $stockCore -v 2>&1 | ForEach-Object { [string]$_ })'
+        self.assertIn(version_check, block)
+        self.assertIn("windows_core_identity.ps1", block)
+        self.assertIn('$expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build', block)
+        self.assertIn('Test-StcvrcWindowsCoreVersionOutput -VersionLines', block)
+        self.assertIn('if ($coreExit -ne 0 -or -not (Test-StcvrcWindowsCoreVersionOutput', block)
+        self.assertNotIn('StartsWith(', block)
+        self.assertLess(block.index('core.stat().st_size == entry["size"]'), block.index(version_check))
+        self.assertLess(block.index('Get-Item -LiteralPath $stockCore'), block.index(version_check))
+        self.assertLess(block.index('Get-FileHash -LiteralPath $stockCore'), block.index(version_check))
+        self.assertLess(block.index('if ($stagedHash -ne $env:CUSTOM_CORE_SHA256)'), block.index(version_check))
 
 
     def test_draft_rc_assembly_waits_for_windows_payload(self):

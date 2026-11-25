@@ -305,8 +305,11 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("Get-StcvrcWindowsCoreVersionIdentity -Build $build", workflow_identity)
         self.assertIn("Test-StcvrcWindowsCoreVersionOutput -VersionLines", workflow_identity)
         self.assertNotIn("StartsWith(", workflow_identity)
-        self.assertLess(workflow_identity.index('core.stat().st_size == entry["size"]'),
-                        workflow_identity.index("$stockCore -v"))
+        windows_job = WORKFLOWS["test.yml"].split(chr(10) + "  cvr-windows-payload:" + chr(10), 1)[1].split(
+            chr(10) + "  assemble-draft-rc:" + chr(10), 1
+        )[0]
+        self.assertLess(windows_job.index('core.stat().st_size == entry["size"]'),
+                        windows_job.index("$stockCore -v"))
         self.assertLess(workflow_identity.index("Get-Item -LiteralPath $stockCore"),
                         workflow_identity.index("$stockCore -v"))
         self.assertLess(workflow_identity.index("Get-FileHash -LiteralPath $stockCore"),
