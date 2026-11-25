@@ -112,9 +112,12 @@ try {
     if ($_.InvocationInfo) { $lineNumber = [int]$_.InvocationInfo.ScriptLineNumber }
     $guardStage = 'none'
     $candidateGuardStage = [string]$_.Exception.Data['IdleTargetCaptureFailureStage']
-    if ($candidateGuardStage -match '^(entry-metadata|live-path-pin|unique-preimage-paths|live-core-presence|live-core-hash-acl|other)$') {
+    if ($candidateGuardStage -match '^(entry-metadata|live-path-pin|unique-preimage-paths|live-core-presence|backup-preimage|live-core-hash-acl)$') {
         $guardStage = $candidateGuardStage
     }
-    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape guard=$guardStage type=$errorType line=$lineNumber).")
+    $guardRole = 'none'
+    $candidateGuardRole = [string]$_.Exception.Data['IdleTargetCaptureFailureRole']
+    if ($candidateGuardRole -match '^(program-files|service)$') { $guardRole = $candidateGuardRole }
+    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape guard=$guardStage role=$guardRole type=$errorType line=$lineNumber).")
     exit 1
 }
