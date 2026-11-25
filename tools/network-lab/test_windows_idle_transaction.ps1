@@ -1294,6 +1294,61 @@ $script:targetCaptureOutcomes.Add([pscustomobject]@{
     result = 'bound-identity-and-rejected-missing-or-mismatched-inputs-before-output'
 })
 
+$stageBindingCliPath = Join-Path $PSScriptRoot 'windows_idle_package_stage_binding.ps1'
+if (-not (Test-Path -LiteralPath $stageBindingCliPath -PathType Leaf)) {
+    throw 'Expected behavior RED: executable Plan package-stage binding entrypoint is missing.'
+}
+. $stageBindingCliPath
+
+$planStageBinding = Get-CvrIdlePackageStageBindingReceipt -StageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+Assert-IdleTransaction (
+    [IO.Path]::GetFullPath([string]$planStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$planStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+) 'The executable Plan caller did not return the verified stage identity.'
+
+function Assert-CvrIdlePlanBindingRejects {
+    param(
+        [Parameter(Mandatory = $true)][string]$CaseName,
+        [Parameter(Mandatory = $true)][hashtable]$Arguments
+    )
+    $before = @(
+        Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop
+    ).Count
+    $rejected = $false
+    try {
+        $null = Get-CvrIdlePackageStageBindingReceipt @Arguments
+    } catch {
+        $rejected = $true
+    }
+    $after = @(
+        Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop
+    ).Count
+    Assert-IdleTransaction ($rejected -and $after -eq $before) ("Plan caller " + $CaseName + " was accepted or wrote output.")
+}
+
+$missingPlanCliRoot = @{
+    StageRoot = $preflightPackageRoot
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+}
+Assert-CvrIdlePlanBindingRejects -CaseName 'missing expected stage root' -Arguments $missingPlanCliRoot
+$missingPlanCliDigest = @{
+    StageRoot = $preflightPackageRoot
+    ExpectedStageRoot = $expectedStageRoot
+}
+Assert-CvrIdlePlanBindingRejects -CaseName 'missing external manifest digest' -Arguments $missingPlanCliDigest
+$wrongPlanCliRoot = @{
+    StageRoot = $preflightPackageRoot
+    ExpectedStageRoot = (Join-Path $targetCaptureRoot 'different-stage')
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+}
+Assert-CvrIdlePlanBindingRejects -CaseName 'wrong expected stage root' -Arguments $wrongPlanCliRoot
+$wrongPlanCliDigest = @{
+    StageRoot = $preflightPackageRoot
+    ExpectedStageRoot = $expectedStageRoot
+    ExpectedPackageManifestSha256 = ('0' * 64)
+}
+Assert-CvrIdlePlanBindingRejects -CaseName 'wrong external manifest digest' -Arguments $wrongPlanCliDigest
+
 $stageBindingFailures = [Collections.Generic.List[string]]::new()
 if (-not $stageManifestAclCaptureSafe) { $stageBindingFailures.Add('manifest-acl-capture') }
 if (-not $stageEntryAclPlanSafe) { $stageBindingFailures.Add('entry-acl-plan') }
