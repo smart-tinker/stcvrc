@@ -417,21 +417,79 @@ class CIContractTests(unittest.TestCase):
 
     def test_vulnerability_scan_covers_exact_root_candidate_and_test_modules(self):
         workflow = WORKFLOWS["test.yml"]
-        self.assertIn("  vulnerability-scan:\n", workflow)
-        self.assertIn("golang.org/x/vuln/cmd/govulncheck@v1.1.4", workflow)
-        self.assertGreaterEqual(workflow.count("govulncheck"), 3)
-        self.assertIn("SOURCE_SHA", workflow)
-        self.assertIn("CANDIDATE_SOURCE_SHA", workflow)
-        self.assertIn("working-directory: source/test", workflow)
-        self.assertIn("086a62c3ce9a77f650786ae2eae92b68909d49e1", workflow)
+        source_build = (ROOT / "tools/source-build/ci.sh").read_text(encoding="utf-8")
         scan_job = workflow.split("\n  vulnerability-scan:\n", 1)[1].split("\n  source:\n", 1)[0]
+        self.assertIn("golang.org/x/vuln/cmd/govulncheck@v1.1.4", scan_job)
+        self.assertIn("SOURCE_SHA", scan_job)
+        self.assertIn("working-directory: source/test", scan_job)
+        self.assertNotIn("CANDIDATE_SOURCE_SHA", scan_job)
+        self.assertNotIn("086a62c3ce9a77f650786ae2eae92b68909d49e1", scan_job)
         self.assertNotIn(r"\\n", scan_job)
         self.assertNotIn("runner.temp", scan_job)
         self.assertIn("RUNNER_TEMP", scan_job)
-        self.assertEqual(scan_job.count("continue-on-error: true"), 4)
-        self.assertIn("Enforce all three vulnerability scans", scan_job)
-        self.assertEqual(scan_job.count("run: govulncheck -show verbose -tags=with_gvisor ./..."), 3)
-        self.assertIn("run: govulncheck -show verbose -tags=with_gvisor -test ./...", scan_job)
+        self.assertEqual(scan_job.count("continue-on-error: true"), 3)
+        self.assertIn("Enforce current-source and nested test-module vulnerability scans", scan_job)
+        self.assertEqual(
+            scan_job.count("run: govulncheck -show verbose -tags=with_gvisor ./..."), 2
+        )
+        self.assertIn(
+            "run: govulncheck -show verbose -tags=with_gvisor -test ./...", scan_job
+        )
+
+        for module_file in (ROOT / "go.mod", ROOT / "test/go.mod"):
+            content = module_file.read_text(encoding="utf-8")
+            self.assertIn("github.com/gobwas/ws v1.5.0", content)
+            self.assertIn(
+                "github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82",
+                content,
+            )
+
+        self.assertIn(
+            'fetch_source "$core" https://github.com/smart-tinker/stcvrc.git '
+            "a884ad53a3999dd35acab979e0bb040c47f6dbc9",
+            source_build,
+        )
+        self.assertIn('gobwas_version="v1.5.0"', source_build)
+        self.assertIn(
+            'dhcp_version="v0.0.0-20260719225207-c76316d4aa82"', source_build
+        )
+        effective_modfile = (
+            'GOFLAGS="-modfile=$(native_path "$core/.ci-build.mod") -mod=readonly -p=2"'
+        )
+        graph = 'go list -m all > "$root/output/modules.txt"'
+        candidate_scan = "govulncheck -tags=with_gvisor ./..."
+        self.assertIn(effective_modfile, source_build)
+        self.assertIn(graph, source_build)
+        self.assertLess(source_build.index(effective_modfile), source_build.index(graph))
+        self.assertLess(source_build.index(graph), source_build.index(candidate_scan))
+        self.assertEqual(source_build.count(candidate_scan), 1)
+        self.assertNotIn("continue-on-error", source_build)
+        self.assertIn(
+            'grep -Fqx "github.com/gobwas/ws $gobwas_version"',
+            source_build,
+        )
+        self.assertIn(
+            'grep -Fqx "github.com/insomniacslk/dhcp $dhcp_version"',
+            source_build,
+        )
+
+        self.assertIn('$1 == "dep" && $2 == module {', source_build)
+        self.assertIn("if ($3 != version) wrong=1", source_build)
+        self.assertIn("if (found != 1 || wrong) exit 1", source_build)
+
+        self.assertEqual(source_build.count('--core-sha256 "$linux_sha"'), 2)
+        self.assertIn("--check-tls-rejection", source_build)
+        self.assertIn('"$root/output/failover.json"', source_build)
+        self.assertIn('"$root/output/tls.json"', source_build)
+        self.assertIn('"selected_dependency_versions"', source_build)
+        self.assertIn('"core_source_commit"', source_build)
+        self.assertIn('"artifacts": [', source_build)
+        self.assertIn("digest(output/name)", source_build)
+
+        license_job = workflow.split("\n  license-audit:\n", 1)[1]
+        build_step = license_job.index('bash "$recipe/tools/source-build/ci.sh"')
+        collect_step = license_job.index('bash "$helper"', build_step)
+        self.assertLess(build_step, collect_step)
         source_job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
         self.assertIn("    needs: vulnerability-scan", source_job)
 
