@@ -1319,6 +1319,10 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
     Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
     try {
         $requestJson = ConvertTo-Json -InputObject $Arguments.Request -Depth 16 -Compress -ErrorAction Stop
+        $requestPrefix = if ([string]::IsNullOrEmpty($requestJson)) { 'empty' } elseif ($requestJson[0] -ceq '{') { 'object' } elseif ([int]$requestJson[0] -eq 0xFEFF) { 'bom' } elseif ([char]::IsWhiteSpace($requestJson[0])) { 'whitespace' } else { 'other' }
+        $requestSuffix = if ([string]::IsNullOrEmpty($requestJson)) { 'empty' } elseif ($requestJson[$requestJson.Length - 1] -ceq '}') { 'object' } elseif ([char]::IsWhiteSpace($requestJson[$requestJson.Length - 1])) { 'whitespace' } else { 'other' }
+        $requestByteCount = ([Text.UTF8Encoding]::new($false, $true)).GetByteCount($requestJson)
+        Write-Host ("package-writer case=" + $caseLabel + " request-boundary prefix=" + $requestPrefix + " suffix=" + $requestSuffix + " chars=" + $requestJson.Length + " bytes=" + $requestByteCount)
         Write-Host ("package-writer case=" + $caseLabel + " stage=after-request-serialize")
         Write-Host ("package-writer case=" + $caseLabel + " stage=before-parent-json-parse")
         $null = ConvertFrom-Json -InputObject $requestJson -ErrorAction Stop
@@ -1448,7 +1452,7 @@ function Get-CvrPackageWriterOutputCount([string]$Mode) {
 
 function Get-CvrPackageWriterDiagnostic([string]$StdErr) {
     $diagnostic = ([string]$StdErr).Trim()
-    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ shape=(?:unread|empty|object|partial) type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
+    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ shape=(?:unread|empty|object|partial) prefix=(?:unread|empty|object|bom|whitespace|other) suffix=(?:unread|empty|object|whitespace|other) chars=[0-9]+ type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
         return $Matches[0]
     }
     return 'unclassified child failure'

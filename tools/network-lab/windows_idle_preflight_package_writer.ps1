@@ -8,6 +8,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $stage = 'load-helpers'
 $requestShape = 'unread'
+$requestPrefix = 'unread'
+$requestSuffix = 'unread'
+$requestText = $null
+$requestCharacterCount = 0
 
 try {
     . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
@@ -24,13 +28,10 @@ try {
     } finally {
         $requestReader.Dispose()
     }
-    if ([string]::IsNullOrEmpty($requestText)) {
-        $requestShape = 'empty'
-    } elseif ($requestText[0] -ceq '{' -and $requestText[$requestText.Length - 1] -ceq '}') {
-        $requestShape = 'object'
-    } else {
-        $requestShape = 'partial'
-    }
+    $requestPrefix = if ([string]::IsNullOrEmpty($requestText)) { 'empty' } elseif ($requestText[0] -ceq '{') { 'object' } elseif ([int]$requestText[0] -eq 0xFEFF) { 'bom' } elseif ([char]::IsWhiteSpace($requestText[0])) { 'whitespace' } else { 'other' }
+    $requestSuffix = if ([string]::IsNullOrEmpty($requestText)) { 'empty' } elseif ($requestText[$requestText.Length - 1] -ceq '}') { 'object' } elseif ([char]::IsWhiteSpace($requestText[$requestText.Length - 1])) { 'whitespace' } else { 'other' }
+    $requestShape = if ($requestPrefix -ceq 'empty') { 'empty' } elseif ($requestPrefix -ceq 'object' -and $requestSuffix -ceq 'object') { 'object' } else { 'partial' }
+    $requestCharacterCount = $requestText.Length
     $stage = 'parse-request'
     $request = ConvertFrom-Json -InputObject $requestText -ErrorAction Stop
     if ($request -isnot [PSCustomObject]) { throw 'invalid request' }
@@ -107,6 +108,6 @@ try {
     $errorType = $_.Exception.GetBaseException().GetType().Name
     $lineNumber = 0
     if ($_.InvocationInfo) { $lineNumber = [int]$_.InvocationInfo.ScriptLineNumber }
-    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape type=$errorType line=$lineNumber).")
+    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape prefix=$requestPrefix suffix=$requestSuffix chars=$requestCharacterCount type=$errorType line=$lineNumber).")
     exit 1
 }
