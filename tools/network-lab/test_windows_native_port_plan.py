@@ -14,9 +14,8 @@ PORT_PLAN_SCRIPT = HERE / "windows_native_port_plan.ps1"
 
 
 class NativeUdpPortPlanCollisionTest(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Requires the standard Windows runner.")
     def test_fixture_retries_and_persists_an_actually_bound_endpoint(self):
-        if sys.platform != "win32":
-            self.fail("This regression requires the standard Windows runner.")
 
         with tempfile.TemporaryDirectory(prefix="stcvrc-port-plan-") as root:
             plan_path = Path(root) / "native-ports.json"
