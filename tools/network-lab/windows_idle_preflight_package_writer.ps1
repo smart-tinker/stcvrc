@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $stage = 'load-helpers'
+$requestShape = 'unread'
 
 try {
     . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
@@ -14,6 +15,13 @@ try {
 
     $stage = 'read-request'
     $requestText = [Console]::In.ReadLine()
+    if ([string]::IsNullOrEmpty($requestText)) {
+        $requestShape = 'empty'
+    } elseif ($requestText[0] -ceq '{' -and $requestText[$requestText.Length - 1] -ceq '}') {
+        $requestShape = 'object'
+    } else {
+        $requestShape = 'partial'
+    }
     $stage = 'parse-request'
     $request = ConvertFrom-Json -InputObject $requestText -ErrorAction Stop
     if ($request -isnot [PSCustomObject]) { throw 'invalid request' }
@@ -89,6 +97,6 @@ try {
     $errorType = $_.Exception.GetBaseException().GetType().Name
     $lineNumber = 0
     if ($_.InvocationInfo) { $lineNumber = [int]$_.InvocationInfo.ScriptLineNumber }
-    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage type=$errorType line=$lineNumber).")
+    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage shape=$requestShape type=$errorType line=$lineNumber).")
     exit 1
 }

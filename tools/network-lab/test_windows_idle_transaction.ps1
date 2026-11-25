@@ -1320,6 +1320,9 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
     try {
         $requestJson = ConvertTo-Json -InputObject $Arguments.Request -Depth 16 -Compress -ErrorAction Stop
         Write-Host ("package-writer case=" + $caseLabel + " stage=after-request-serialize")
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-parent-json-parse")
+        $null = ConvertFrom-Json -InputObject $requestJson -ErrorAction Stop
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-parent-json-parse")
         $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $scriptPath = if ($Arguments.ContainsKey('ScriptPath')) { [string]$Arguments.ScriptPath } else { $packageWriterCliPath }
         $commandLineParts = @(
@@ -1437,7 +1440,7 @@ function Get-CvrPackageWriterOutputCount([string]$Mode) {
 
 function Get-CvrPackageWriterDiagnostic([string]$StdErr) {
     $diagnostic = ([string]$StdErr).Trim()
-    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
+    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ shape=(?:unread|empty|object|partial) type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
         return $Matches[0]
     }
     return 'unclassified child failure'
