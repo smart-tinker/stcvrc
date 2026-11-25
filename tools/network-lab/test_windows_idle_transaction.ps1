@@ -186,7 +186,7 @@ function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessag
     $script:targetCaptureOutcomes.Add([pscustomobject]@{case=$Case;result='rejected'})
 }
 
-$targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [Guid]::NewGuid().ToString('N'))
+$targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [char]0x03BB + [Guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $targetCaptureRoot) { throw 'Idle target capture fixture path unexpectedly exists.' }
 $null = New-Item -ItemType Directory -Path $targetCaptureRoot
 $programFilesFixtureRoot = $null
@@ -1339,6 +1339,8 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
         $startInfo.RedirectStandardInput = $true
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
+        $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false, $true)
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $startInfo
         $stage = 'process-start'
@@ -1351,7 +1353,8 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
 
         $stage = 'stdin-write'
         Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        $stdinTask = $process.StandardInput.WriteAsync($requestJson + [Environment]::NewLine)
+        $requestBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($requestJson)
+        $stdinTask = $process.StandardInput.BaseStream.WriteAsync($requestBytes, 0, $requestBytes.Length)
         $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
         if (-not $stdinTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin timeout' }
         $stdinTask.GetAwaiter().GetResult()
@@ -1359,10 +1362,15 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
 
         $stage = 'stdin-flush'
         Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        $flushTask = $process.StandardInput.FlushAsync()
+        $flushTask = $process.StandardInput.BaseStream.FlushAsync()
         $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
         if (-not $flushTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin flush timeout' }
         $flushTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdin-close'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $process.StandardInput.Close()
         Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
 
         $stage = 'process-wait'
@@ -1450,9 +1458,12 @@ function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Argume
     $before = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
     $result = Invoke-CvrPackageWriterCli -CaseName $CaseName -Arguments $Arguments
     $after = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
+    $diagnostic = Get-CvrPackageWriterDiagnostic $result.StdErr
+    $writerGuardRejected = $diagnostic -match '^Idle Preflight package writer failed \(stage=invoke-writer '
     Assert-IdleTransaction (
-        $result.State -ceq 'completed' -and $result.ExitCode -ne 0 -and $result.ChildStopped -and [string]::IsNullOrEmpty($result.StdOut) -and $after -eq $before
-    ) ("Package writer CLI " + $CaseName + " was accepted or wrote output.")
+        $result.State -ceq 'completed' -and $result.ExitCode -ne 0 -and $result.ChildStopped -and
+        [string]::IsNullOrEmpty($result.StdOut) -and $after -eq $before -and $writerGuardRejected
+    ) ("Package writer CLI " + $CaseName + " did not reach the guard or wrote output.")
 }
 
 # Serialize the persisted capture data, not live FileSecurity objects returned by Get-Acl.

@@ -14,7 +14,16 @@ try {
     . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
 
     $stage = 'read-request'
-    $requestText = [Console]::In.ReadLine()
+    $requestReader = [IO.StreamReader]::new(
+        [Console]::OpenStandardInput(),
+        [Text.UTF8Encoding]::new($false, $true),
+        $false
+    )
+    try {
+        $requestText = $requestReader.ReadToEnd()
+    } finally {
+        $requestReader.Dispose()
+    }
     if ([string]::IsNullOrEmpty($requestText)) {
         $requestShape = 'empty'
     } elseif ($requestText[0] -ceq '{' -and $requestText[$requestText.Length - 1] -ceq '}') {
@@ -92,6 +101,7 @@ try {
         }
     }
     $stage = 'write-result'
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     [Console]::Out.WriteLine((ConvertTo-Json -InputObject $output -Depth 4 -Compress -ErrorAction Stop))
 } catch {
     $errorType = $_.Exception.GetBaseException().GetType().Name
