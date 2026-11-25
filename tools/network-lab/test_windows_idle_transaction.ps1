@@ -27,6 +27,39 @@ function Disable-ScheduledTask { $script:nativeCalls++; throw 'unexpected-native
 function netsh { $script:nativeCalls++; throw 'unexpected-native-network-call' }
 $script:targetCaptureOutcomes = [Collections.Generic.List[object]]::new()
 
+$script:packageStageBindingOriginal = (Get-Command -Name Get-CvrIdlePackageStageBinding -CommandType Function).ScriptBlock
+$script:stageMutationTargets = @()
+$script:stageMutationResults = @{}
+function Get-CvrIdlePackageStageBinding {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageManifestSha256
+    )
+    $binding = & $script:packageStageBindingOriginal @PSBoundParameters
+    foreach ($target in @($script:stageMutationTargets)) {
+        $tempPath = Join-Path ([IO.Path]::GetDirectoryName([string]$target.Path)) ([IO.Path]::GetFileName([string]$target.Path) + '.race-' + [Guid]::NewGuid().ToString('N'))
+        [IO.File]::WriteAllBytes($tempPath, [byte[]]$target.Bytes)
+        $replaceException = $null
+        $writeException = $null
+        $replaced = $false
+        $wrote = $false
+        $backupPath = $tempPath + '.backup'
+        try { [IO.File]::Replace($tempPath, [string]$target.Path, $backupPath); $replaced = $true } catch { $replaceException = $_.Exception.GetBaseException().GetType().FullName }
+        try { [IO.File]::WriteAllBytes([string]$target.Path, [byte[]]$target.Bytes); $wrote = $true } catch { $writeException = $_.Exception.GetBaseException().GetType().FullName }
+        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force -ErrorAction Stop }
+        if (Test-Path -LiteralPath $backupPath) { Remove-Item -LiteralPath $backupPath -Force -ErrorAction Stop }
+        $script:stageMutationResults[[string]$target.Name] = [PSCustomObject]@{
+            Replaced = $replaced
+            Wrote = $wrote
+            ReplaceIOException = $replaceException -ceq 'System.IO.IOException'
+            WriteIOException = $writeException -ceq 'System.IO.IOException'
+        }
+    }
+    return $binding
+}
+
 function Assert-IdleTransaction([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
@@ -153,7 +186,7 @@ function Assert-IdleTargetCaptureRejected([string]$Case, [string]$ExpectedMessag
     $script:targetCaptureOutcomes.Add([pscustomobject]@{case=$Case;result='rejected'})
 }
 
-$targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [Guid]::NewGuid().ToString('N'))
+$targetCaptureRoot = Join-Path ([IO.Path]::GetTempPath()) ('stcvrc-idle-target-capture-' + [char]0x03BB + [Guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $targetCaptureRoot) { throw 'Idle target capture fixture path unexpectedly exists.' }
 $null = New-Item -ItemType Directory -Path $targetCaptureRoot
 $programFilesFixtureRoot = $null
@@ -701,6 +734,208 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $preparedMarkerPa
 [IO.File]::WriteAllText($captureMarkerPath, 'preserve-capture')
 [IO.File]::WriteAllText($preparedMarkerPath, 'preserve-prepared')
 
+# Synthetic package identity input for the package-to-stage capture contract.
+$stageFilesRoot = Join-Path $preflightPackageRoot 'scripts'
+$null = New-Item -ItemType Directory -Path $stageFilesRoot -ErrorAction Stop
+$null = Set-CvrIdleCaptureAcl -Path $stageFilesRoot -Directory
+$stageInputPath = Join-Path $stageFilesRoot 'capture-adapter.ps1'
+[IO.File]::WriteAllBytes($stageInputPath, [byte[]]@())
+$null = Set-CvrIdleCaptureAcl -Path $stageInputPath
+[IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-input', [Text.UTF8Encoding]::new($false))
+$stageManifestPath = Join-Path $preflightPackageRoot 'source-manifest.json'
+[IO.File]::WriteAllBytes($stageManifestPath, [byte[]]@())
+$null = Set-CvrIdleCaptureAcl -Path $stageManifestPath
+$stageManifest = [ordered]@{
+    schemaVersion = 1
+    scope = 'synthetic package-stage contract'
+    files = @([ordered]@{
+        path = 'scripts/capture-adapter.ps1'
+        sha256 = (Get-FileHash -LiteralPath $stageInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+}
+[IO.File]::WriteAllText(
+    $stageManifestPath,
+    (ConvertTo-Json -InputObject $stageManifest -Depth 4 -Compress),
+    [Text.UTF8Encoding]::new($false)
+)
+$expectedPackageManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$expectedStageRoot = [IO.Path]::GetFullPath($preflightPackageRoot)
+
+function Invoke-CvrIdleStageAclCase {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet('Capture','Plan')][string]$WriterMode
+    )
+    $filter = if ($WriterMode -ceq 'Capture') { 'capture-idle-*' } else { 'prepared-idle-*' }
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop | ForEach-Object { $_.FullName })
+    $originalAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $untrustedAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $untrustedSid = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+    $untrustedRule = [Security.AccessControl.FileSystemAccessRule]::new(
+        $untrustedSid,
+        [Security.AccessControl.FileSystemRights]::Modify,
+        [Security.AccessControl.AccessControlType]::Allow
+    )
+    $null = $untrustedAcl.AddAccessRule($untrustedRule)
+    Set-Acl -LiteralPath $Path -AclObject $untrustedAcl -ErrorAction Stop
+    $failure = $null
+    try {
+        if ($WriterMode -ceq 'Capture') {
+            $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        } else {
+            $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        }
+    } catch {
+        $failure = $_.Exception.Message
+    } finally {
+        Set-Acl -LiteralPath $Path -AclObject $originalAcl -ErrorAction Stop
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop)
+    $created = @($after | Where-Object { $before -notcontains $_.FullName })
+    $rejectedWithoutOutput = $failure -ceq 'Idle package stage binding failed.' -and $created.Count -eq 0
+    foreach ($directory in $created) {
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+    }
+    return [bool]$rejectedWithoutOutput
+}
+
+function Invoke-CvrIdleStageBoundaryCase {
+    param([Parameter(Mandatory = $true)][ValidateSet('Capture','Plan')][string]$WriterMode)
+    $manifestBefore = [IO.File]::ReadAllBytes($stageManifestPath)
+    $entryBefore = [IO.File]::ReadAllBytes($stageInputPath)
+    $manifestAclBefore = Get-Acl -LiteralPath $stageManifestPath
+    $entryAclBefore = Get-Acl -LiteralPath $stageInputPath
+    $manifestReplacement = [ordered]@{
+        schemaVersion = 1
+        scope = 'synthetic package-stage boundary mutation'
+        files = @([ordered]@{
+            path = 'scripts/capture-adapter.ps1'
+            sha256 = (Get-FileHash -LiteralPath $stageInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+    }
+    $script:stageMutationResults = @{}
+    $script:stageMutationTargets = @(
+        [PSCustomObject]@{
+            Name = 'manifest'
+            Path = $stageManifestPath
+            Bytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $manifestReplacement -Depth 4 -Compress))
+        },
+        [PSCustomObject]@{
+            Name = 'entry'
+            Path = $stageInputPath
+            Bytes = [Text.UTF8Encoding]::new($false).GetBytes('synthetic-stage-boundary-mutation')
+        }
+    )
+    $filter = if ($WriterMode -ceq 'Capture') { 'capture-idle-*' } else { 'prepared-idle-*' }
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop | ForEach-Object { $_.FullName })
+    $output = $null
+    $failure = $null
+    try {
+        if ($WriterMode -ceq 'Capture') {
+            $output = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        } else {
+            $output = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+        }
+    } catch {
+        $failure = $_.Exception.Message
+    } finally {
+        $script:stageMutationTargets = @()
+        [IO.File]::WriteAllBytes($stageManifestPath, $manifestBefore)
+        [IO.File]::WriteAllBytes($stageInputPath, $entryBefore)
+        Set-Acl -LiteralPath $stageManifestPath -AclObject $manifestAclBefore -ErrorAction Stop
+        Set-Acl -LiteralPath $stageInputPath -AclObject $entryAclBefore -ErrorAction Stop
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop)
+    $created = @($after | Where-Object { $before -notcontains $_.FullName })
+    $bindingMatches = $false
+    if ($output) {
+        $outputPath = if ($WriterMode -ceq 'Capture') { $output.ReceiptPath } else { $output.PlanPath }
+        $outputBinding = [IO.File]::ReadAllText($outputPath) | ConvertFrom-Json -ErrorAction Stop
+        $bindingMatches = [IO.Path]::GetFullPath([string]$outputBinding.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+            [string]$outputBinding.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+    }
+    $mutationBlocked = $script:stageMutationResults.Count -eq 2
+    foreach ($name in @('manifest','entry')) {
+        $result = $script:stageMutationResults[$name]
+        if (-not $result -or $result.Replaced -or $result.Wrote -or
+            -not $result.ReplaceIOException -or -not $result.WriteIOException) {
+            $mutationBlocked = $false
+        }
+    }
+    $safe = $mutationBlocked -and $null -eq $failure -and $output -and $bindingMatches -and $created.Count -eq 1
+    foreach ($directory in $created) {
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+    }
+    return [bool]$safe
+}
+
+$stageManifestAclCaptureSafe = Invoke-CvrIdleStageAclCase -Path $stageManifestPath -WriterMode Capture
+
+$beforeUnboundStageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+$unboundStageCaptureRejected = $false
+try {
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+} catch {
+    $unboundStageCaptureRejected = $true
+}
+$afterUnboundStageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+if (-not $unboundStageCaptureRejected -or $afterUnboundStageCaptureCount -ne $beforeUnboundStageCaptureCount) {
+    throw 'Idle capture accepted a staged package without its external manifest pin.'
+}
+
+
+function Assert-CvrIdleStageCaptureRejected {
+    param(
+        [string]$CaseName,
+        [string]$StageRoot,
+        [string]$ManifestSha256
+    )
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+    $rejected = $false
+    try {
+        $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $StageRoot -ExpectedPackageManifestSha256 $ManifestSha256
+    } catch {
+        $rejected = $_.Exception.Message -ceq 'Idle package stage binding failed.'
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
+    Assert-IdleTransaction ($rejected -and $after -eq $before) ("Idle capture accepted stage-binding case: " + $CaseName)
+}
+
+Assert-CvrIdleStageCaptureRejected -CaseName 'stage-path' -StageRoot ([IO.Path]::GetFullPath((Join-Path $targetCaptureRoot 'different-stage'))) -ManifestSha256 $expectedPackageManifestSha256
+Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-pin' -StageRoot $expectedStageRoot -ManifestSha256 '0000000000000000000000000000000000000000000000000000000000000000'
+
+$stageInputBytes = [IO.File]::ReadAllBytes($stageInputPath)
+try {
+    [IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-drift', [Text.UTF8Encoding]::new($false))
+    Assert-CvrIdleStageCaptureRejected -CaseName 'listed-file-drift' -StageRoot $expectedStageRoot -ManifestSha256 $expectedPackageManifestSha256
+} finally {
+    [IO.File]::WriteAllBytes($stageInputPath, $stageInputBytes)
+}
+
+$stageManifestBytes = [IO.File]::ReadAllBytes($stageManifestPath)
+$stageEscapePath = Join-Path $targetCaptureRoot 'stage-escape.txt'
+[IO.File]::WriteAllText($stageEscapePath, 'synthetic-stage-escape', [Text.UTF8Encoding]::new($false))
+$traversalManifest = [ordered]@{
+    schemaVersion = 1
+    scope = 'synthetic package-stage traversal rejection'
+    files = @([ordered]@{
+        path = '../stage-escape.txt'
+        sha256 = (Get-FileHash -LiteralPath $stageEscapePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+}
+try {
+    [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $traversalManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
+    $traversalManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-traversal' -StageRoot $expectedStageRoot -ManifestSha256 $traversalManifestSha256
+    $traversalManifest.files[0]['path'] = '.. /stage-escape.txt'
+    [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $traversalManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
+    $traversalManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-CvrIdleStageCaptureRejected -CaseName 'manifest-traversal-dot-space' -StageRoot $expectedStageRoot -ManifestSha256 $traversalManifestSha256
+} finally {
+    [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytes)
+    Remove-Item -LiteralPath $stageEscapePath -Force -ErrorAction Stop
+}
+
 $protectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
 $unprotectedPackageAcl = Get-Acl -LiteralPath $preflightPackageRoot
 $unprotectedPackageAcl.SetAccessRuleProtection($false, $true)
@@ -708,7 +943,7 @@ Set-Acl -LiteralPath $preflightPackageRoot -AclObject $unprotectedPackageAcl -Er
 $beforeUnprotectedPackageCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
 $unprotectedPackageRejected = $false
 try {
-    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $unprotectedPackageRejected = $_.Exception.Message -ceq 'Idle Preflight package root is not protected.'
 }
@@ -724,7 +959,7 @@ $targetCapture.idleObservation.ControllerListening = [bool]$true
 $beforeRejectedCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*').Count
 $rejectedSave = $false
 try {
-    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $rejectedSave = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
 }
@@ -734,8 +969,61 @@ if (-not $rejectedSave -or $afterRejectedCaptureCount -ne $beforeRejectedCapture
     throw 'Rejected idle Preflight created a capture directory.'
 }
 
-$preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
-$preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+# Exercise unsafe paths with a valid no-digit staged entry and externally pinned manifest.
+$stageBoundaryInputPath = Join-Path $stageFilesRoot 'adapter.txt'
+[IO.File]::WriteAllBytes($stageBoundaryInputPath, [byte[]]@())
+$null = Set-CvrIdleCaptureAcl -Path $stageBoundaryInputPath
+[IO.File]::WriteAllText($stageBoundaryInputPath, 'synthetic-stage-path-input', [Text.UTF8Encoding]::new($false))
+$stageBoundaryInputSha256 = (Get-FileHash -LiteralPath $stageBoundaryInputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$stageManifestBytesForPathCases = [IO.File]::ReadAllBytes($stageManifestPath)
+$stageManifestAclForPathCases = Get-Acl -LiteralPath $stageManifestPath -ErrorAction Stop
+try {
+    $stagePathRejectionCases = @(
+        [PSCustomObject]@{ Name = 'rooted'; Path = $stageBoundaryInputPath },
+        [PSCustomObject]@{ Name = 'backslash'; Path = 'scripts\adapter.txt' },
+        [PSCustomObject]@{ Name = 'colon'; Path = 'scripts/adapter.txt:stream' },
+        [PSCustomObject]@{ Name = 'control'; Path = ('scripts/' + [char]0x1f + 'adapter.txt') }
+    )
+    foreach ($case in $stagePathRejectionCases) {
+        $candidateManifest = [ordered]@{
+            schemaVersion = 1
+            scope = 'synthetic package-stage path rejection'
+            files = @([ordered]@{ path = [string]$case.Path; sha256 = $stageBoundaryInputSha256 })
+        }
+        [IO.File]::WriteAllText($stageManifestPath, (ConvertTo-Json -InputObject $candidateManifest -Depth 4 -Compress), [Text.UTF8Encoding]::new($false))
+        $candidateManifestSha256 = (Get-FileHash -LiteralPath $stageManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        Assert-CvrIdleStageCaptureRejected -CaseName ("manifest-" + $case.Name) -StageRoot $expectedStageRoot -ManifestSha256 $candidateManifestSha256
+    }
+
+    [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytesForPathCases)
+    Set-Acl -LiteralPath $stageManifestPath -AclObject $stageManifestAclForPathCases -ErrorAction Stop
+
+    $digitPathBinding = $null
+    $digitPathFailure = $null
+    try {
+        $digitPathBinding = Get-CvrIdlePackageStageBinding -StageRoot $expectedStageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+    } catch {
+        $digitPathFailure = $_.Exception.Message
+    }
+    $digitPathAccepted = $null -eq $digitPathFailure -and $digitPathBinding -and
+        $digitPathBinding.StageRoot -ceq $expectedStageRoot -and
+        $digitPathBinding.SourceManifestSha256 -ceq $expectedPackageManifestSha256
+    if ($digitPathBinding) {
+        foreach ($handle in @($digitPathBinding.OpenFiles)) {
+            if ($handle) { $handle.Dispose() }
+        }
+    }
+    Assert-IdleTransaction ([bool]$digitPathAccepted) 'Valid digit-containing relative stage path was rejected.'
+} finally {
+    [IO.File]::WriteAllBytes($stageManifestPath, $stageManifestBytesForPathCases)
+    Set-Acl -LiteralPath $stageManifestPath -AclObject $stageManifestAclForPathCases -ErrorAction Stop
+    Remove-Item -LiteralPath $stageBoundaryInputPath -Force -ErrorAction Stop
+}
+
+$preflight = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+$stageEntryAclPlanSafe = Invoke-CvrIdleStageAclCase -Path $stageInputPath -WriterMode Plan
+$stageBoundaryCaptureSafe = Invoke-CvrIdleStageBoundaryCase -WriterMode Capture
+$preflightAgain = Save-CvrIdlePreflightCapture -Capture $targetCapture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 $preflightDirectory = [IO.Path]::GetFullPath($preflight.CaptureDirectory)
 $preflightLocal = [IO.Path]::GetFullPath($preflightLocalRoot)
 if ([IO.Path]::GetDirectoryName($preflightDirectory) -ine $preflightLocal -or
@@ -759,6 +1047,7 @@ $receipt = $receiptText | ConvertFrom-Json
 $receiptFailures = [Collections.Generic.List[string]]::new()
 if ($receipt.coreShouldBeRunning -isnot [bool] -or $receipt.coreShouldBeRunning) { $receiptFailures.Add('strict-false-intent') }
 if ($receipt.targetIdentity -cne $targetIdentity) { $receiptFailures.Add('target-identity') }
+if ([IO.Path]::GetFullPath([string]$receipt.packageStageBinding.stageRoot) -cne $expectedStageRoot -or [string]$receipt.packageStageBinding.sourceManifestSha256 -cne $expectedPackageManifestSha256) { $receiptFailures.Add('package-stage-binding') }
 $receiptPinNames = @($receipt.expectedPins.PSObject.Properties | ForEach-Object { $_.Name })
 $expectedPinNames = @('gui258', 'serviceExe258', 'programFilesCore', 'serviceCore', 'candidateCore', 'updateInstaller', 'updateHelper', 'recoveryInstaller', 'recoveryHelper')
 $receiptPinNamesText = @($receiptPinNames | Sort-Object -CaseSensitive) -join '|'
@@ -787,9 +1076,24 @@ if (-not (Get-Command -Name Save-CvrIdlePreflightPlan -CommandType Function -Err
     throw 'Expected behavior RED: guarded unique idle preflight plan writer is missing.'
 }
 
+$stageBoundaryPlanSafe = Invoke-CvrIdleStageBoundaryCase -WriterMode Plan
 $beforePreparedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count
-$preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
-$preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+$stageInputBytesBeforePlan = [IO.File]::ReadAllBytes($stageInputPath)
+$rejectedPlanForStageDrift = $false
+try {
+    [IO.File]::WriteAllText($stageInputPath, 'synthetic-stage-drift-before-plan', [Text.UTF8Encoding]::new($false))
+    try {
+        $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+    } catch {
+        $rejectedPlanForStageDrift = $_.Exception.Message -ceq 'Idle package stage binding failed.'
+    }
+} finally {
+    [IO.File]::WriteAllBytes($stageInputPath, $stageInputBytesBeforePlan)
+}
+Assert-IdleTransaction ($rejectedPlanForStageDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforePreparedPlanCount) 'Idle Preflight plan accepted staged package drift or wrote output.'
+
+$preparedPlan = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
+$preparedPlanAgain = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 $preparedDirectory = [IO.Path]::GetFullPath($preparedPlan.PreparedDirectory)
 $preparedAgainDirectory = [IO.Path]::GetFullPath($preparedPlanAgain.PreparedDirectory)
 $uniquePreparedOutput = (
@@ -821,6 +1125,8 @@ foreach ($pinName in $expectedPinNames) {
 $planBindingAndBaselineMatch = (
     $plan.coreShouldBeRunning -is [bool] -and -not $plan.coreShouldBeRunning -and
     $plan.targetIdentity -ceq $targetIdentity -and
+    [IO.Path]::GetFullPath([string]$plan.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$plan.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256 -and
     [IO.Path]::GetFullPath([string]$plan.captureDirectory) -ceq $preflightDirectory -and
     [IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -ceq [IO.Path]::GetFullPath($preflight.ReceiptPath) -and
     [string]$plan.captureReceiptSha256 -ceq (Get-FileHash -LiteralPath $preflight.ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant() -and
@@ -851,7 +1157,7 @@ $beforeRejectedPlanCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Dir
 $targetCapture.idleObservation.ControllerListening = [bool]$true
 $rejectedPlanForListener = $false
 try {
-    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $rejectedPlanForListener = $_.Exception.Message -ceq 'Idle baseline controller listener is present.'
 } finally {
@@ -865,7 +1171,7 @@ $receiptForPlanDrift.targetIdentity = [Guid]::NewGuid().ToString('N')
 [IO.File]::WriteAllText($preflight.ReceiptPath, (ConvertTo-Json -InputObject $receiptForPlanDrift -Depth 8 -Compress), [Text.UTF8Encoding]::new($false))
 $rejectedPlanForReceiptDrift = $false
 try {
-    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot
+    $null = Save-CvrIdlePreflightPlan -Capture $targetCapture -CaptureDirectory $preflight.CaptureDirectory -ReceiptPath $preflight.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $preflightPackageRoot -ExpectedStageRoot $expectedStageRoot -ExpectedPackageManifestSha256 $expectedPackageManifestSha256
 } catch {
     $rejectedPlanForReceiptDrift = $_.Exception.Message -ceq 'Idle Preflight capture receipt does not match the supplied capture.'
 } finally {
@@ -873,6 +1179,434 @@ try {
 }
 Assert-IdleTransaction ($rejectedPlanForReceiptDrift -and @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'prepared-idle-*').Count -eq $beforeRejectedPlanCount) 'Idle Preflight plan accepted receipt drift or wrote output after rejection.'
 Assert-IdleTransaction ([IO.File]::ReadAllText($captureMarkerPath) -ceq 'preserve-capture' -and [IO.File]::ReadAllText($preparedMarkerPath) -ceq 'preserve-prepared') 'Idle Preflight plan modified existing fixed siblings.'
+
+
+# Reproduce the prepared Capture caller's pre-binding argument set, then exercise
+# one data-free entrypoint for both Capture and Plan.
+$legacyCaptureArguments = @{
+    Capture = $targetCapture
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $expectedPins
+    PackageRoot = $preflightPackageRoot
+}
+$legacyCaptureCount = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*' -ErrorAction Stop).Count
+$legacyCaptureErrorId = $null
+try {
+    $null = Save-CvrIdlePreflightCapture @legacyCaptureArguments
+} catch {
+    $legacyCaptureErrorId = [string]$_.FullyQualifiedErrorId
+}
+$legacyCaptureCountAfter = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter 'capture-idle-*' -ErrorAction Stop).Count
+Assert-IdleTransaction ($legacyCaptureErrorId -like '*MissingMandatoryParameter*' -and $legacyCaptureCountAfter -eq $legacyCaptureCount) 'The prepared Capture caller must supply the external stage root and manifest digest before writing.'
+Write-Host 'Legacy Capture caller arguments rejected before output: missing external stage identity.'
+
+$portableCaptureArguments = @{
+    Mode = 'Capture'
+    Capture = $targetCapture
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $expectedPins
+    PackageRoot = $preflightPackageRoot
+    ExpectedStageRoot = $expectedStageRoot
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+}
+$portableCapture = $null
+$portableCaptureErrorId = $null
+try {
+    $portableCapture = Invoke-CvrIdlePreflightPackageWriter @portableCaptureArguments
+} catch {
+    $portableCaptureErrorId = [string]$_.FullyQualifiedErrorId
+}
+Assert-IdleTransaction ($null -eq $portableCaptureErrorId -and $null -ne $portableCapture) 'The shared portable Capture entrypoint did not produce a bound capture.'
+
+$portablePlanArguments = @{
+    Mode = 'Plan'
+    Capture = $targetCapture
+    CaptureDirectory = $portableCapture.CaptureDirectory
+    ReceiptPath = $portableCapture.ReceiptPath
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $expectedPins
+    PackageRoot = $preflightPackageRoot
+    ExpectedStageRoot = $expectedStageRoot
+    ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+}
+$portablePlanErrorId = $null
+$portablePlan = $null
+try {
+    $portablePlan = Invoke-CvrIdlePreflightPackageWriter @portablePlanArguments
+} catch {
+    $portablePlanErrorId = [string]$_.FullyQualifiedErrorId
+}
+Assert-IdleTransaction ($null -eq $portablePlanErrorId -and $null -ne $portablePlan) 'The shared portable Plan entrypoint did not produce a bound plan.'
+
+$portableCaptureRecord = [IO.File]::ReadAllText($portableCapture.ReceiptPath) | ConvertFrom-Json -ErrorAction Stop
+$portablePlanRecord = [IO.File]::ReadAllText($portablePlan.PlanPath) | ConvertFrom-Json -ErrorAction Stop
+$portableCaptureBound = [IO.Path]::GetFullPath([string]$portableCaptureRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$portableCaptureRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+$portablePlanBound = [IO.Path]::GetFullPath([string]$portablePlanRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$portablePlanRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+Assert-IdleTransaction ($portableCaptureBound -and $portablePlanBound) 'Capture or Plan did not persist the independently supplied stage identity.'
+
+function Assert-CvrIdlePortableWriterRejects {
+    param(
+        [Parameter(Mandatory = $true)][string]$CaseName,
+        [Parameter(Mandatory = $true)][hashtable]$Arguments,
+        [Parameter(Mandatory = $true)][ValidateSet('capture-idle-*','prepared-idle-*')][string]$OutputFilter
+    )
+    $before = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $OutputFilter -ErrorAction Stop).Count
+    $rejected = $false
+    try {
+        $null = Invoke-CvrIdlePreflightPackageWriter @Arguments
+    } catch {
+        $rejected = $true
+    }
+    $after = @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $OutputFilter -ErrorAction Stop).Count
+    Assert-IdleTransaction ($rejected -and $after -eq $before) ("Portable " + $CaseName + " entrypoint did not reject before output.")
+}
+
+$missingCaptureStageRoot = $portableCaptureArguments.Clone()
+$null = $missingCaptureStageRoot.Remove('ExpectedStageRoot')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture missing stage root' -Arguments $missingCaptureStageRoot -OutputFilter 'capture-idle-*'
+$missingCaptureManifestPin = $portableCaptureArguments.Clone()
+$null = $missingCaptureManifestPin.Remove('ExpectedPackageManifestSha256')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture missing manifest digest' -Arguments $missingCaptureManifestPin -OutputFilter 'capture-idle-*'
+$wrongCaptureStageRoot = $portableCaptureArguments.Clone()
+$wrongCaptureStageRoot['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture wrong stage root' -Arguments $wrongCaptureStageRoot -OutputFilter 'capture-idle-*'
+$wrongCaptureManifestPin = $portableCaptureArguments.Clone()
+$wrongCaptureManifestPin['ExpectedPackageManifestSha256'] = '0000000000000000000000000000000000000000000000000000000000000000'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Capture wrong manifest digest' -Arguments $wrongCaptureManifestPin -OutputFilter 'capture-idle-*'
+
+$missingPlanStageRoot = $portablePlanArguments.Clone()
+$null = $missingPlanStageRoot.Remove('ExpectedStageRoot')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan missing stage root' -Arguments $missingPlanStageRoot -OutputFilter 'prepared-idle-*'
+$missingPlanManifestPin = $portablePlanArguments.Clone()
+$null = $missingPlanManifestPin.Remove('ExpectedPackageManifestSha256')
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan missing manifest digest' -Arguments $missingPlanManifestPin -OutputFilter 'prepared-idle-*'
+$wrongPlanStageRoot = $portablePlanArguments.Clone()
+$wrongPlanStageRoot['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan wrong stage root' -Arguments $wrongPlanStageRoot -OutputFilter 'prepared-idle-*'
+$wrongPlanManifestPin = $portablePlanArguments.Clone()
+$wrongPlanManifestPin['ExpectedPackageManifestSha256'] = '0000000000000000000000000000000000000000000000000000000000000000'
+Assert-CvrIdlePortableWriterRejects -CaseName 'Plan wrong manifest digest' -Arguments $wrongPlanManifestPin -OutputFilter 'prepared-idle-*'
+
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'portable-capture-plan-stage-binding'
+    result = 'bound-identity-and-rejected-missing-or-mismatched-inputs-before-output'
+})
+
+$packageWriterCliPath = Join-Path $PSScriptRoot 'windows_idle_preflight_package_writer.ps1'
+if (-not (Test-Path -LiteralPath $packageWriterCliPath -PathType Leaf)) {
+    throw 'Expected behavior RED: executable Capture and Plan package writer is missing.'
+}
+
+function Quote-CvrPackageWriterArgument([string]$Value) {
+    if ($Value.Contains('"')) { throw 'Unsafe synthetic package-writer argument.' }
+    return '"' + $Value + '"'
+}
+
+function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
+    $caseLabel = $CaseName -replace '[^A-Za-z0-9-]', '-'
+    $timeoutSeconds = if ($Arguments.ContainsKey('TimeoutSeconds')) { [int]$Arguments.TimeoutSeconds } else { 45 }
+    if ($timeoutSeconds -lt 10 -or $timeoutSeconds -gt 60) { throw 'Invalid synthetic process timeout.' }
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $workBudgetMilliseconds = ($timeoutSeconds - 5) * 1000
+    $process = $null
+    $started = $false
+    $stdoutTask = $null
+    $stderrTask = $null
+    $state = 'failure'
+    $stage = 'request-serialize'
+    Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+    try {
+        $requestJson = ConvertTo-Json -InputObject $Arguments.Request -Depth 16 -Compress -ErrorAction Stop
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-request-serialize")
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-parent-json-parse")
+        $null = ConvertFrom-Json -InputObject $requestJson -ErrorAction Stop
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-parent-json-parse")
+        $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $scriptPath = if ($Arguments.ContainsKey('ScriptPath')) { [string]$Arguments.ScriptPath } else { $packageWriterCliPath }
+        $commandLineParts = @(
+            '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File',
+            (Quote-CvrPackageWriterArgument $scriptPath),
+            '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode))
+        )
+
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $powershell51
+        $startInfo.Arguments = $commandLineParts -join ' '
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
+        $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false, $true)
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        $stage = 'process-start'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        if (-not $process.Start()) { throw 'start failed' }
+        $started = $true
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdin-write'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $requestBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($requestJson)
+        $stdinTask = $process.StandardInput.BaseStream.WriteAsync($requestBytes, 0, $requestBytes.Length)
+        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
+        if (-not $stdinTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin timeout' }
+        $stdinTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdin-flush'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $flushTask = $process.StandardInput.BaseStream.FlushAsync()
+        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
+        if (-not $flushTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin flush timeout' }
+        $flushTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdin-close'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $process.StandardInput.Close()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'process-wait'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
+        if (-not $process.WaitForExit($remainingMilliseconds)) { $state = 'timeout'; throw 'process timeout' }
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stdout-read'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $remainingMilliseconds = [int][Math]::Max(1, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+        if (-not $stdoutTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdout timeout' }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+
+        $stage = 'stderr-read'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+        $remainingMilliseconds = [int][Math]::Max(1, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+        if (-not $stderrTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stderr timeout' }
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $state = 'completed'
+        Write-Host ("package-writer case=" + $caseLabel + " stage=complete exit=" + $process.ExitCode)
+        return [PSCustomObject]@{
+            State = $state
+            Stage = 'complete'
+            ExitCode = $process.ExitCode
+            StdOut = $stdout
+            StdErr = $stderr
+            ChildStopped = [bool]$process.HasExited
+            ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+        }
+    } catch {
+        $failedStage = $stage
+        $childStopped = -not $started
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-cleanup")
+        if ($started) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill()
+                    $cleanupMilliseconds = [int][Math]::Max(0, [Math]::Min(5000, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds)))
+                    if ($cleanupMilliseconds -gt 0) { $null = $process.WaitForExit($cleanupMilliseconds) }
+                }
+                $childStopped = [bool]$process.HasExited
+            } catch { $childStopped = $false }
+        }
+        Write-Host ("package-writer case=" + $caseLabel + " stage=before-cleanup-output")
+        foreach ($task in @($stdoutTask, $stderrTask)) {
+            if ($task -and -not $task.IsCompleted) {
+                $cleanupMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+                if ($cleanupMilliseconds -gt 0) {
+                    try { $null = $task.Wait($cleanupMilliseconds) } catch { }
+                }
+            }
+        }
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-cleanup-output")
+        Write-Host ("package-writer case=" + $caseLabel + " stage=after-cleanup child-stopped=" + $childStopped)
+        return [PSCustomObject]@{
+            State = $state
+            Stage = $failedStage
+            ExitCode = $null
+            StdOut = ''
+            StdErr = ''
+            ChildStopped = $childStopped
+            ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+        }
+    } finally {
+        if ($process) { $process.Dispose() }
+    }
+}
+
+function Get-CvrPackageWriterOutputCount([string]$Mode) {
+    $filter = if ($Mode -eq 'Capture') { 'capture-idle-*' } else { 'prepared-idle-*' }
+    return @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop).Count
+}
+
+function Get-CvrPackageWriterDiagnostic([string]$StdErr) {
+    $diagnostic = ([string]$StdErr).Trim()
+    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ shape=(?:unread|empty|object|partial) type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
+        return $Matches[0]
+    }
+    return 'unclassified child failure'
+}
+
+function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Arguments) {
+    $before = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
+    $result = Invoke-CvrPackageWriterCli -CaseName $CaseName -Arguments $Arguments
+    $after = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
+    $diagnostic = Get-CvrPackageWriterDiagnostic $result.StdErr
+    $writerGuardRejected = $diagnostic -match '^Idle Preflight package writer failed \(stage=invoke-writer '
+    Assert-IdleTransaction (
+        $result.State -ceq 'completed' -and $result.ExitCode -ne 0 -and $result.ChildStopped -and
+        [string]::IsNullOrEmpty($result.StdOut) -and $after -eq $before -and $writerGuardRejected
+    ) ("Package writer CLI " + $CaseName + " did not reach the guard or wrote output.")
+}
+
+# Serialize the persisted capture data, not live FileSecurity objects returned by Get-Acl.
+$packageWriterCorePair = [ordered]@{}
+foreach ($coreRole in @('programFiles', 'service')) {
+    $entry = $targetCapture.corePair[$coreRole]
+    $packageWriterCorePair[$coreRole] = [ordered]@{
+        path = [string]$entry.path
+        pathPin = [string]$entry.pathPin
+        backup = [string]$entry.backup
+        backupPathPin = [string]$entry.backupPathPin
+        backupRoot = [string]$entry.backupRoot
+        backupSddl = [string]$entry.backupSddl
+        backupDirectorySddl = [string]$entry.backupDirectorySddl
+        sha256 = [string]$entry.sha256
+        sddl = [string]$entry.sddl
+        acl = [ordered]@{ Sddl = [string]$entry.acl.Sddl }
+    }
+}
+$packageWriterCapture = [ordered]@{
+    targetIdentity = [string]$targetCapture.targetIdentity
+    capturedAtUtc = $targetCapture.capturedAtUtc.ToString('o')
+    coreShouldBeRunning = [bool]$targetCapture.coreShouldBeRunning
+    idleObservation = $targetCapture.idleObservation
+    pinnedFiles = $targetCapture.pinnedFiles
+    corePair = $packageWriterCorePair
+}
+
+$validCaptureCliArguments = @{
+    Mode = 'Capture'
+    Request = @{
+        Capture = $packageWriterCapture
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+        PackageRoot = $preflightPackageRoot
+        ExpectedStageRoot = $expectedStageRoot
+        ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+    }
+}
+$captureCliBefore = Get-CvrPackageWriterOutputCount 'Capture'
+$captureCliResult = Invoke-CvrPackageWriterCli -CaseName 'capture-valid' -Arguments $validCaptureCliArguments
+Assert-IdleTransaction ($captureCliResult.State -ceq 'completed' -and $captureCliResult.ExitCode -eq 0 -and $captureCliResult.ChildStopped) ("The actual Capture package-writer command failed: " + (Get-CvrPackageWriterDiagnostic $captureCliResult.StdErr))
+$captureCli = $captureCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
+$captureCliReceipt = [IO.File]::ReadAllText($captureCli.ReceiptPath) | ConvertFrom-Json -ErrorAction Stop
+Assert-IdleTransaction (
+    (Get-CvrPackageWriterOutputCount 'Capture') -eq ($captureCliBefore + 1) -and
+    [IO.Path]::GetFullPath([string]$captureCliReceipt.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$captureCliReceipt.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256
+) 'The actual Capture command did not write a stage-bound receipt.'
+
+$validPlanCliArguments = @{
+    Mode = 'Plan'
+    Request = @{
+        Capture = $packageWriterCapture
+        CaptureDirectory = [string]$captureCli.CaptureDirectory
+        ReceiptPath = [string]$captureCli.ReceiptPath
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+        PackageRoot = $preflightPackageRoot
+        ExpectedStageRoot = $expectedStageRoot
+        ExpectedPackageManifestSha256 = $expectedPackageManifestSha256
+    }
+}
+$planCliBefore = Get-CvrPackageWriterOutputCount 'Plan'
+$planCliResult = Invoke-CvrPackageWriterCli -CaseName 'plan-valid' -Arguments $validPlanCliArguments
+Assert-IdleTransaction ($planCliResult.State -ceq 'completed' -and $planCliResult.ExitCode -eq 0 -and $planCliResult.ChildStopped) ("The actual Plan package-writer command failed: " + (Get-CvrPackageWriterDiagnostic $planCliResult.StdErr))
+$planCli = $planCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
+$planCliRecord = [IO.File]::ReadAllText($planCli.PlanPath) | ConvertFrom-Json -ErrorAction Stop
+$planCliSha256 = (Get-FileHash -LiteralPath $planCli.PlanPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+Assert-IdleTransaction (
+    (Get-CvrPackageWriterOutputCount 'Plan') -eq ($planCliBefore + 1) -and
+    [IO.Path]::GetFullPath([string]$planCliRecord.packageStageBinding.stageRoot) -ceq $expectedStageRoot -and
+    [string]$planCliRecord.packageStageBinding.sourceManifestSha256 -ceq $expectedPackageManifestSha256 -and
+    [string]$planCli.PlanSha256 -ceq $planCliSha256
+) 'The actual Plan command did not write a stage-bound plan.'
+
+foreach ($mode in @('Capture', 'Plan')) {
+    $validArguments = if ($mode -eq 'Capture') { $validCaptureCliArguments.Clone() } else { $validPlanCliArguments.Clone() }
+
+    $missingRoot = $validArguments.Clone()
+    $missingRoot['Request'] = $validArguments['Request'].Clone()
+    $null = $missingRoot['Request'].Remove('ExpectedStageRoot')
+    Assert-CvrPackageWriterCliRejects ($mode + ' missing expected stage root') $missingRoot
+
+    $missingDigest = $validArguments.Clone()
+    $missingDigest['Request'] = $validArguments['Request'].Clone()
+    $null = $missingDigest['Request'].Remove('ExpectedPackageManifestSha256')
+    Assert-CvrPackageWriterCliRejects ($mode + ' missing external manifest digest') $missingDigest
+
+    $wrongRoot = $validArguments.Clone()
+    $wrongRoot['Request'] = $validArguments['Request'].Clone()
+    $wrongRoot['Request']['ExpectedStageRoot'] = Join-Path $targetCaptureRoot 'different-stage'
+    Assert-CvrPackageWriterCliRejects ($mode + ' wrong expected stage root') $wrongRoot
+
+    $wrongDigest = $validArguments.Clone()
+    $wrongDigest['Request'] = $validArguments['Request'].Clone()
+    $wrongDigest['Request']['ExpectedPackageManifestSha256'] = ('0' * 64)
+    Assert-CvrPackageWriterCliRejects ($mode + ' wrong external manifest digest') $wrongDigest
+}
+
+
+$delayedWriterPath = Join-Path $targetCaptureRoot 'synthetic-delayed-writer.ps1'
+$delayedWriterLines = @(
+    'param([string]$Mode)'
+    '$null = [Console]::In.ReadLine()'
+    'Start-Sleep -Seconds 60'
+)
+[IO.File]::WriteAllLines($delayedWriterPath, [string[]]$delayedWriterLines, [Text.UTF8Encoding]::new($false))
+$beforeDelayedWriterCount = Get-CvrPackageWriterOutputCount 'Capture'
+$delayedWriterResult = Invoke-CvrPackageWriterCli -CaseName 'delayed-synthetic' -Arguments @{
+    Mode = 'Capture'
+    ScriptPath = $delayedWriterPath
+    TimeoutSeconds = 15
+    Request = @{ synthetic = $true }
+}
+Assert-IdleTransaction (
+    $delayedWriterResult.State -ceq 'timeout' -and
+    $delayedWriterResult.Stage -ceq 'process-wait' -and
+    $delayedWriterResult.ChildStopped -and
+    $delayedWriterResult.ElapsedMilliseconds -le 20000 -and
+    [string]::IsNullOrEmpty($delayedWriterResult.StdOut) -and
+    (Get-CvrPackageWriterOutputCount 'Capture') -eq $beforeDelayedWriterCount
+) 'A delayed synthetic package writer was not bounded and reaped before output.'
+
+
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'powershell51-package-writer-timeout'
+    result = 'delayed child timed out in process-wait and was reaped before output'
+})
+
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'powershell51-package-writer-cli'
+    result = 'capture-and-plan-bound-with-eight-fail-closed-rejections-before-output'
+})
+
+$stageBindingFailures = [Collections.Generic.List[string]]::new()
+if (-not $stageManifestAclCaptureSafe) { $stageBindingFailures.Add('manifest-acl-capture') }
+if (-not $stageEntryAclPlanSafe) { $stageBindingFailures.Add('entry-acl-plan') }
+if (-not $stageBoundaryCaptureSafe) { $stageBindingFailures.Add('capture-validation-write-mutation') }
+if (-not $stageBoundaryPlanSafe) { $stageBindingFailures.Add('plan-validation-write-mutation') }
+if ($stageBindingFailures.Count) {
+    throw ("Idle package-stage race/ACL contract failed: " + ($stageBindingFailures -join ',') + '.')
+}
 
 $targetCapture.PSObject.Properties.Remove('profileMarker')
 
