@@ -1391,7 +1391,8 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
         }
         if ($Arguments.ContainsKey('SyntheticSerializationDelaySeconds')) {
             $commandLineParts += @('-SyntheticSerializationDelaySeconds', (Quote-CvrPackageWriterArgument ([string]$Arguments.SyntheticSerializationDelaySeconds)))
-        }        if ($Arguments.ContainsKey('SyntheticExitBeforeWriterPidWrite') -and $Arguments.SyntheticExitBeforeWriterPidWrite) {
+        }
+        if ($Arguments.ContainsKey('SyntheticExitBeforeWriterPidWrite') -and $Arguments.SyntheticExitBeforeWriterPidWrite) {
             $commandLineParts += '-SyntheticExitBeforeWriterPidWrite'
         }
 
@@ -1552,7 +1553,7 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
             } catch {
                 $writerChildStopped = $false
             }
-        } elseif ($started -and $supervisorStopped -and -not $writerPidPath -and $failedStage -match '^(?:stdin|process-wait|stdout|stderr)') {
+        } elseif ($started -and $supervisorStopped -and $writerPidPath -and -not (Test-Path -LiteralPath $writerPidPath -PathType Leaf)) {
             $writerChildStopped = $treeKillSucceeded
         }
         $childStopped = $supervisorStopped -and $writerChildStopped
