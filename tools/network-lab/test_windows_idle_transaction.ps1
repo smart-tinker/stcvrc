@@ -1751,13 +1751,25 @@ try {
     $writerStillRunning = -not $pidGapProcess.HasExited
     if ($writerStillRunning) { $writerStillRunning = ($pidGapProcess.StartTime.ToUniversalTime().Ticks -eq $pidGapStartTicks) }
     Assert-IdleTransaction $writerStillRunning 'Synthetic writer was not alive after the PID-write interruption.'
+    $writerPidMissing = -not (Test-Path -LiteralPath (Join-Path $pidGapResult.CallDirectory 'writer.pid') -PathType Leaf)
+    $writerPidGapStageValid = (
+        ($pidGapResult.State -ceq 'failure' -and $pidGapResult.Stage -ceq 'writer-pid') -or
+        ($pidGapResult.State -ceq 'timeout' -and $pidGapResult.Stage -ceq 'stdout-read')
+    )
+    $pidGapDiagnostic = 'state={0} stage={1} child-stopped={2} pid-recorded={3} elapsed-ms={4}.' -f @(
+        [string]$pidGapResult.State,
+        [string]$pidGapResult.Stage,
+        [string]$pidGapResult.ChildStopped,
+        [string](-not $writerPidMissing),
+        [string]$pidGapResult.ElapsedMilliseconds
+    )
     Assert-IdleTransaction (
-        $pidGapResult.State -ceq 'failure' -and
-        $pidGapResult.Stage -ceq 'writer-pid' -and
+        $writerPidMissing -and
+        $writerPidGapStageValid -and
         -not $pidGapResult.ChildStopped -and
         $pidGapResult.ElapsedMilliseconds -le 15000 -and
         (Get-CvrPackageWriterOutputCount 'Capture') -eq $beforePidGapCaptureCount
-    ) 'Writer stop was reported without PID or tree-kill proof.'
+    ) ('Writer PID gap did not fail closed: ' + $pidGapDiagnostic)
 } finally {
     if ($pidGapProcess) {
         try {
