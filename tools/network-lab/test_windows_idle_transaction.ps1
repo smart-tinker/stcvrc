@@ -1444,10 +1444,36 @@ function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Argume
     ) ("Package writer CLI " + $CaseName + " was accepted or wrote output.")
 }
 
+# Serialize the persisted capture data, not live FileSecurity objects returned by Get-Acl.
+$packageWriterCorePair = [ordered]@{}
+foreach ($coreRole in @('programFiles', 'service')) {
+    $entry = $targetCapture.corePair[$coreRole]
+    $packageWriterCorePair[$coreRole] = [ordered]@{
+        path = [string]$entry.path
+        pathPin = [string]$entry.pathPin
+        backup = [string]$entry.backup
+        backupPathPin = [string]$entry.backupPathPin
+        backupRoot = [string]$entry.backupRoot
+        backupSddl = [string]$entry.backupSddl
+        backupDirectorySddl = [string]$entry.backupDirectorySddl
+        sha256 = [string]$entry.sha256
+        sddl = [string]$entry.sddl
+        acl = [ordered]@{ Sddl = [string]$entry.acl.Sddl }
+    }
+}
+$packageWriterCapture = [ordered]@{
+    targetIdentity = [string]$targetCapture.targetIdentity
+    capturedAtUtc = $targetCapture.capturedAtUtc.ToString('o')
+    coreShouldBeRunning = [bool]$targetCapture.coreShouldBeRunning
+    idleObservation = $targetCapture.idleObservation
+    pinnedFiles = $targetCapture.pinnedFiles
+    corePair = $packageWriterCorePair
+}
+
 $validCaptureCliArguments = @{
     Mode = 'Capture'
     Request = @{
-        Capture = $targetCapture
+        Capture = $packageWriterCapture
         ExpectedTargetIdentity = $targetIdentity
         ExpectedPins = $expectedPins
         PackageRoot = $preflightPackageRoot
@@ -1469,7 +1495,7 @@ Assert-IdleTransaction (
 $validPlanCliArguments = @{
     Mode = 'Plan'
     Request = @{
-        Capture = $targetCapture
+        Capture = $packageWriterCapture
         CaptureDirectory = [string]$captureCli.CaptureDirectory
         ReceiptPath = [string]$captureCli.ReceiptPath
         ExpectedTargetIdentity = $targetIdentity
