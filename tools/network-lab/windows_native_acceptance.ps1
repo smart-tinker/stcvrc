@@ -16,6 +16,9 @@ if (-not (Test-Path -LiteralPath $portPlanScript -PathType Leaf)) { throw 'The n
 $corePreimageScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_preimage_paths.ps1'
 if (-not (Test-Path -LiteralPath $corePreimageScript -PathType Leaf)) { throw 'The native core preimage helper is missing.' }
 . $corePreimageScript
+$sshCleanupScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_ssh_fixture_cleanup.ps1'
+if (-not (Test-Path -LiteralPath $sshCleanupScript -PathType Leaf)) { throw 'The SSH fixture cleanup helper is missing.' }
+. $sshCleanupScript
 $nativePortPlan = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
 $expectedVersion = if ($Phase -in @('seed','recovery')) { '2.5.8' } else { '2.5.10' }
 $script:nativePhase = $Phase
@@ -1433,11 +1436,7 @@ rules:
         } catch {
             $fixtureTrafficFailure = $_.Exception.Message
             try {
-                $fixture.Process.Refresh()
-                if (-not $fixture.Process.HasExited) {
-                    Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue
-                    try { Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue } catch {}
-                }
+                [void](Stop-StcvrcSshFixtureProcess -Fixture $fixture -TimeoutSeconds 5)
                 $fixtureDiagnostics = if (Test-Path -LiteralPath $fixture.StderrPath -PathType Leaf) { @(Get-Content -LiteralPath $fixture.StderrPath -Tail 8) } else { @() }
             } catch {
                 $fixtureDiagnostics = @('SSH_FIXTURE_DIAGNOSTICS_UNAVAILABLE')
@@ -1452,17 +1451,16 @@ rules:
                 [void](Invoke-CvrCommand -Command 'delete_profile' -Payload @{ index=$sshUid })
             } catch { Add-Failure "SSH fixture profile cleanup: $($_.Exception.Message)" }
         }
-        if ($fixture -and $fixture.Process -and -not $fixture.Process.HasExited) {
-            Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue
-            try { Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue } catch {}
-        }
         if (Test-Path -LiteralPath $keyPath -PathType Leaf) {
             try { Remove-Item -LiteralPath $keyPath -Force -ErrorAction Stop }
             catch { Add-Failure "SSH source-key cleanup: $($_.Exception.Message)" }
         }
-        if ($fixture -and $fixture.Root -and (Test-Path -LiteralPath $fixture.Root -PathType Container)) {
-            try { Remove-Item -LiteralPath $fixture.Root -Recurse -Force -ErrorAction Stop }
-            catch { Add-Failure "SSH fixture directory cleanup: $($_.Exception.Message)" }
+        if ($fixture -and $fixture.Root) {
+            try {
+                $cleanup = Remove-StcvrcSshFixture -Fixture $fixture -TimeoutSeconds 5
+                if (-not $cleanup.ProcessExited -or -not $cleanup.ExecutableRemoved -or -not $cleanup.DirectoryRemoved) { throw 'SSH fixture cleanup receipt is incomplete.' }
+                Write-Host "SSH fixture cleanup verified: process_exited=true executable_removed=true directory_removed=true pid=$($cleanup.ProcessId) exit_code=$($cleanup.ExitCode) attempts=$($cleanup.DeleteAttempts)"
+            } catch { Add-Failure "SSH fixture directory cleanup: $($_.Exception.Message)" }
         }
     }
 }
