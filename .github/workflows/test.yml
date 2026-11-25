@@ -56,13 +56,11 @@ jobs:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
-          CANDIDATE_SOURCE_SHA: 086a62c3ce9a77f650786ae2eae92b68909d49e1
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$CANDIDATE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          for pair in "source:$SOURCE_SHA" "baseline:$BASE_SHA" "candidate:$CANDIDATE_SOURCE_SHA"; do
+          for pair in "source:$SOURCE_SHA" "baseline:$BASE_SHA"; do
             name="${pair%%:*}"
             sha="${pair#*:}"
             if [[ "$name" == source ]]; then
@@ -120,23 +118,16 @@ jobs:
         continue-on-error: true
         run: govulncheck -show verbose -tags=with_gvisor -test ./...
 
-      - id: candidate_scan
-        name: Scan selected .33 source
-        working-directory: candidate
-        continue-on-error: true
-        run: govulncheck -show verbose -tags=with_gvisor ./...
-
-      - name: Enforce all three vulnerability scans
+      # The selected .33 graph is scanned by source-build/ci.sh after its modfile overlay.
+      - name: Enforce current-source and nested test-module vulnerability scans
         if: always()
         env:
-          BASELINE_SCAN: ${{ steps.baseline_scan.outcome }}
           SOURCE_SCAN: ${{ steps.source_scan.outcome }}
           TEST_SCAN: ${{ steps.test_scan.outcome }}
-          CANDIDATE_SCAN: ${{ steps.candidate_scan.outcome }}
         run: |
           set -euo pipefail
-          printf 'root=%s test=%s candidate=%s\n' "$SOURCE_SCAN" "$TEST_SCAN" "$CANDIDATE_SCAN"
-          [[ "$SOURCE_SCAN" == success && "$TEST_SCAN" == success && "$CANDIDATE_SCAN" == success ]]
+          printf 'root=%s test=%s\n' "$SOURCE_SCAN" "$TEST_SCAN"
+          [[ "$SOURCE_SCAN" == success && "$TEST_SCAN" == success ]]
 
   source:
     needs: vulnerability-scan
@@ -518,7 +509,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_core_identity.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -628,6 +619,7 @@ jobs:
         if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' }}
         run: |
           $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_identity.ps1')
           $manifestPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           $build = Get-Content -LiteralPath $env:STCVRC_BUILD_JSON -Raw | ConvertFrom-Json
@@ -703,16 +695,14 @@ jobs:
                 if ($name -eq 'verge-mihomo.exe') { $stockCore = $file.FullName }
               }
               Copy-Item -LiteralPath $env:CUSTOM_CORE -Destination $stockCore -Force
+              if ((Get-Item -LiteralPath $stockCore).Length -ne (Get-Item -LiteralPath $env:CUSTOM_CORE).Length) { throw 'Fresh custom core size changed after staging' }
               $stagedHash = (Get-FileHash -LiteralPath $stockCore -Algorithm SHA256).Hash.ToLowerInvariant()
               if ($stagedHash -ne $env:CUSTOM_CORE_SHA256) { throw 'Fresh custom core did not replace the extracted stock core bytes' }
-              $coreVersionOutput = & $stockCore -v 2>&1
+              $coreVersionLines = @(& $stockCore -v 2>&1 | ForEach-Object { [string]$_ })
               $coreExit = $LASTEXITCODE
-              $coreVersionOutput = $coreVersionOutput -join "`n"
-              if ($coreExit -ne 0) { throw "Fresh custom core -v exited with code $coreExit" }
-              $buildTimeText = ([DateTime]$build.build_time).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-              $expectedCoreVersion = "Mihomo Meta $($build.version) windows amd64 with go$($build.go_version) $buildTimeText"
-              if (-not $coreVersionOutput.StartsWith($expectedCoreVersion, [System.StringComparison]::Ordinal)) {
-                throw "Fresh custom core -v reported an unexpected version. Expected prefix: [$expectedCoreVersion]; actual: [$coreVersionOutput]"
+              $expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build
+              if ($coreExit -ne 0 -or -not (Test-StcvrcWindowsCoreVersionOutput -VersionLines $coreVersionLines -ExpectedIdentity $expectedCoreVersion)) {
+                throw "Fresh custom core -v reported an unexpected identity. Expected: [$expectedCoreVersion]; actual: [$($coreVersionLines -join "`n")]"
               }
               Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`nThe SHA-verified freshly built 1.19.33 Windows/amd64 core passed its CLI -v identity check. This does not establish a live core, GUI, service, TUN, or DNS result; those are checked by the following native acceptance script."
             }
@@ -782,7 +772,7 @@ jobs:
           root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
           recipe="$(cygpath -u "$PR_SOURCE")"
           out="$root/output"
-          tag=stcvrc-1.19.33-rc.9
+          tag=stcvrc-1.19.33-rc.10
           repo=smart-tinker/stcvrc
           python - "$root" "$recipe" "$tag" <<'PY'
           import hashlib, json, os, re, shutil, sys
@@ -792,6 +782,12 @@ jobs:
           out = root / "output"
           digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
           build = json.loads((out / "build.json").read_text(encoding="utf-8"))
+          assert build["version"] == "1.19.33-STCVRC-rc.10"
+          assert build["core_source_commit"] == "a884ad53a3999dd35acab979e0bb040c47f6dbc9"
+          assert build["selected_dependency_versions"] == {
+              "github.com/gobwas/ws": "v1.5.0",
+              "github.com/insomniacslk/dhcp": "v0.0.0-20260719225207-c76316d4aa82",
+          }
           native_sha, native_wasm = os.environ["NATIVE_CORE_SHA256"], os.environ["NATIVE_WASM_SHA256"]
           assert re.fullmatch(r"[0-9a-f]{64}", native_sha) and re.fullmatch(r"[0-9a-f]{64}", native_wasm)
           assert build["recipe_commit"] == os.environ["HEAD_SHA"] and build["build_host"] == "windows/amd64"
@@ -827,7 +823,7 @@ jobs:
           PY
           notes="$out/RC-NOTES.md"
           cat > "$notes" <<'EOF'
-          Unpublished STCVRC 1.19.33 RC9, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
+          Unpublished STCVRC 1.19.33 RC10, for stock CVR 2.5.10 with pinned 2.5.8 recovery inputs.
           The Windows core and embedded EasyTier WASM were rebuilt from exact public source.
           Core and WASM digests match the same workflow's successful native Windows GUI/service/TUN/DNS/update/recovery job.
           THIRD-PARTY-NOTICES.txt and THIRD-PARTY-SOURCES.json describe the actual Windows build graph, toolchains and embedded runtime assets.
@@ -844,7 +840,7 @@ jobs:
             upload=()
             for name in "${assets[@]}"; do upload+=("$out/$name"); done
             gh release create "$tag" "${upload[@]}" --repo "$repo" --draft --prerelease --target "$HEAD_SHA" \
-              --title 'STCVRC 1.19.33 RC9 — source-built candidate' --notes-file "$notes"
+              --title 'STCVRC 1.19.33 RC10 — source-built candidate' --notes-file "$notes"
             release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           fi
           [[ "$release_id" =~ ^[0-9]+$ ]]

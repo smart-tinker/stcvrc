@@ -19,7 +19,7 @@ PORT_PLAN = ROOT / "tools" / "network-lab" / "windows_native_port_plan.ps1"
 
 
 class NativeWindowsAcceptanceContract(unittest.TestCase):
-    def test_fresh_windows_core_is_bound_to_exact_rc9_pin(self):
+    def test_fresh_windows_core_is_bound_to_rc10_build_report_and_preserves_rc9_pin(self):
         manifest = json.loads((INSTALLER_SMOKE.parents[2] / "candidates" / "cvr-2.5.10" / "inputs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["windowsNativeCandidate"], {
             "releaseId": 446278043,
@@ -31,14 +31,27 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e",
         })
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        for pin in (
-            "$nativeCandidate.releaseId -ne 446278043",
-            "$nativeCandidate.tag -cne 'stcvrc-1.19.33-rc.9'",
-            "$nativeCandidate.assetId -ne 751963784",
-            "[long]$nativeCandidate.assetSize -ne 60833280",
-            "$coreSha -cne [string]$nativeCandidate.sha256",
+        for identity in (
+            "$build.version -cne '1.19.33-STCVRC-rc.10'",
+            "$build.core_source_commit -cne 'a884ad53a3999dd35acab979e0bb040c47f6dbc9'",
+            "$build.selected_dependency_versions.'github.com/gobwas/ws' -cne 'v1.5.0'",
+            "$build.selected_dependency_versions.'github.com/insomniacslk/dhcp' -cne 'v0.0.0-20260719225207-c76316d4aa82'",
+            "$coreEntries[0].size",
+            "Get-FileHash -LiteralPath $env:CUSTOM_CORE -Algorithm SHA256",
+            "windows_core_identity.ps1",
+            "$expectedCoreVersion = Get-StcvrcWindowsCoreVersionIdentity -Build $build",
+            "Test-StcvrcWindowsCoreVersionOutput -VersionLines",
+            "Assert-StcvrcWindowsCoreVersionOutputVectors",
         ):
-            self.assertIn(pin, source)
+            with self.subTest(identity=identity):
+                self.assertIn(identity, source)
+        self.assertNotIn("$manifest.windowsNativeCandidate", source)
+        self.assertNotIn("stcvrc-1.19.33-rc.9", source)
+        identity = source.split("$coreSha = [string]$coreEntries[0].sha256", 1)[1].split("$installerPaths =", 1)[0]
+        self.assertLess(identity.index("(Get-Item -LiteralPath $env:CUSTOM_CORE).Length"),
+                        identity.index("$env:CUSTOM_CORE -v"))
+        self.assertLess(identity.index("Get-FileHash -LiteralPath $env:CUSTOM_CORE"),
+                        identity.index("$env:CUSTOM_CORE -v"))
 
     def test_core_preimage_backups_require_pinned_path_hash_and_acl(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
