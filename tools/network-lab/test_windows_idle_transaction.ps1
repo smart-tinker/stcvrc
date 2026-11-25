@@ -1435,6 +1435,14 @@ function Get-CvrPackageWriterOutputCount([string]$Mode) {
     return @(Get-ChildItem -LiteralPath $preflightLocalRoot -Directory -Filter $filter -ErrorAction Stop).Count
 }
 
+function Get-CvrPackageWriterDiagnostic([string]$StdErr) {
+    $diagnostic = ([string]$StdErr).Trim()
+    if ($diagnostic -match '^Idle Preflight package writer failed \(stage=[a-z-]+ type=[A-Za-z0-9_.+]+ line=[0-9]+\)\.$') {
+        return $Matches[0]
+    }
+    return 'unclassified child failure'
+}
+
 function Assert-CvrPackageWriterCliRejects([string]$CaseName, [hashtable]$Arguments) {
     $before = Get-CvrPackageWriterOutputCount ([string]$Arguments.Mode)
     $result = Invoke-CvrPackageWriterCli -CaseName $CaseName -Arguments $Arguments
@@ -1483,7 +1491,7 @@ $validCaptureCliArguments = @{
 }
 $captureCliBefore = Get-CvrPackageWriterOutputCount 'Capture'
 $captureCliResult = Invoke-CvrPackageWriterCli -CaseName 'capture-valid' -Arguments $validCaptureCliArguments
-Assert-IdleTransaction ($captureCliResult.State -ceq 'completed' -and $captureCliResult.ExitCode -eq 0 -and $captureCliResult.ChildStopped) 'The actual Capture package-writer command failed.'
+Assert-IdleTransaction ($captureCliResult.State -ceq 'completed' -and $captureCliResult.ExitCode -eq 0 -and $captureCliResult.ChildStopped) ("The actual Capture package-writer command failed: " + (Get-CvrPackageWriterDiagnostic $captureCliResult.StdErr))
 $captureCli = $captureCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
 $captureCliReceipt = Get-Content -LiteralPath $captureCli.ReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
 Assert-IdleTransaction (
@@ -1507,7 +1515,7 @@ $validPlanCliArguments = @{
 }
 $planCliBefore = Get-CvrPackageWriterOutputCount 'Plan'
 $planCliResult = Invoke-CvrPackageWriterCli -CaseName 'plan-valid' -Arguments $validPlanCliArguments
-Assert-IdleTransaction ($planCliResult.State -ceq 'completed' -and $planCliResult.ExitCode -eq 0 -and $planCliResult.ChildStopped) 'The actual Plan package-writer command failed.'
+Assert-IdleTransaction ($planCliResult.State -ceq 'completed' -and $planCliResult.ExitCode -eq 0 -and $planCliResult.ChildStopped) ("The actual Plan package-writer command failed: " + (Get-CvrPackageWriterDiagnostic $planCliResult.StdErr))
 $planCli = $planCliResult.StdOut | ConvertFrom-Json -ErrorAction Stop
 $planCliRecord = Get-Content -LiteralPath $planCli.PlanPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
 $planCliSha256 = (Get-FileHash -LiteralPath $planCli.PlanPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()

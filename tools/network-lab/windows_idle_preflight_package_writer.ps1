@@ -6,35 +6,43 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$stage = 'load-helpers'
 
 try {
     . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
     . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
 
+    $stage = 'read-request'
     $requestText = [Console]::In.ReadLine()
+    $stage = 'parse-request'
     $request = ConvertFrom-Json -InputObject $requestText -ErrorAction Stop
     if ($request -isnot [PSCustomObject]) { throw 'invalid request' }
 
+    $stage = 'normalize-pins'
     $expectedPins = [ordered]@{}
     foreach ($property in @($request.ExpectedPins.PSObject.Properties)) {
         $expectedPins[[string]$property.Name] = [string]$property.Value
     }
 
+    $stage = 'normalize-capture'
     $capture = $request.Capture
     if ($capture -isnot [PSCustomObject]) { throw 'invalid capture' }
 
+    $stage = 'normalize-observation'
     $idleObservation = [ordered]@{}
     foreach ($property in @($capture.idleObservation.PSObject.Properties)) {
         $idleObservation[[string]$property.Name] = $property.Value
     }
     $capture.idleObservation = $idleObservation
 
+    $stage = 'normalize-pinned-files'
     $pinnedFiles = [ordered]@{}
     foreach ($property in @($capture.pinnedFiles.PSObject.Properties)) {
         $pinnedFiles[[string]$property.Name] = [string]$property.Value
     }
     $capture.pinnedFiles = $pinnedFiles
 
+    $stage = 'normalize-timestamp'
     if ($capture.capturedAtUtc -is [DateTime]) {
         $capture.capturedAtUtc = $capture.capturedAtUtc.ToUniversalTime()
     } else {
@@ -45,6 +53,7 @@ try {
         )
     }
 
+    $stage = 'prepare-writer'
     $writerArguments = [ordered]@{
         Mode = $Mode
         Capture = $capture
@@ -58,8 +67,10 @@ try {
         $writerArguments.CaptureDirectory = [string]$request.CaptureDirectory
         $writerArguments.ReceiptPath = [string]$request.ReceiptPath
     }
+    $stage = 'invoke-writer'
     $result = Invoke-CvrIdlePreflightPackageWriter @writerArguments
 
+    $stage = 'format-result'
     if ($Mode -eq 'Capture') {
         $output = [ordered]@{
             CaptureDirectory = $result.CaptureDirectory
@@ -72,8 +83,12 @@ try {
             PlanSha256 = $result.PlanSha256
         }
     }
+    $stage = 'write-result'
     [Console]::Out.WriteLine((ConvertTo-Json -InputObject $output -Depth 4 -Compress -ErrorAction Stop))
 } catch {
-    [Console]::Error.WriteLine('Idle Preflight package writer failed.')
+    $errorType = $_.Exception.GetBaseException().GetType().Name
+    $lineNumber = 0
+    if ($_.InvocationInfo) { $lineNumber = [int]$_.InvocationInfo.ScriptLineNumber }
+    [Console]::Error.WriteLine("Idle Preflight package writer failed (stage=$stage type=$errorType line=$lineNumber).")
     exit 1
 }
