@@ -15,6 +15,7 @@ param(
     [string]$PinnedFilePathsBase64,
     [switch]$SyntheticRequest,
     [ValidateRange(0, 30)][int]$SyntheticSerializationDelaySeconds = 0,
+    [switch]$SyntheticExitBeforeWriterPidWrite,
     [Parameter(Mandatory = $true)][string]$CallDirectory
 )
 
@@ -134,6 +135,9 @@ try {
     if ($SyntheticSerializationDelaySeconds -gt 0 -and -not $SyntheticRequest) {
         throw 'serialization delay requires a synthetic request'
     }
+    if ($SyntheticExitBeforeWriterPidWrite -and -not $SyntheticRequest) {
+        throw 'writer PID interruption requires a synthetic request'
+    }
 
     $stage = 'request-serialize'
     $requestJson = ConvertTo-Json -InputObject $request -Depth 16 -Compress -ErrorAction Stop
@@ -170,6 +174,15 @@ try {
     $started = $true
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
+    if ($SyntheticExitBeforeWriterPidWrite) {
+        $stage = 'writer-pid'
+        Write-CvrPackageWriterMarker 'before-writer-pid'
+        $readyPath = Join-Path ([IO.Path]::GetDirectoryName($WriterScriptPath)) 'synthetic-writer-ready.txt'
+        $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+        while (-not (Test-Path -LiteralPath $readyPath -PathType Leaf) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
+        if (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) { throw 'Synthetic writer start handshake timed out.' }
+        [Environment]::Exit(86)
+    }
     $writerPidRecord = [string]$process.Id + '|' + [string]$process.StartTime.ToUniversalTime().Ticks
     [IO.File]::WriteAllText($writerPidPath, $writerPidRecord, [Text.UTF8Encoding]::new($false))
     Write-CvrPackageWriterMarker ('after-' + $stage)

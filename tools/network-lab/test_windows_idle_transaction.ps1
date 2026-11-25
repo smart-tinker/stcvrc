@@ -1391,6 +1391,8 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
         }
         if ($Arguments.ContainsKey('SyntheticSerializationDelaySeconds')) {
             $commandLineParts += @('-SyntheticSerializationDelaySeconds', (Quote-CvrPackageWriterArgument ([string]$Arguments.SyntheticSerializationDelaySeconds)))
+        }        if ($Arguments.ContainsKey('SyntheticExitBeforeWriterPidWrite') -and $Arguments.SyntheticExitBeforeWriterPidWrite) {
+            $commandLineParts += '-SyntheticExitBeforeWriterPidWrite'
         }
 
         $startInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -1467,6 +1469,7 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
             StdErr = $stderr
             ChildStopped = $childStopped
             ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+            CallDirectory = $callDirectory
         }
     } catch {
         $failedStage = $stage
@@ -1564,6 +1567,7 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
             StdErr = ''
             ChildStopped = $childStopped
             ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+            CallDirectory = $callDirectory
         }
     } finally {
         if ($process) { $process.Dispose() }
@@ -1710,6 +1714,68 @@ Assert-IdleTransaction (
     $slowSerializationResult.ChildStopped -and
     $slowSerializationResult.ElapsedMilliseconds -le 15000
 ) 'Synchronous request serialization exceeded the whole-call deadline.'
+
+$pidGapWriterPath = Join-Path $targetCaptureRoot 'synthetic-writer-pid-gap.ps1'
+$pidGapIdentityPath = Join-Path $targetCaptureRoot 'synthetic-writer-ready.txt'
+$pidGapWriterLines = @(
+    'param([string]$Mode)'
+    '$writer = [Diagnostics.Process]::GetCurrentProcess()'
+    '$identity = [string]$PID + ''|'' + [string]$writer.StartTime.ToUniversalTime().Ticks'
+    '[IO.File]::WriteAllText((Join-Path $PSScriptRoot ''synthetic-writer-ready.txt''), $identity, [Text.UTF8Encoding]::new($false))'
+    '$writer.Dispose()'
+    '$null = [Console]::In.ReadLine()'
+    'Start-Sleep -Seconds 60'
+)
+[IO.File]::WriteAllLines($pidGapWriterPath, [string[]]$pidGapWriterLines, [Text.UTF8Encoding]::new($false))
+$pidGapResult = $null
+$pidGapProcess = $null
+$pidGapStartTicks = 0L
+try {
+    $beforePidGapCaptureCount = Get-CvrPackageWriterOutputCount 'Capture'
+    $pidGapResult = Invoke-CvrPackageWriterCli -CaseName 'writer-start-before-pid' -Arguments @{
+        Mode = 'Capture'
+        ScriptPath = $pidGapWriterPath
+        TimeoutSeconds = 15
+        SyntheticExitBeforeWriterPidWrite = $true
+        Request = @{ synthetic = $true }
+    }
+    $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+    while (-not (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
+    Assert-IdleTransaction (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) 'Synthetic writer did not reach the start-before-pid window.'
+    $identityParts = [IO.File]::ReadAllText($pidGapIdentityPath, [Text.UTF8Encoding]::new($false, $true)).Split('|')
+    if ($identityParts.Count -ne 2) { throw 'Synthetic writer identity receipt was malformed.' }
+    $pidGapStartTicks = [long]$identityParts[1]
+    $pidGapProcess = [Diagnostics.Process]::GetProcessById([int]$identityParts[0])
+    $pidGapProcess.Refresh()
+    $writerStillRunning = -not $pidGapProcess.HasExited
+    if ($writerStillRunning) { $writerStillRunning = ($pidGapProcess.StartTime.ToUniversalTime().Ticks -eq $pidGapStartTicks) }
+    Assert-IdleTransaction $writerStillRunning 'Synthetic writer was not alive after the PID-write interruption.'
+    Assert-IdleTransaction (
+        $pidGapResult.State -ceq 'failure' -and
+        $pidGapResult.Stage -ceq 'writer-pid' -and
+        -not $pidGapResult.ChildStopped -and
+        $pidGapResult.ElapsedMilliseconds -le 15000 -and
+        (Get-CvrPackageWriterOutputCount 'Capture') -eq $beforePidGapCaptureCount
+    ) 'Writer stop was reported without PID or tree-kill proof.'
+} finally {
+    if ($pidGapProcess) {
+        try {
+            $pidGapProcess.Refresh()
+            if (-not $pidGapProcess.HasExited -and $pidGapProcess.StartTime.ToUniversalTime().Ticks -eq $pidGapStartTicks) {
+                $pidGapProcess.Kill()
+                if (-not $pidGapProcess.WaitForExit(5000)) { throw 'Synthetic writer cleanup exceeded its deadline.' }
+            }
+        } finally { $pidGapProcess.Dispose() }
+    }
+    if ($pidGapResult -and $pidGapResult.CallDirectory -and (Test-Path -LiteralPath $pidGapResult.CallDirectory -PathType Container)) {
+        Remove-Item -LiteralPath $pidGapResult.CallDirectory -Recurse -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) { Remove-Item -LiteralPath $pidGapIdentityPath -Force -ErrorAction Stop }
+}
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'powershell51-writer-start-before-pid'
+    result = 'missing writer PID and absent tree-kill proof are reported as child-stopped=false'
+})
 
 $delayedWriterPath = Join-Path $targetCaptureRoot 'synthetic-delayed-writer.ps1'
 $delayedWriterLines = @(
