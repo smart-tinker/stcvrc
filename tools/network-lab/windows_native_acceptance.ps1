@@ -1712,7 +1712,6 @@ try:
     with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",dir=str(receipt_path.parent),prefix=receipt_path.name+".",suffix=".tmp",delete=False) as output:
         receipt_temporary=Path(output.name)
         json.dump(receipt,output,separators=(",",":"))
-        output.write("\\n")
     os.replace(receipt_temporary,receipt_path)
     receipt_temporary=None
 finally:

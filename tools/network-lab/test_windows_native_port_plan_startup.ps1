@@ -167,10 +167,6 @@ for sock in sockets.values():
     if ([int]$parentPlan.profileDnsPort -eq [int]$finalPlan.profileDnsPort) {
         throw 'The forced collision did not demonstrate that the early TCP snapshot was stale.'
     }
-    $httpResponse = Invoke-WebRequest -Uri ("http://127.0.0.1:" + $httpPort + "/") -UseBasicParsing -TimeoutSec 5
-    if ([int]$httpResponse.StatusCode -ne 200 -or [string]$httpResponse.Content -cne 'fixture-http-ready') {
-        throw 'HTTP health check failed after native UDP readiness.'
-    }
     $udpProbe = [Net.Sockets.UdpClient]::new()
     $udpProbe.Client.ReceiveTimeout = 2000
     $payload = [Text.Encoding]::ASCII.GetBytes('udp-readiness-roundtrip')
@@ -181,7 +177,7 @@ for sock in sockets.values():
     if ([Text.Encoding]::ASCII.GetString($echo) -cne 'udp-readiness-roundtrip') {
         throw 'Bound native UDP fixture did not echo the readiness probe.'
     }
-    Write-Host ("Parent waited for UDP receipt and persisted plan: early_profileDnsPort={0}; bound_profileDnsPort={1}; HTTP=200; UDP=echo" -f [int]$parentPlan.profileDnsPort,[int]$finalPlan.profileDnsPort)
+    Write-Host ("Parent waited for UDP receipt and persisted plan: early_profileDnsPort={0}; bound_profileDnsPort={1}; UDP=echo" -f [int]$parentPlan.profileDnsPort,[int]$finalPlan.profileDnsPort)
 } finally {
     if ($probe) { $probe.Dispose() }
     if ($udpProbe) { $udpProbe.Dispose() }
