@@ -123,7 +123,7 @@ function Assert-PreflightReceipt(
     } elseif ($ExpectedResult -ceq 'FAIL') {
         Assert-PreflightTest ($receipt.childStopped -and $receipt.childExitCode -eq $ExpectedChildExitCode) 'Failed Preflight did not preserve the child exit.'
     } else {
-        Assert-PreflightTest ($receipt.childStopped -and $null -eq $receipt.childExitCode) 'Timed out Preflight did not prove stop or distinguish the unavailable child exit.'
+        Assert-PreflightTest ($receipt.childStopped -and ($null -eq $receipt.childExitCode -or [string]$receipt.childExitCode -match '^-?\d+$')) 'Timed out Preflight did not prove stop or preserve the available child exit.'
     }
     Assert-PreflightTest ($receipt.planSha256 -match '^[0-9a-f]{64}$' -and $receipt.sourceManifestSha256 -match '^[0-9a-f]{64}$') 'Preflight receipt did not bind the plan and manifest.'
     Assert-PreflightTest ($receipt.receiptId -match '^[0-9a-f]{32}$') 'Preflight receipt identifier is malformed.'

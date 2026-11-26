@@ -43,6 +43,24 @@ The Linux maintenance helper uses runner-owned processes and an isolated namespa
 
 The Windows idle Preflight capture and plan writers require the caller's exact stage root and externally pinned `source-manifest.json` SHA-256. They recheck every manifest-listed staged file before writing, bind that stage identity into the protected receipt and plan, and reject path traversal or staged-file drift. The pin must come from the trusted package record outside the staged tree. The portable `windows_idle_preflight_package_writer.ps1 -Mode Capture|Plan` entrypoint reads one strict UTF-8 JSON document from redirected stdin through EOF; the caller writes UTF-8 bytes and closes stdin. The shared Windows fixture exercises that process path with synthetic files and records no operational pins.
 
+## Read-only Windows Preflight
+
+Use the public helpers from the exact source SHA recorded for the ready release. Keep the protected extracted stage root, the release-recorded manifest SHA-256, and the SHA-256 returned by Plan in trusted operator state outside the staged package. Capture input must contain fresh owner-scoped observations from the caller; no live-state collector is added here.
+
+Run the existing windows_idle_preflight_package_writer.ps1 with a strict UTF-8 JSON request on stdin and EOF. Capture includes Capture, ExpectedTargetIdentity, ExpectedPins, PackageRoot, ExpectedStageRoot and ExpectedPackageManifestSha256. Plan uses those same fields and adds CaptureDirectory and ReceiptPath returned by Capture. Save the Plan response's PlanPath and PlanSha256 outside the stage.
+
+Run read-only Preflight with the trusted stage root and manifest digest, and the Plan output:
+
+~~~powershell
+$powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+& $powershell51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File .\tools\network-lab\windows_idle_preflight.ps1 -PlanPath $planPath -ExpectedPlanSha256 $planSha256 -ExpectedStageRoot $stageRoot -ExpectedPackageManifestSha256 $manifestSha256 -TimeoutSeconds 30
+$preflightExitCode = $LASTEXITCODE
+~~~
+
+The command rechecks the external stage binding, Plan and capture receipt digests, the capture's five-minute freshness and idle guard, current pinned file hashes, and both protected core preimages. It does not collect new process/service/listener observations; Capture must contain those fresh owner-scoped observations. Preflight does not install, stop services, or change profiles, routes, or system settings. Its only write is a protected result receipt under local\preflight-idle-<receiptId>\result.json.
+
+The response and receipt keep result, exitCode, childExitCode, timedOut and childStopped separate, and bind the Plan and manifest digests without recording target identity or paths. Exit 0 is PASS, 1 is FAIL, and 124 is TIMEOUT. A missing receipt is UNKNOWN and must not be treated as PASS. The Windows CI fixture exercises success, Plan-pin failure, wrong external manifest rejection before output, timeout cleanup, and unchanged synthetic inputs.
+
 ## Failure handling and evidence
 
 Each observation belongs to its exact harness SHA, tested source SHA, executable digest, toolchain and platform. Preserve FAIL, INVALID, UNRUN and skipped outcomes separately.
