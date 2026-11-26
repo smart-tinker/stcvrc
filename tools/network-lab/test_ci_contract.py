@@ -283,7 +283,7 @@ class CIContractTests(unittest.TestCase):
                     self.assertIn(guard, source)
                 self.assertNotIn("d72784d98a44b90e561c701589c50f53074958d7cef656607ee5be1143b36c87", source)
         installer = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        for guard in ("1.19.33-STCVRC-rc.10", "$build.core_source_commit",
+        for guard in ("1.19.33-STCVRC-rc.11", "$build.core_source_commit",
                       "a884ad53a3999dd35acab979e0bb040c47f6dbc9", "$build.selected_dependency_versions",
                       "github.com/gobwas/ws", "github.com/insomniacslk/dhcp",
                       "windows_core_identity.ps1",
@@ -319,7 +319,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("function Test-StcvrcWindowsCoreVersionOutput", identity_helper)
         self.assertIn("function Assert-StcvrcWindowsCoreVersionOutputVectors", identity_helper)
         self.assertIn("'Use tags: with_gvisor'", identity_helper)
-        self.assertIn("$expected.Replace('rc.10', 'rc.9')", identity_helper)
+        self.assertIn("$expected.Replace('rc.11', 'rc.9')", identity_helper)
 
     def test_windows_installer_update_gate_is_wired_into_existing_runner(self):
         workflow = WORKFLOWS["test.yml"]
@@ -363,11 +363,11 @@ class CIContractTests(unittest.TestCase):
 
     def test_draft_assembly_uses_exact_native_tested_bytes_and_complete_package(self):
         assembly = WORKFLOWS["test.yml"].split("\n  assemble-draft-rc:\n", 1)[1].split("\n  test-module:\n", 1)[0]
-        self.assertIn("tag=stcvrc-1.19.33-rc.10", assembly)
-        self.assertIn('"1.19.33-STCVRC-rc.10"', assembly)
+        self.assertIn("tag=stcvrc-1.19.33-rc.11", assembly)
+        self.assertIn('"1.19.33-STCVRC-rc.11"', assembly)
         self.assertIn('"core_source_commit"] == "a884ad53a3999dd35acab979e0bb040c47f6dbc9"', assembly)
         self.assertIn('"selected_dependency_versions"] ==', assembly)
-        self.assertIn("RC10 — source-built candidate", assembly)
+        self.assertIn("RC11 — source-built candidate", assembly)
         self.assertNotIn("rc.9", assembly)
         self.assertNotIn("RC9", assembly)
         self.assertIn("runs-on: windows-2022", assembly)
