@@ -753,6 +753,30 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("Get-RuntimeYaml", native)
 
 
+    def test_rc11_stage_manifest_is_exact_sha_gated_and_read_back(self):
+        workflow = WORKFLOWS["test.yml"]
+        stage_job = workflow.split("\n  rc11-stage-contract:\n", 1)[1].split(
+            "\n  cvr-2-5-10-package:\n", 1
+        )[0]
+        self.assertIn("SOURCE_SHA", stage_job)
+        self.assertIn("$actual -ne $env:SOURCE_SHA", stage_job)
+        self.assertIn("test_rc11_stage_manifest.ps1", stage_job)
+        self.assertNotIn("upload-artifact", stage_job)
+        self.assertNotIn("actions/cache", stage_job)
+        packager = (HERE / "rc11_stage_package.py").read_text(encoding="utf-8")
+        self.assertIn("blocked until #86 provides", packager)
+        assembly = workflow.split("\n  assemble-draft-rc:\n", 1)[1].split(
+            "\n  test-module:\n", 1
+        )[0]
+        needs = assembly.split("    needs:\n", 1)[1].split("    runs-on:", 1)[0]
+        self.assertIn("      - rc11-stage-contract\n", needs)
+        self.assertLess(assembly.index("check-source"), assembly.index('bash "$recipe/tools/source-build/ci.sh"'))
+        self.assertLess(assembly.index("RC11-WINDOWS-STAGE.zip"), assembly.index("Create and read back the draft RC release"))
+        self.assertIn('"preflightStage": stage_record', assembly)
+        self.assertIn("source-manifest.json", assembly)
+        self.assertIn("max_bytes=268435456", assembly)
+        self.assertIn("All eight assets matched exact byte readback.", assembly)
+
 
 if __name__ == "__main__":
     unittest.main()
