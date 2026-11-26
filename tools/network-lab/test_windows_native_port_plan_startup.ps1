@@ -20,6 +20,7 @@ $stderrPath = Join-Path $root 'child.stderr.log'
 $child = $null
 $blocker = $null
 $probe = $null
+$udpProbe = $null
 try {
     $env:STCVRC_PORT_PLAN_PATH = $planPath
     $null = Get-StcvrcNativePortPlan -Path $planPath
@@ -140,37 +141,59 @@ for sock in sockets.values():
     if (Test-Path -LiteralPath $readyPath) { throw 'UDP readiness receipt appeared before the parent TCP readiness probe.' }
     $parentPlan = Get-StcvrcNativePortPlan -Path $planPath
     Write-Host 'Observed startup order: HTTP TCP ready; UDP bind and readiness receipt still gated.'
+
+    $waitedForReceipt = $false
+    try {
+        $null = Wait-StcvrcNativePortPlanReady -PlanPath $planPath -ReceiptPath $readyPath -Process $child -TimeoutSeconds 1
+    } catch {
+        if ($_.Exception.Message -cne 'Native UDP fixture readiness receipt timed out.') { throw }
+        $waitedForReceipt = $true
+    }
+    if (-not $waitedForReceipt) { throw 'Native parent accepted TCP-only readiness without a UDP receipt.' }
+    $stillPendingPlan = Get-StcvrcNativePortPlan -Path $planPath
+    foreach ($name in @('coreDnsPort','profileDnsPort','appDnsPort','subscriptionDnsPort')) {
+        if ([int]$stillPendingPlan.$name -ne [int]$parentPlan.$name) { throw 'Readiness wait changed the persisted plan before child UDP bind.' }
+    }
     Set-Content -LiteralPath $releasePath -Value 'continue' -NoNewline -Encoding ascii
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $readyPath -PathType Leaf)) {
-        $child.Refresh()
-        if ($child.HasExited) {
-            $detail = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { '' }
-            throw "Synthetic child exited before UDP readiness. $detail"
-        }
-        Start-Sleep -Milliseconds 25
-    }
-    if (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) { throw 'Synthetic child did not publish UDP readiness.' }
+    $finalPlan = Wait-StcvrcNativePortPlanReady -PlanPath $planPath -ReceiptPath $readyPath -Process $child -TimeoutSeconds 10
     $receipt = Get-Content -LiteralPath $readyPath -Raw | ConvertFrom-Json -ErrorAction Stop
-    $finalPlan = Get-StcvrcNativePortPlan -Path $planPath
     if (@($receipt.collisions).Count -ne 1 -or [string]$receipt.collisions[0] -cne 'profileDnsPort') {
         throw 'Synthetic child did not report the forced profile DNS UDP collision.'
     }
     foreach ($name in @('coreDnsPort','profileDnsPort','appDnsPort','subscriptionDnsPort')) {
         if ([int]$receipt.$name -ne [int]$finalPlan.$name) { throw "Child receipt and persisted plan disagree for $name." }
     }
-    Write-Host ("Forced collision evidence: early_profileDnsPort={0}; bound_profileDnsPort={1}; receipt_matches_persisted_plan=True" -f [int]$parentPlan.profileDnsPort,[int]$receipt.profileDnsPort)
-    if ([int]$parentPlan.profileDnsPort -ne [int]$finalPlan.profileDnsPort) {
-        throw ("Parent consumed the stale UDP plan after TCP-only readiness: early={0}, final={1}." -f [int]$parentPlan.profileDnsPort,[int]$finalPlan.profileDnsPort)
+    if ([int]$parentPlan.profileDnsPort -eq [int]$finalPlan.profileDnsPort) {
+        throw 'The forced collision did not demonstrate that the early TCP snapshot was stale.'
     }
+    $httpResponse = Invoke-WebRequest -Uri ("http://127.0.0.1:" + $httpPort + "/") -UseBasicParsing -TimeoutSec 5
+    if ([int]$httpResponse.StatusCode -ne 200 -or [string]$httpResponse.Content -cne 'fixture-http-ready') {
+        throw 'HTTP health check failed after native UDP readiness.'
+    }
+    $udpProbe = [Net.Sockets.UdpClient]::new()
+    $udpProbe.Client.ReceiveTimeout = 2000
+    $payload = [Text.Encoding]::ASCII.GetBytes('udp-readiness-roundtrip')
+    $target = [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, [int]$finalPlan.profileDnsPort)
+    [void]$udpProbe.Send($payload, $payload.Length, $target)
+    $remote = [Net.IPEndPoint]::new([Net.IPAddress]::Any, 0)
+    $echo = $udpProbe.Receive([ref]$remote)
+    if ([Text.Encoding]::ASCII.GetString($echo) -cne 'udp-readiness-roundtrip') {
+        throw 'Bound native UDP fixture did not echo the readiness probe.'
+    }
+    Write-Host ("Parent waited for UDP receipt and persisted plan: early_profileDnsPort={0}; bound_profileDnsPort={1}; HTTP=200; UDP=echo" -f [int]$parentPlan.profileDnsPort,[int]$finalPlan.profileDnsPort)
 } finally {
     if ($probe) { $probe.Dispose() }
-    if ($child -and -not $child.HasExited) {
-        Set-Content -LiteralPath $stopPath -Value 'stop' -NoNewline -Encoding ascii
-        if (-not $child.WaitForExit(5000)) {
-            Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
-            if (-not $child.WaitForExit(5000)) { throw 'Synthetic UDP startup child did not stop within the cleanup deadline.' }
+    if ($udpProbe) { $udpProbe.Dispose() }
+    if ($child) {
+        $child.Refresh()
+        if (-not $child.HasExited) {
+            if (-not (Test-Path -LiteralPath $releasePath)) { Set-Content -LiteralPath $releasePath -Value 'continue' -NoNewline -Encoding ascii }
+            Set-Content -LiteralPath $stopPath -Value 'stop' -NoNewline -Encoding ascii
+            if (-not $child.WaitForExit(5000)) {
+                Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+                if (-not $child.WaitForExit(5000)) { throw 'Synthetic UDP startup child did not stop within the cleanup deadline.' }
+            }
         }
     }
     if ($blocker) { $blocker.Dispose() }

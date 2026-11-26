@@ -166,7 +166,7 @@ jobs:
           set -euo pipefail
           NATIVE_DIRECTORY="$GITHUB_WORKSPACE/source/tools/network-lab" pwsh -NoLogo -NoProfile -NonInteractive -Command - <<'POWERSHELL'
             $failed = $false
-            foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_ssh_fixture_cleanup.ps1','test_windows_ssh_fixture_cleanup.ps1')) {
+            foreach ($name in @('windows_native_acceptance.ps1','windows_native_port_plan.ps1','test_windows_native_port_plan_startup.ps1','windows_install_update.ps1','windows_ssh_fixture_cleanup.ps1','test_windows_ssh_fixture_cleanup.ps1')) {
               $script = Join-Path $env:NATIVE_DIRECTORY $name
               if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { Write-Error "Missing native script: $name"; exit 1 }
               $tokens = $null
@@ -575,13 +575,13 @@ jobs:
           & $python -B $test
           if ($LASTEXITCODE -ne 0) { throw 'Native UDP port-plan collision regression failed.' }
 
-      - name: Reproduce native UDP parent startup readiness race before build
+      - name: Test native UDP parent readiness contract before build
         run: |
           $ErrorActionPreference = 'Stop'
           $test = Join-Path $env:PR_SOURCE 'tools\\network-lab\\test_windows_native_port_plan_startup.ps1'
           $powershell51 = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
           & $powershell51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $test
-          if ($LASTEXITCODE -ne 0) { throw 'Native UDP parent startup regression failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Native UDP parent readiness check failed.' }
 
       - name: Fresh native Windows core build
         id: build

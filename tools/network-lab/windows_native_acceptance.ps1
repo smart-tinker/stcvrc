@@ -1584,11 +1584,15 @@ if (Test-Path -LiteralPath $script:dnsLogPath) { Remove-Item -LiteralPath $scrip
 $serverPath=Join-Path $env:RUNNER_TEMP 'stcvrc-native-fixture-server.py'
 $script:serverStdoutPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-server-$Phase.stdout.log"
 $script:serverStderrPath=Join-Path $env:RUNNER_TEMP "stcvrc-native-server-$Phase.stderr.log"
+$script:nativeReadyReceiptPath=Join-Path $env:RUNNER_TEMP ("stcvrc-native-ready-" + $Phase + "-" + [Guid]::NewGuid().ToString('N') + ".json")
+if (Test-Path -LiteralPath $script:nativeReadyReceiptPath) { throw 'Refusing a preexisting native UDP readiness receipt.' }
+$env:STCVRC_NATIVE_READY_RECEIPT=$script:nativeReadyReceiptPath
 foreach ($path in @($script:serverStdoutPath,$script:serverStderrPath)) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
 }
 $serverCode=@'
-import os, socket, sys, threading
+import json, os, socket, sys, tempfile, threading
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 sys.path.insert(0, os.path.dirname(os.environ["STCVRC_NATIVE_UDP_PORTS_SCRIPT"]))
 from windows_native_udp_ports import bind_dns_fixture_sockets
@@ -1599,6 +1603,7 @@ PROXY_PORT_A=int(os.environ["STCVRC_NATIVE_PROXY_PORT_A"])
 PROXY_PORT_B=int(os.environ["STCVRC_NATIVE_PROXY_PORT_B"])
 SUBSCRIPTION_DNS_STATE=os.environ["STCVRC_NATIVE_SUBSCRIPTION_DNS_STATE"]
 DNS_LOG=os.environ["STCVRC_NATIVE_DNS_LOG"]
+READY_RECEIPT=os.environ["STCVRC_NATIVE_READY_RECEIPT"]
 LOG_LOCK=threading.Lock()
 class Handler(BaseHTTPRequestHandler):
     protocol_version="HTTP/1.1"
@@ -1671,6 +1676,12 @@ dns_sockets,dns_collisions=bind_dns_fixture_sockets(os.environ["STCVRC_NATIVE_PO
 PROFILE_DNS_PORT=int(dns_sockets["profileDnsPort"].getsockname()[1])
 APP_DNS_PORT=int(dns_sockets["appDnsPort"].getsockname()[1])
 SUBSCRIPTION_DNS_PORT=int(dns_sockets["subscriptionDnsPort"].getsockname()[1])
+native_plan=json.loads(Path(os.environ["STCVRC_NATIVE_PORT_PLAN"]).read_text(encoding="utf-8"))
+if int(native_plan["coreDnsPort"]) != CORE_DNS_PORT:
+    raise RuntimeError("The native core DNS endpoint changed during fixture startup.")
+for name, sock in dns_sockets.items():
+    if int(native_plan[name]) != int(sock.getsockname()[1]):
+        raise RuntimeError("The persisted native DNS plan does not match a bound fixture socket.")
 if dns_collisions:
     print("Native DNS UDP plan collision recovered: "+",".join(dns_collisions),flush=True)
 def dns_server(sock,label):
@@ -1692,6 +1703,21 @@ def dns_server(sock,label):
 threading.Thread(target=dns_server,args=(dns_sockets["profileDnsPort"],"profile"),daemon=True).start()
 threading.Thread(target=dns_server,args=(dns_sockets["appDnsPort"],"app"),daemon=True).start()
 threading.Thread(target=dns_server,args=(dns_sockets["subscriptionDnsPort"],"subscription"),daemon=True).start()
+receipt={"schemaVersion":1}
+for name in ("coreDnsPort","profileDnsPort","appDnsPort","subscriptionDnsPort"):
+    receipt[name]=int(native_plan[name])
+receipt_path=Path(READY_RECEIPT)
+receipt_temporary=None
+try:
+    with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",dir=str(receipt_path.parent),prefix=receipt_path.name+".",suffix=".tmp",delete=False) as output:
+        receipt_temporary=Path(output.name)
+        json.dump(receipt,output,separators=(",",":"))
+        output.write("\\n")
+    os.replace(receipt_temporary,receipt_path)
+    receipt_temporary=None
+finally:
+    if receipt_temporary is not None and receipt_temporary.exists():
+        receipt_temporary.unlink()
 http_server.serve_forever()
 '@
 [IO.File]::WriteAllText($serverPath,$serverCode,[Text.UTF8Encoding]::new($false))
@@ -1710,13 +1736,7 @@ $serverArgs=@('-u', ('"' + $serverPath + '"'))
 $server=Start-Process -FilePath $python -ArgumentList $serverArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $script:serverStdoutPath -RedirectStandardError $script:serverStderrPath
 $script:serverProcess=$server
 try {
-    $deadline=[DateTime]::UtcNow.AddSeconds(10); $serverReady=$false
-    while ([DateTime]::UtcNow -lt $deadline) {
-        if ($server.HasExited) { throw 'Synthetic fixture server exited before ready.' }
-        try { $probe=[Net.Sockets.TcpClient]::new(); $task=$probe.ConnectAsync([Net.IPAddress]::Loopback,$httpPort); if ($task.Wait(300)) { $serverReady=$true; $probe.Dispose(); break }; $probe.Dispose() } catch { Start-Sleep -Milliseconds 100 }
-    }
-    if (-not $serverReady) { throw 'Synthetic HTTP/DNS server did not become ready.' }
-    $nativePortPlan = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
+    $nativePortPlan = Wait-StcvrcNativePortPlanReady -PlanPath $env:STCVRC_NATIVE_PORT_PLAN -ReceiptPath $script:nativeReadyReceiptPath -Process $server -TimeoutSeconds 10
     $dnsPort = [int]$nativePortPlan.coreDnsPort
     $profileDnsPort = [int]$nativePortPlan.profileDnsPort
     $appDnsPort = [int]$nativePortPlan.appDnsPort
@@ -1726,7 +1746,7 @@ try {
     $script:appDnsPort = $appDnsPort
     $script:subscriptionDnsPort = $subscriptionDnsPort
     Set-Content -LiteralPath $script:subscriptionDnsStatePath -Value ([string]$profileDnsPort) -NoNewline -Encoding ascii
-    Write-Host 'Native UDP fixture sockets are bound; the shared port plan was re-read.'
+    Write-Host 'Native UDP readiness receipt matched the bound sockets and persisted port plan.'
     [void](Invoke-TunHttp -FakeAddress '127.0.0.1' -FixtureName 'fixture-server-health.invalid' -Port $httpPort)
     Write-Host 'Synthetic fixture HTTP server passed its direct-loopback health check.'
     if ($Phase -eq 'recovery') {

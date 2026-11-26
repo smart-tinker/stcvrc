@@ -49,3 +49,46 @@ function Get-StcvrcNativePortPlan {
         subscriptionDnsPort = $ports[3]
     }
 }
+
+function Wait-StcvrcNativePortPlanReady {
+    param(
+        [Parameter(Mandatory)][string]$PlanPath,
+        [Parameter(Mandatory)][string]$ReceiptPath,
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 10
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $Process.Refresh()
+        if ($Process.HasExited) { throw 'Native UDP fixture process exited before publishing readiness.' }
+        if (Test-Path -LiteralPath $ReceiptPath -PathType Leaf) {
+            $receipt = Get-Content -LiteralPath $ReceiptPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            if ($null -eq $receipt -or [int]$receipt.schemaVersion -ne 1) {
+                throw 'Native UDP fixture readiness receipt schema is invalid.'
+            }
+            $plan = Get-StcvrcNativePortPlan -Path $PlanPath
+            $names = @('coreDnsPort','profileDnsPort','appDnsPort','subscriptionDnsPort')
+            $receiptPorts = @()
+            foreach ($name in $names) {
+                $rawPort = $receipt.$name
+                if ($null -eq $rawPort -or [string]$rawPort -notmatch '^\d+$') {
+                    throw 'Native UDP fixture readiness receipt contains an invalid endpoint.'
+                }
+                $port = [int]$rawPort
+                if ($port -lt 1 -or $port -gt 65535 -or $port -ne [int]$plan.$name) {
+                    throw 'Native UDP fixture readiness receipt does not match the persisted port plan.'
+                }
+                $receiptPorts += $port
+            }
+            if (@($receiptPorts | Sort-Object -Unique).Count -ne $names.Count) {
+                throw 'Native UDP fixture readiness receipt contains duplicate endpoints.'
+            }
+            $Process.Refresh()
+            if ($Process.HasExited) { throw 'Native UDP fixture process exited after publishing readiness.' }
+            return $plan
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    throw 'Native UDP fixture readiness receipt timed out.'
+}
