@@ -50,47 +50,80 @@ function Invoke-PreflightTestCommand(
     [string]$StageRoot,
     [string]$ManifestSha256,
     [int]$TimeoutSeconds,
-    [int]$SyntheticDelaySeconds = 0
+    [int]$SyntheticDelaySeconds = 0,
+    [ValidateSet('Capture', 'Plan')][string]$WriterMode,
+    [object]$Request
 ) {
+    if (($WriterMode -and $null -eq $Request) -or (-not $WriterMode -and $null -ne $Request)) {
+        throw 'Writer mode and JSON request must be supplied together.'
+    }
+    $requestBytes = $null
+    if ($null -ne $Request) {
+        $requestJson = ConvertTo-Json -InputObject $Request -Depth 16 -Compress -ErrorAction Stop
+        $requestBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($requestJson)
+        if ($requestBytes.Length -gt 1048576) { throw 'Synthetic writer request exceeded the input limit.' }
+    }
+
     $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $parts = @(
         '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned',
-        '-File', (Quote-PreflightTestArgument $ScriptPath),
-        '-PlanPath', (Quote-PreflightTestArgument $PlanPath),
-        '-ExpectedPlanSha256', (Quote-PreflightTestArgument $PlanSha256),
-        '-ExpectedStageRoot', (Quote-PreflightTestArgument $StageRoot),
-        '-ExpectedPackageManifestSha256', (Quote-PreflightTestArgument $ManifestSha256),
-        '-TimeoutSeconds', [string]$TimeoutSeconds
+        '-File', (Quote-PreflightTestArgument $ScriptPath)
     )
-    if ($SyntheticDelaySeconds -gt 0) {
-        $parts += @('-SyntheticTestDelaySeconds', [string]$SyntheticDelaySeconds)
+    if ($WriterMode) {
+        $parts += @('-Mode', (Quote-PreflightTestArgument $WriterMode))
+    } else {
+        $parts += @(
+            '-PlanPath', (Quote-PreflightTestArgument $PlanPath),
+            '-ExpectedPlanSha256', (Quote-PreflightTestArgument $PlanSha256),
+            '-ExpectedStageRoot', (Quote-PreflightTestArgument $StageRoot),
+            '-ExpectedPackageManifestSha256', (Quote-PreflightTestArgument $ManifestSha256),
+            '-TimeoutSeconds', [string]$TimeoutSeconds
+        )
+        if ($SyntheticDelaySeconds -gt 0) {
+            $parts += @('-SyntheticTestDelaySeconds', [string]$SyntheticDelaySeconds)
+        }
     }
+
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = $powershell51
     $startInfo.Arguments = $parts -join ' '
     $startInfo.WorkingDirectory = [IO.Path]::GetTempPath()
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = ($null -ne $requestBytes)
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
     $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false, $true)
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $startInfo
+    $started = $false
+    $stdinTask = $null
     $stdoutTask = $null
     $stderrTask = $null
     try {
         if (-not $process.Start()) { throw 'Preflight command did not start.' }
+        $started = $true
+        $deadline = [DateTime]::UtcNow.AddSeconds(45)
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(45000)) {
-            try { $process.Kill(); $null = $process.WaitForExit(5000) } catch {}
-            throw 'Preflight parent exceeded the bounded test deadline.'
+        if ($null -ne $requestBytes) {
+            $stdinTask = $process.StandardInput.BaseStream.WriteAsync($requestBytes, 0, $requestBytes.Length)
+            $remaining = [int][Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+            if (-not $stdinTask.Wait($remaining)) { throw 'Preflight request write exceeded the bounded test deadline.' }
+            $stdinTask.GetAwaiter().GetResult()
+            $process.StandardInput.Close()
         }
-        $null = $stdoutTask.Wait(5000)
-        $null = $stderrTask.Wait(5000)
-        $stdout = if ($stdoutTask.IsCompleted) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
-        $stderr = if ($stderrTask.IsCompleted) { $stderrTask.GetAwaiter().GetResult() } else { '' }
+        $remaining = [int][Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+        if (-not $process.WaitForExit($remaining)) {
+            throw 'Preflight command exceeded the bounded test deadline.'
+        }
+        $remaining = [int][Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+        if (-not $stdoutTask.Wait($remaining) -or -not $stderrTask.Wait($remaining)) {
+            throw 'Preflight output exceeded the bounded test deadline.'
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
         if ($stdout.Length -gt 4096 -or $stderr.Length -gt 4096) {
             throw 'Preflight diagnostics exceeded the test output limit.'
         }
@@ -100,10 +133,20 @@ function Invoke-PreflightTestCommand(
         }
         return [PSCustomObject]@{ ExitCode = [int]$process.ExitCode; StdOut = $stdout; StdErr = $stderr; Document = $document }
     } finally {
+        if ($started) {
+            if (-not $process.HasExited) {
+                try { $process.Kill(); $null = $process.WaitForExit(5000) } catch {}
+            }
+            if (-not $process.HasExited) { throw 'Preflight command stop could not be proven.' }
+            foreach ($task in @($stdinTask, $stdoutTask, $stderrTask)) {
+                if ($task -and -not $task.IsCompleted) {
+                    try { $null = $task.Wait(5000) } catch {}
+                }
+            }
+        }
         $process.Dispose()
     }
 }
-
 function Assert-PreflightReceipt(
     [object]$Invocation,
     [string]$ExpectedResult,
@@ -255,9 +298,86 @@ try {
             }
         }
     }
-    $captureResult = Save-CvrIdlePreflightCapture -Capture $capture -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $packageRoot -ExpectedStageRoot $stageRoot -ExpectedPackageManifestSha256 $manifestSha256
-    $plan = Save-CvrIdlePreflightPlan -Capture $capture -CaptureDirectory $captureResult.CaptureDirectory -ReceiptPath $captureResult.ReceiptPath -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -PackageRoot $packageRoot -ExpectedStageRoot $stageRoot -ExpectedPackageManifestSha256 $manifestSha256
-    Assert-PreflightTest ((Test-Path -LiteralPath $captureResult.ReceiptPath -PathType Leaf) -and (Test-Path -LiteralPath $plan.PlanPath -PathType Leaf)) 'Synthetic Capture/Plan precondition did not produce protected public inputs.'
+    foreach ($role in @('programFiles', 'service')) {
+        $entry = $capture.corePair[$role]
+        $entry.acl = [ordered]@{ Sddl = [string]$entry.sddl }
+    }
+    $capture.capturedAtUtc = $capture.capturedAtUtc.ToString('o')
+    $writerRequest = [ordered]@{
+        Capture = $capture
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+        PackageRoot = $packageRoot
+        ExpectedStageRoot = $stageRoot
+        ExpectedPackageManifestSha256 = $manifestSha256
+    }
+    $writerPath = Join-Path $PSScriptRoot 'windows_idle_preflight_package_writer.ps1'
+
+    $wrongWriterManifest = ('0' * 64)
+    if ($manifestSha256 -ceq $wrongWriterManifest) { $wrongWriterManifest = ('f' * 64) }
+    $badCaptureRequest = [ordered]@{}
+    foreach ($name in $writerRequest.Keys) { $badCaptureRequest[$name] = $writerRequest[$name] }
+    $badCaptureRequest.ExpectedPackageManifestSha256 = $wrongWriterManifest
+    $captureDirectoriesBefore = @(Get-ChildItem -LiteralPath $localRoot -Directory -Filter 'capture-idle-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
+    $badCapture = Invoke-PreflightTestCommand -ScriptPath $writerPath -WriterMode Capture -Request $badCaptureRequest -TimeoutSeconds 30
+    $captureDirectoriesAfter = @(Get-ChildItem -LiteralPath $localRoot -Directory -Filter 'capture-idle-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
+    Assert-PreflightTest (
+        $badCapture.ExitCode -ne 0 -and $null -eq $badCapture.Document -and
+        [string]::IsNullOrEmpty($badCapture.StdOut) -and
+        -not [string]::IsNullOrEmpty($badCapture.StdErr) -and
+        $captureDirectoriesAfter.Count -eq $captureDirectoriesBefore.Count
+    ) 'Invalid Capture stage pin was not rejected before output.'
+
+    $captureInvocation = Invoke-PreflightTestCommand -ScriptPath $writerPath -WriterMode Capture -Request $writerRequest -TimeoutSeconds 30
+    Assert-PreflightTest ($captureInvocation.ExitCode -eq 0 -and $null -ne $captureInvocation.Document -and [string]::IsNullOrEmpty($captureInvocation.StdErr)) 'The actual PS5.1 Capture CLI did not return a clean result.'
+    $captureResult = $captureInvocation.Document
+    Assert-PreflightTest (
+        (Test-Path -LiteralPath $captureResult.ReceiptPath -PathType Leaf) -and
+        (Test-Path -LiteralPath $captureResult.CaptureDirectory -PathType Container) -and
+        [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($captureResult.CaptureDirectory)) -ieq [IO.Path]::GetFullPath($localRoot) -and
+        [IO.Path]::GetFileName($captureResult.CaptureDirectory) -match '^capture-idle-[0-9a-f]{32}$'
+    ) 'The actual Capture CLI did not write its protected receipt under the staged local root.'
+    $null = Assert-CvrIdleCaptureAcl -Path $captureResult.CaptureDirectory -Directory
+    $null = Assert-CvrIdleCaptureAcl -Path $captureResult.ReceiptPath
+    $captureReceipt = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($captureResult.ReceiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    Assert-PreflightTest (
+        [IO.Path]::GetFullPath([string]$captureReceipt.packageStageBinding.stageRoot) -ceq $stageRoot -and
+        [string]$captureReceipt.packageStageBinding.sourceManifestSha256 -ceq $manifestSha256
+    ) 'The actual Capture CLI receipt did not bind the synthetic stage.'
+
+    $planRequest = [ordered]@{}
+    foreach ($name in $writerRequest.Keys) { $planRequest[$name] = $writerRequest[$name] }
+    $planRequest.CaptureDirectory = [string]$captureResult.CaptureDirectory
+    $planRequest.ReceiptPath = [string]$captureResult.ReceiptPath
+    $planRequest.ExpectedPackageManifestSha256 = $wrongWriterManifest
+    $planDirectoriesBefore = @(Get-ChildItem -LiteralPath $localRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
+    $badPlan = Invoke-PreflightTestCommand -ScriptPath $writerPath -WriterMode Plan -Request $planRequest -TimeoutSeconds 30
+    $planDirectoriesAfter = @(Get-ChildItem -LiteralPath $localRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
+    Assert-PreflightTest (
+        $badPlan.ExitCode -ne 0 -and $null -eq $badPlan.Document -and
+        [string]::IsNullOrEmpty($badPlan.StdOut) -and
+        -not [string]::IsNullOrEmpty($badPlan.StdErr) -and
+        $planDirectoriesAfter.Count -eq $planDirectoriesBefore.Count
+    ) 'Invalid Plan stage pin was not rejected before output.'
+
+    $planRequest.ExpectedPackageManifestSha256 = $manifestSha256
+    $planInvocation = Invoke-PreflightTestCommand -ScriptPath $writerPath -WriterMode Plan -Request $planRequest -TimeoutSeconds 30
+    Assert-PreflightTest ($planInvocation.ExitCode -eq 0 -and $null -ne $planInvocation.Document -and [string]::IsNullOrEmpty($planInvocation.StdErr)) 'The actual PS5.1 Plan CLI did not return a clean result.'
+    $plan = $planInvocation.Document
+    Assert-PreflightTest (
+        (Test-Path -LiteralPath $plan.PlanPath -PathType Leaf) -and
+        [IO.Path]::GetFileName($plan.PlanPath) -ceq 'plan.json' -and
+        [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($plan.PlanPath)) -match '^prepared-idle-[0-9a-f]{32}$'
+    ) 'The actual Plan CLI did not write the protected plan.'
+    $null = Assert-CvrIdleCaptureAcl -Path ([IO.Path]::GetDirectoryName($plan.PlanPath)) -Directory
+    $null = Assert-CvrIdleCaptureAcl -Path $plan.PlanPath
+    $planRecord = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($plan.PlanPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $planSha256 = (Get-FileHash -LiteralPath $plan.PlanPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    Assert-PreflightTest (
+        [IO.Path]::GetFullPath([string]$planRecord.packageStageBinding.stageRoot) -ceq $stageRoot -and
+        [string]$planRecord.packageStageBinding.sourceManifestSha256 -ceq $manifestSha256 -and
+        [string]$plan.PlanSha256 -ceq $planSha256
+    ) 'The actual Plan CLI did not produce the pinned stage-bound plan.'
 
     $scriptPath = Join-Path $PSScriptRoot 'windows_idle_preflight.ps1'
     $trackedPaths = @(
