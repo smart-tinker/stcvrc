@@ -55,6 +55,95 @@ class LabTests(unittest.TestCase):
             lab.PORTS.update(original_ports)
             lab.TARGET = original_target
 
+    def test_mixed_port_reservation_retries_protocol_specific_collision(self):
+        original_ports, original_target = lab.PORTS.copy(), lab.TARGET
+        next_tcp_port = [52000]
+        active = {"tcp": set(), "udp": set()}
+        mixed_ports = []
+        tcp_exclusions = []
+        udp_collisions = []
+        sockets = []
+
+        class FakeSocket:
+            def __init__(self, protocol):
+                self.protocol = protocol
+                self.port = None
+                self.closed = False
+
+            def bind(self, address):
+                host, requested_port = address
+                if host != lab.HOST:
+                    raise AssertionError("allocator changed its loopback host")
+                if self.protocol == "tcp" and requested_port == 0:
+                    next_tcp_port[0] += 1
+                    port = next_tcp_port[0]
+                elif self.protocol == "udp" and requested_port == 0:
+                    port = 52000
+                else:
+                    port = requested_port
+
+                if sys.platform == "win32":
+                    if self.protocol == "tcp" and requested_port != 0 and port == 52000:
+                        tcp_exclusions.append(port)
+                        raise OSError("synthetic TCP-specific bind rejection")
+                    if self.protocol == "udp" and port == 52001:
+                        udp_collisions.append(port)
+                        raise OSError("synthetic UDP-specific bind rejection")
+
+                self.port = port
+                active[self.protocol].add(port)
+                other = "udp" if self.protocol == "tcp" else "tcp"
+                if port in active[other]:
+                    mixed_ports.append(port)
+
+            def getsockname(self):
+                return (lab.HOST, self.port)
+
+            def close(self):
+                if self.port is not None:
+                    active[self.protocol].discard(self.port)
+                    self.port = None
+                self.closed = True
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.close()
+
+        def socket_factory(family=socket.AF_INET, socket_type=socket.SOCK_STREAM, *args, **kwargs):
+            protocol = "udp" if socket_type == socket.SOCK_DGRAM else "tcp"
+            result = FakeSocket(protocol)
+            sockets.append(result)
+            return result
+
+        try:
+            with mock.patch.object(lab.socket, "socket", side_effect=socket_factory):
+                try:
+                    lab.select_ports()
+                except OSError as error:
+                    if sys.platform == "win32":
+                        self.assertEqual(tcp_exclusions, [52000] * 32)
+                        self.fail(
+                            f"allocator exhausted after {len(tcp_exclusions)} "
+                            f"synthetic TCP bind conflicts: {error}"
+                        )
+                    raise
+
+            self.assertEqual(mixed_ports, [lab.PORTS["core"]])
+            self.assertTrue(sockets and all(item.closed for item in sockets))
+            self.assertEqual(active, {"tcp": set(), "udp": set()})
+            if sys.platform == "win32":
+                self.assertEqual(lab.PORTS["core"], 52002)
+                self.assertEqual(tcp_exclusions, [])
+                self.assertEqual(udp_collisions, [52001])
+            else:
+                self.assertEqual(tcp_exclusions, [])
+                self.assertEqual(udp_collisions, [])
+        finally:
+            lab.PORTS.update(original_ports)
+            lab.TARGET = original_target
+
     def setUp(self):
         self.configs = lab.configs("/temporary/lab", "TEST CA", "test-uuid", {"A": 20001, "B": 20002})
 

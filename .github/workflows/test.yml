@@ -567,6 +567,19 @@ jobs:
           & $powershell51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $test
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 SSH fixture cleanup checks failed.' }
 
+      - name: Test mixed TCP/UDP loopback port allocator before build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $testDirectory = Join-Path $env:PR_SOURCE 'tools\network-lab'
+          $python = (Get-Command python.exe -ErrorAction Stop).Source
+          Push-Location $testDirectory
+          try {
+            & $python -B .\test_lab.py LabTests.test_mixed_port_reservation_retries_protocol_specific_collision
+            if ($LASTEXITCODE -ne 0) { throw 'Mixed TCP/UDP loopback port allocator regression failed.' }
+          } finally {
+            Pop-Location
+          }
+
       - name: Test native UDP port-plan collision recovery before build
         run: |
           $ErrorActionPreference = 'Stop'
