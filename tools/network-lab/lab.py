@@ -29,11 +29,11 @@ def select_ports():
                 for _ in range(32):
                     candidate = contextlib.ExitStack()
                     try:
-                        udp = candidate.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
-                        udp.bind((HOST, 0))
-                        port = udp.getsockname()[1]
                         tcp = candidate.enter_context(socket.socket())
-                        tcp.bind((HOST, port))
+                        tcp.bind((HOST, 0))
+                        port = tcp.getsockname()[1]
+                        udp = candidate.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+                        udp.bind((HOST, port))
                     except OSError:
                         candidate.close()
                         continue
