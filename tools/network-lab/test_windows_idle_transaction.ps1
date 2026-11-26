@@ -1316,127 +1316,276 @@ function Invoke-CvrPackageWriterCli([string]$CaseName, [hashtable]$Arguments) {
     $stderrTask = $null
     $state = 'failure'
     $stage = 'request-serialize'
-    Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
+    $callDirectory = $null
+    $childStopped = $true
+    $stdout = ''
+    $stderr = ''
+    $workerStdOut = ''
+
+    function Get-CvrPackageWriterWorkerMarkers([string]$MarkerText) {
+        $lastStage = 'request-serialize'
+        $pattern = '^package-writer case=' + [regex]::Escape($caseLabel) + ' stage=([a-z-]+)(?: (?:exit=[0-9]+|child-stopped=(?:True|False)))?$'
+        foreach ($line in [regex]::Split([string]$MarkerText, '\r?\n')) {
+            if ($line -match $pattern) {
+                Write-Host $line
+                $markerStage = $Matches[1]
+                if ($markerStage -match '^(?:before|after)-(.+)$') { $lastStage = $Matches[1] }
+                else { $lastStage = $markerStage }
+            }
+        }
+        return $lastStage
+    }
+
     try {
-        $requestJson = ConvertTo-Json -InputObject $Arguments.Request -Depth 16 -Compress -ErrorAction Stop
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-request-serialize")
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-parent-json-parse")
-        $null = ConvertFrom-Json -InputObject $requestJson -ErrorAction Stop
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-parent-json-parse")
+        $request = $Arguments.Request
+        if ($request -isnot [System.Collections.IDictionary]) { throw 'Invalid synthetic package-writer request.' }
+        $syntheticRequest = -not $request.Contains('Capture')
+        $pinnedFilesBase64 = ''
+        if (-not $syntheticRequest) {
+            $pinNames = @(
+                'gui258', 'serviceExe258', 'programFilesCore', 'serviceCore',
+                'candidateCore', 'updateInstaller', 'updateHelper',
+                'recoveryInstaller', 'recoveryHelper'
+            )
+            $encodedPaths = [Collections.Generic.List[string]]::new()
+            foreach ($pinName in $pinNames) {
+                $pathValue = [string]$request.Capture.pinnedFiles[$pinName]
+                $pathBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($pathValue)
+                $encodedPaths.Add([Convert]::ToBase64String($pathBytes))
+            }
+            $pinnedFilesBase64 = [string]::Join(',', $encodedPaths.ToArray())
+        }
+
+        $callDirectory = Join-Path $targetCaptureRoot ('package-writer-call-' + [Guid]::NewGuid().ToString('N'))
+        $null = [IO.Directory]::CreateDirectory($callDirectory)
+        $workerPath = Join-Path $PSScriptRoot 'windows_idle_preflight_package_writer_call.ps1'
+        $writerPath = if ($Arguments.ContainsKey('ScriptPath')) { [string]$Arguments.ScriptPath } else { $packageWriterCliPath }
         $powershell51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $scriptPath = if ($Arguments.ContainsKey('ScriptPath')) { [string]$Arguments.ScriptPath } else { $packageWriterCliPath }
         $commandLineParts = @(
-            '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned', '-File',
-            (Quote-CvrPackageWriterArgument $scriptPath),
-            '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode))
+            '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'RemoteSigned',
+            '-File', (Quote-CvrPackageWriterArgument $workerPath),
+            '-Mode', (Quote-CvrPackageWriterArgument ([string]$Arguments.Mode)),
+            '-CaseName', (Quote-CvrPackageWriterArgument $caseLabel),
+            '-WriterScriptPath', (Quote-CvrPackageWriterArgument $writerPath),
+            '-CaptureSourceReceiptPath', (Quote-CvrPackageWriterArgument ([string]$preflight.ReceiptPath)),
+            '-ExpectedTargetIdentity', (Quote-CvrPackageWriterArgument ([string]$request.ExpectedTargetIdentity)),
+            '-PackageRoot', (Quote-CvrPackageWriterArgument ([string]$request.PackageRoot)),
+            '-CallDirectory', (Quote-CvrPackageWriterArgument $callDirectory)
         )
+        if (-not $syntheticRequest) {
+            $commandLineParts += @('-PinnedFilePathsBase64', (Quote-CvrPackageWriterArgument $pinnedFilesBase64))
+        } else {
+            $commandLineParts += '-SyntheticRequest'
+        }
+        if ($request.Contains('ExpectedStageRoot')) {
+            $commandLineParts += @('-HasExpectedStageRoot', '-ExpectedStageRoot', (Quote-CvrPackageWriterArgument ([string]$request.ExpectedStageRoot)))
+        }
+        if ($request.Contains('ExpectedPackageManifestSha256')) {
+            $commandLineParts += @('-HasExpectedPackageManifestSha256', '-ExpectedPackageManifestSha256', (Quote-CvrPackageWriterArgument ([string]$request.ExpectedPackageManifestSha256)))
+        }
+        if ([string]$Arguments.Mode -eq 'Plan') {
+            $commandLineParts += @(
+                '-CaptureDirectory', (Quote-CvrPackageWriterArgument ([string]$request.CaptureDirectory)),
+                '-PlanReceiptPath', (Quote-CvrPackageWriterArgument ([string]$request.ReceiptPath))
+            )
+        }
+        if ($Arguments.ContainsKey('SyntheticSerializationDelaySeconds')) {
+            $commandLineParts += @('-SyntheticSerializationDelaySeconds', (Quote-CvrPackageWriterArgument ([string]$Arguments.SyntheticSerializationDelaySeconds)))
+        }
+        if ($Arguments.ContainsKey('SyntheticWaitBeforeWriterPidWrite') -and $Arguments.SyntheticWaitBeforeWriterPidWrite) {
+            $commandLineParts += '-SyntheticWaitBeforeWriterPidWrite'
+        }
 
         $startInfo = New-Object System.Diagnostics.ProcessStartInfo
         $startInfo.FileName = $powershell51
         $startInfo.Arguments = $commandLineParts -join ' '
         $startInfo.UseShellExecute = $false
         $startInfo.CreateNoWindow = $true
-        $startInfo.RedirectStandardInput = $true
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
         $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
         $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false, $true)
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $startInfo
-        $stage = 'process-start'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        if (-not $process.Start()) { throw 'start failed' }
+
+        $stage = 'worker-start'
+        if (-not $process.Start()) { throw 'package-writer call worker failed to start' }
         $started = $true
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
 
-        $stage = 'stdin-write'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        $requestBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($requestJson)
-        $stdinTask = $process.StandardInput.BaseStream.WriteAsync($requestBytes, 0, $requestBytes.Length)
+        $stage = 'request-serialize'
         $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
-        if (-not $stdinTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin timeout' }
-        $stdinTask.GetAwaiter().GetResult()
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
-
-        $stage = 'stdin-flush'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        $flushTask = $process.StandardInput.BaseStream.FlushAsync()
-        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
-        if (-not $flushTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdin flush timeout' }
-        $flushTask.GetAwaiter().GetResult()
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
-
-        $stage = 'stdin-close'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        $process.StandardInput.Close()
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
-
-        $stage = 'process-wait'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
-        $remainingMilliseconds = [int][Math]::Max(1, ($workBudgetMilliseconds - $timer.ElapsedMilliseconds))
-        if (-not $process.WaitForExit($remainingMilliseconds)) { $state = 'timeout'; throw 'process timeout' }
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+        if (-not $process.WaitForExit($remainingMilliseconds)) {
+            $state = 'timeout'
+            throw 'package-writer call deadline'
+        }
 
         $stage = 'stdout-read'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
         $remainingMilliseconds = [int][Math]::Max(1, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
-        if (-not $stdoutTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stdout timeout' }
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-" + $stage)
+        if (-not $stdoutTask.Wait($remainingMilliseconds)) {
+            $state = 'timeout'
+            throw 'package-writer call stdout deadline'
+        }
+        $workerStdOut = $stdoutTask.GetAwaiter().GetResult()
+        $stage = Get-CvrPackageWriterWorkerMarkers $workerStdOut
 
         $stage = 'stderr-read'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-" + $stage)
         $remainingMilliseconds = [int][Math]::Max(1, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
-        if (-not $stderrTask.Wait($remainingMilliseconds)) { $state = 'timeout'; throw 'stderr timeout' }
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        $state = 'completed'
-        Write-Host ("package-writer case=" + $caseLabel + " stage=complete exit=" + $process.ExitCode)
+        if (-not $stderrTask.Wait($remainingMilliseconds)) {
+            $state = 'timeout'
+            throw 'package-writer call stderr deadline'
+        }
+        $null = $stderrTask.GetAwaiter().GetResult()
+
+        $statusPath = Join-Path $callDirectory 'result.txt'
+        $stdoutPath = Join-Path $callDirectory 'writer.stdout'
+        $stderrPath = Join-Path $callDirectory 'writer.stderr'
+        if (-not (Test-Path -LiteralPath $statusPath -PathType Leaf)) { throw 'package-writer call returned no result' }
+        $statusFields = @{}
+        foreach ($line in [IO.File]::ReadAllLines($statusPath, [Text.UTF8Encoding]::new($false, $true))) {
+            $separator = $line.IndexOf('=')
+            if ($separator -gt 0) { $statusFields[$line.Substring(0, $separator)] = $line.Substring($separator + 1) }
+        }
+        foreach ($requiredField in @('State', 'Stage', 'ExitCode', 'ChildStopped')) {
+            if (-not $statusFields.ContainsKey($requiredField)) { throw 'package-writer call result was incomplete' }
+        }
+        $state = [string]$statusFields.State
+        $stage = [string]$statusFields.Stage
+        $exitCode = [int]$statusFields.ExitCode
+        $childStopped = [bool]::Parse([string]$statusFields.ChildStopped)
+        foreach ($outputPath in @($stdoutPath, $stderrPath)) {
+            if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf) -or (Get-Item -LiteralPath $outputPath).Length -gt 65536) {
+                throw 'package-writer call output exceeded the fixture limit'
+            }
+        }
+        $encoding = [Text.UTF8Encoding]::new($false, $true)
+        $stdout = [IO.File]::ReadAllText($stdoutPath, $encoding)
+        $stderr = [IO.File]::ReadAllText($stderrPath, $encoding)
         return [PSCustomObject]@{
             State = $state
-            Stage = 'complete'
-            ExitCode = $process.ExitCode
+            Stage = $stage
+            ExitCode = $exitCode
             StdOut = $stdout
             StdErr = $stderr
-            ChildStopped = [bool]$process.HasExited
+            ChildStopped = $childStopped
             ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+            CallDirectory = $callDirectory
         }
     } catch {
         $failedStage = $stage
-        $childStopped = -not $started
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-cleanup")
-        if ($started) {
+        if ($state -ne 'timeout') { $state = 'failure' }
+        Write-Host ('package-writer case=' + $caseLabel + ' stage=before-cleanup')
+        $treeKillSucceeded = $false
+        if ($started -and $process -and -not $process.HasExited) {
+            $taskkill = $null
             try {
-                if (-not $process.HasExited) {
-                    $process.Kill()
-                    $cleanupMilliseconds = [int][Math]::Max(0, [Math]::Min(5000, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds)))
-                    if ($cleanupMilliseconds -gt 0) { $null = $process.WaitForExit($cleanupMilliseconds) }
+                $killInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $killInfo.FileName = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+                $killInfo.Arguments = '/PID ' + [string]$process.Id + ' /T /F'
+                $killInfo.UseShellExecute = $false
+                $killInfo.CreateNoWindow = $true
+                $killInfo.RedirectStandardOutput = $true
+                $killInfo.RedirectStandardError = $true
+                $taskkill = New-Object System.Diagnostics.Process
+                $taskkill.StartInfo = $killInfo
+                if ($taskkill.Start()) {
+                    $killOutTask = $taskkill.StandardOutput.ReadToEndAsync()
+                    $killErrTask = $taskkill.StandardError.ReadToEndAsync()
+                    $killWait = [int][Math]::Max(0, [Math]::Min(2000, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds)))
+                    if ($killWait -gt 0 -and $taskkill.WaitForExit($killWait)) {
+                        $treeKillSucceeded = ($taskkill.ExitCode -eq 0)
+                    } elseif (-not $taskkill.HasExited) {
+                        try { $taskkill.Kill() } catch {}
+                    }
+                    $remainingKillRead = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+                    if ($killOutTask -and $remainingKillRead -gt 0) { try { $null = $killOutTask.Wait($remainingKillRead) } catch {} }
+                    if ($killErrTask -and $remainingKillRead -gt 0) { try { $null = $killErrTask.Wait($remainingKillRead) } catch {} }
                 }
-                $childStopped = [bool]$process.HasExited
-            } catch { $childStopped = $false }
-        }
-        Write-Host ("package-writer case=" + $caseLabel + " stage=before-cleanup-output")
-        foreach ($task in @($stdoutTask, $stderrTask)) {
-            if ($task -and -not $task.IsCompleted) {
-                $cleanupMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
-                if ($cleanupMilliseconds -gt 0) {
-                    try { $null = $task.Wait($cleanupMilliseconds) } catch { }
-                }
+            } catch {}
+            if ($taskkill) { $taskkill.Dispose() }
+            $remainingMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+            if (-not $process.HasExited -and $remainingMilliseconds -gt 0) {
+                try { $null = $process.WaitForExit($remainingMilliseconds) } catch {}
+            }
+            if (-not $process.HasExited) {
+                try { $process.Kill() } catch {}
+                $remainingMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+                if ($remainingMilliseconds -gt 0) { try { $null = $process.WaitForExit($remainingMilliseconds) } catch {} }
             }
         }
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-cleanup-output")
-        Write-Host ("package-writer case=" + $caseLabel + " stage=after-cleanup child-stopped=" + $childStopped)
+
+        if ($stdoutTask -and -not $stdoutTask.IsCompleted) {
+            $remainingMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+            if ($remainingMilliseconds -gt 0) { try { $null = $stdoutTask.Wait($remainingMilliseconds) } catch {} }
+        }
+        if ($stderrTask -and -not $stderrTask.IsCompleted) {
+            $remainingMilliseconds = [int][Math]::Max(0, ($timeoutSeconds * 1000 - $timer.ElapsedMilliseconds))
+            if ($remainingMilliseconds -gt 0) { try { $null = $stderrTask.Wait($remainingMilliseconds) } catch {} }
+        }
+        if ($stdoutTask -and $stdoutTask.IsCompleted) {
+            try { $workerStdOut = $stdoutTask.GetAwaiter().GetResult() } catch {}
+        }
+        $markerStage = Get-CvrPackageWriterWorkerMarkers $workerStdOut
+        if ($failedStage -in @('request-serialize', 'worker-start')) { $failedStage = $markerStage }
+
+        $supervisorStopped = -not $started
+        if ($started -and $process) { try { $supervisorStopped = [bool]$process.HasExited } catch { $supervisorStopped = $false } }
+        $writerChildStopped = $supervisorStopped
+        $writerPidPath = if ($callDirectory) { Join-Path $callDirectory 'writer.pid' } else { $null }
+        if ($writerChildStopped -and $writerPidPath -and (Test-Path -LiteralPath $writerPidPath -PathType Leaf)) {
+            try {
+                $pidParts = [IO.File]::ReadAllText($writerPidPath).Split('|')
+                if ($pidParts.Count -ne 2) { $writerChildStopped = $false }
+                else {
+                    $recordedPid = [int]$pidParts[0]
+                    $recordedStart = [long]$pidParts[1]
+                    try {
+                        $candidateProcess = [Diagnostics.Process]::GetProcessById($recordedPid)
+                        $writerChildStopped = ($candidateProcess.StartTime.ToUniversalTime().Ticks -ne $recordedStart)
+                        $candidateProcess.Dispose()
+                    } catch [ArgumentException] {
+                        $writerChildStopped = $true
+                    } catch {
+                        $writerChildStopped = $false
+                    }
+                }
+            } catch {
+                $writerChildStopped = $false
+            }
+        } elseif ($started -and $supervisorStopped -and $writerPidPath -and -not (Test-Path -LiteralPath $writerPidPath -PathType Leaf)) {
+            $writerChildStopped = $treeKillSucceeded
+        }
+        $childStopped = $supervisorStopped -and $writerChildStopped
+        Write-Host ('package-writer case=' + $caseLabel + ' stage=after-cleanup child-stopped=' + $childStopped)
+        $exitCode = $null
+        if ($started -and $process -and $process.HasExited) { $exitCode = [int]$process.ExitCode }
         return [PSCustomObject]@{
             State = $state
             Stage = $failedStage
-            ExitCode = $null
+            ExitCode = $exitCode
             StdOut = ''
             StdErr = ''
             ChildStopped = $childStopped
             ElapsedMilliseconds = [int]$timer.ElapsedMilliseconds
+            CallDirectory = $callDirectory
         }
     } finally {
+        $supervisorExitedForCleanup = -not $started
+        if ($started -and $process) {
+            try { $supervisorExitedForCleanup = [bool]$process.HasExited } catch { $supervisorExitedForCleanup = $false }
+        }
+        if ($callDirectory -and $childStopped -and $supervisorExitedForCleanup -and (Test-Path -LiteralPath $callDirectory -PathType Container)) {
+            try {
+                Remove-Item -LiteralPath $callDirectory -Recurse -Force -ErrorAction Stop
+            } catch {
+                $cleanupException = $_.Exception.GetBaseException()
+                $cleanupHResult = '0x{0:X8}' -f [int]$cleanupException.HResult
+                Write-Host ('package-writer case=' + $caseLabel + ' stage=call-directory-cleanup error-type=' + $cleanupException.GetType().FullName + ' hresult=' + $cleanupHResult)
+            }
+        } elseif ($callDirectory -and $childStopped) {
+            Write-Host ('package-writer case=' + $caseLabel + ' stage=call-directory-cleanup skipped=supervisor-not-exited')
+        }
         if ($process) { $process.Dispose() }
     }
 }
@@ -1564,6 +1713,101 @@ foreach ($mode in @('Capture', 'Plan')) {
     Assert-CvrPackageWriterCliRejects ($mode + ' wrong external manifest digest') $wrongDigest
 }
 
+
+# The whole-call timeout must include request serialization, before a writer child exists.
+$slowSerializationResult = Invoke-CvrPackageWriterCli -CaseName 'serialization-stall' -Arguments @{
+    Mode = 'Capture'
+    TimeoutSeconds = 10
+    SyntheticSerializationDelaySeconds = 15
+    Request = @{ synthetic = $true }
+}
+Assert-IdleTransaction (
+    $slowSerializationResult.State -ceq 'timeout' -and
+    $slowSerializationResult.Stage -ceq 'request-serialize' -and
+    $slowSerializationResult.ChildStopped -and
+    $slowSerializationResult.ElapsedMilliseconds -le 15000
+) 'Synchronous request serialization exceeded the whole-call deadline.'
+
+$pidGapWriterPath = Join-Path $targetCaptureRoot 'synthetic-writer-pid-gap.ps1'
+$pidGapIdentityPath = Join-Path $targetCaptureRoot 'synthetic-writer-ready.txt'
+$pidGapWriterLines = @(
+    'param([string]$Mode)'
+    '$writer = [Diagnostics.Process]::GetCurrentProcess()'
+    '$identity = [string]$PID + ''|'' + [string]$writer.StartTime.ToUniversalTime().Ticks'
+    '[IO.File]::WriteAllText((Join-Path $PSScriptRoot ''synthetic-writer-ready.txt''), $identity, [Text.UTF8Encoding]::new($false))'
+    '$writer.Dispose()'
+    '$null = [Console]::In.ReadLine()'
+    'Start-Sleep -Seconds 60'
+)
+[IO.File]::WriteAllLines($pidGapWriterPath, [string[]]$pidGapWriterLines, [Text.UTF8Encoding]::new($false))
+$pidGapResult = $null
+$pidGapProcess = $null
+$pidGapStartTicks = 0L
+$pidGapWriterStopped = $false
+try {
+    $beforePidGapCaptureCount = Get-CvrPackageWriterOutputCount 'Capture'
+    $pidGapResult = Invoke-CvrPackageWriterCli -CaseName 'writer-start-before-pid' -Arguments @{
+        Mode = 'Capture'
+        ScriptPath = $pidGapWriterPath
+        TimeoutSeconds = 15
+        SyntheticWaitBeforeWriterPidWrite = $true
+        Request = @{ synthetic = $true }
+    }
+    $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+    while (-not (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) -and [DateTime]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
+    Assert-IdleTransaction (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) 'Synthetic writer did not reach the start-before-pid window.'
+    $identityParts = [IO.File]::ReadAllText($pidGapIdentityPath, [Text.UTF8Encoding]::new($false, $true)).Split('|')
+    if ($identityParts.Count -ne 3 -or $identityParts[2] -cne 'writer-pid-absent') { throw 'Synthetic writer PID-gap receipt was invalid.' }
+    $pidGapStartTicks = [long]$identityParts[1]
+    try {
+        $pidGapProcess = [Diagnostics.Process]::GetProcessById([int]$identityParts[0])
+        $pidGapProcess.Refresh()
+        if ($pidGapProcess.HasExited) { $pidGapWriterStopped = $true }
+        else { $pidGapWriterStopped = ($pidGapProcess.StartTime.ToUniversalTime().Ticks -ne $pidGapStartTicks) }
+    } catch [ArgumentException] {
+        $pidGapWriterStopped = $true
+    } catch {
+        $pidGapWriterStopped = $false
+    }
+    $pidGapCallDirectoryRemoved = $pidGapResult.CallDirectory -and -not (Test-Path -LiteralPath $pidGapResult.CallDirectory -PathType Container)
+    $pidGapDiagnostic = 'state={0} stage={1} child-stopped={2} writer-stopped={3} pid-absent={4} call-directory-present={5} elapsed-ms={6}.' -f @(
+        [string]$pidGapResult.State,
+        [string]$pidGapResult.Stage,
+        [string]$pidGapResult.ChildStopped,
+        [string]$pidGapWriterStopped,
+        [string]$true,
+        [string](-not $pidGapCallDirectoryRemoved),
+        [string]$pidGapResult.ElapsedMilliseconds
+    )
+    Assert-IdleTransaction (
+        $pidGapResult.State -ceq 'timeout' -and
+        $pidGapResult.Stage -ceq 'writer-pid' -and
+        $pidGapResult.ChildStopped -and
+        $pidGapWriterStopped -and
+        $pidGapCallDirectoryRemoved -and
+        $pidGapResult.ElapsedMilliseconds -le 16000 -and
+        [string]::IsNullOrEmpty($pidGapResult.StdOut) -and
+        (Get-CvrPackageWriterOutputCount 'Capture') -eq $beforePidGapCaptureCount
+    ) ('Writer PID gap cleanup was not proven: ' + $pidGapDiagnostic)
+} finally {
+    if ($pidGapProcess) {
+        try {
+            $pidGapProcess.Refresh()
+            if (-not $pidGapProcess.HasExited -and $pidGapProcess.StartTime.ToUniversalTime().Ticks -eq $pidGapStartTicks) {
+                $pidGapProcess.Kill()
+                if (-not $pidGapProcess.WaitForExit(5000)) { throw 'Synthetic writer cleanup exceeded its deadline.' }
+            }
+        } finally { $pidGapProcess.Dispose() }
+    }
+    if ($pidGapResult -and $pidGapResult.CallDirectory -and (Test-Path -LiteralPath $pidGapResult.CallDirectory -PathType Container)) {
+        Remove-Item -LiteralPath $pidGapResult.CallDirectory -Recurse -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $pidGapIdentityPath -PathType Leaf) { Remove-Item -LiteralPath $pidGapIdentityPath -Force -ErrorAction Stop }
+}
+$script:targetCaptureOutcomes.Add([pscustomobject]@{
+    case = 'powershell51-writer-start-before-pid'
+    result = 'absent writer PID receipt is followed by verified process-tree cleanup against the synthetic PID and start time'
+})
 
 $delayedWriterPath = Join-Path $targetCaptureRoot 'synthetic-delayed-writer.ps1'
 $delayedWriterLines = @(
