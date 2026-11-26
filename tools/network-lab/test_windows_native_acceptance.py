@@ -19,7 +19,7 @@ PORT_PLAN = ROOT / "tools" / "network-lab" / "windows_native_port_plan.ps1"
 
 
 class NativeWindowsAcceptanceContract(unittest.TestCase):
-    def test_fresh_windows_core_is_bound_to_rc10_build_report_and_preserves_rc9_pin(self):
+    def test_fresh_windows_core_is_bound_to_rc11_build_report_and_preserves_rc9_pin(self):
         manifest = json.loads((INSTALLER_SMOKE.parents[2] / "candidates" / "cvr-2.5.10" / "inputs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["windowsNativeCandidate"], {
             "releaseId": 446278043,
@@ -32,7 +32,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         })
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         for identity in (
-            "$build.version -cne '1.19.33-STCVRC-rc.10'",
+            "$build.version -cne '1.19.33-STCVRC-rc.11'",
             "$build.core_source_commit -cne 'a884ad53a3999dd35acab979e0bb040c47f6dbc9'",
             "$build.selected_dependency_versions.'github.com/gobwas/ws' -cne 'v1.5.0'",
             "$build.selected_dependency_versions.'github.com/insomniacslk/dhcp' -cne 'v0.0.0-20260719225207-c76316d4aa82'",

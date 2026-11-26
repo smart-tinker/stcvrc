@@ -14,7 +14,7 @@ function Test-StcvrcWindowsCoreVersionOutput {
 
 function Assert-StcvrcWindowsCoreVersionOutputVectors {
     $build = [PSCustomObject]@{
-        version = '1.19.33-STCVRC-rc.10'
+        version = '1.19.33-STCVRC-rc.11'
         go_version = '1.26.11'
         build_time = '2026-11-25T00:00:00Z'
     }
@@ -23,7 +23,7 @@ function Assert-StcvrcWindowsCoreVersionOutputVectors {
     if (-not (Test-StcvrcWindowsCoreVersionOutput -VersionLines $valid -ExpectedIdentity $expected)) {
         throw 'Windows core identity rejected valid multi-line -v output.'
     }
-    $wrong = @($expected.Replace('rc.10', 'rc.9'), 'Use tags: with_gvisor')
+    $wrong = @($expected.Replace('rc.11', 'rc.9'), 'Use tags: with_gvisor')
     if (Test-StcvrcWindowsCoreVersionOutput -VersionLines $wrong -ExpectedIdentity $expected) {
         throw 'Windows core identity accepted the wrong candidate version.'
     }
