@@ -626,8 +626,9 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "$runtimeMatch = $rewrittenConfigs[0]",
             "$stagedKeyPath = Join-Path $runtimeDirectory $assetAlias",
             "sshFixtureDiagnostics=",
-            "Stop-Process -Id $fixture.Process.Id -Force -ErrorAction SilentlyContinue",
-            "Wait-Process -Id $fixture.Process.Id -Timeout 5 -ErrorAction SilentlyContinue",
+            "Stop-StcvrcSshFixtureProcess -Fixture $fixture -TimeoutSeconds 5",
+            "Remove-StcvrcSshFixture -Fixture $fixture -TimeoutSeconds 5",
+            "SSH fixture cleanup verified: process_exited=true executable_removed=true directory_removed=true",
             "Get-Content -LiteralPath $fixture.StderrPath -Tail 8",
         ):
             with self.subTest(assertion=assertion):
@@ -646,6 +647,16 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("[string]$Route = 'DIRECT'", selector)
         self.assertIn("DOMAIN-SUFFIX,$AllowName,$Route", selector)
 
+
+    def test_ssh_fixture_cleanup_behavior_runs_before_native_build(self):
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        helper = ROOT / "tools" / "network-lab" / "windows_ssh_fixture_cleanup.ps1"
+        behavior = ROOT / "tools" / "network-lab" / "test_windows_ssh_fixture_cleanup.ps1"
+        self.assertTrue(helper.is_file())
+        self.assertTrue(behavior.is_file())
+        self.assertIn("Test SSH fixture cleanup before native build", workflow)
+        self.assertIn("test_windows_ssh_fixture_cleanup.ps1", workflow)
+        self.assertLess(workflow.index("Test SSH fixture cleanup before native build"), workflow.index("Fresh native Windows core build"))
 
     def test_ssh_fixture_key_is_inside_profile_config_root(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
