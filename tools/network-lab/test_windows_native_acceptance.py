@@ -789,7 +789,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
 
         for assertion in (
-            "Invoke-CvrIdleCaptureOperator",
+            "windows_idle_capture_operator.ps1",
             "Invoke-CvrIdleOperatorChild",
             "Invoke-CvrIdlePreflightTargetTransaction",
             "STCVRC_STAGE_MANIFEST_SHA256",
@@ -803,6 +803,20 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, source)
         self.assertNotIn("Invoke-CvrIdleTransaction @idleTransactionCallbacks", source)
+        for assertion in ("targetTransactionResult.actionErrorType", "targetTransactionResult.restoreErrorType", "MissingActionErrorType", "MissingRestoreErrorType"):
+            with self.subTest(transaction_result=assertion):
+                self.assertIn(assertion, source)
+        capture_seed = source[source.index("$captureSeed = [ordered]@{"):source.index("$captureChild = Invoke-CvrIdleOperatorChild")]
+        for assertion in (
+            "ExpectedOwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+            "ExpectedSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId",
+            "ExpectedServiceAccountSid =",
+            "corePair = $script:idleCorePair",
+            "legacyState = $script:idleLegacyState",
+            "pinnedFiles = $script:idlePinnedFiles",
+        ):
+            with self.subTest(capture_assertion=assertion):
+                self.assertIn(assertion, capture_seed)
 
         capture = source.index("Invoke-CvrIdleOperatorChild", source.index("$script:idlePinnedFiles"))
         transaction = source.index("$targetTransactionArguments = @{", capture)
@@ -824,8 +838,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             "sourceManifestSha256",
             "updateHelper =",
             "recoveryHelper =",
-            "payload/cvr-2.5.10/clash-verge-service-install.exe",
-            "payload/cvr-2.5.8/clash-verge-service-install.exe",
+            "sourceCore = [string]$capture.pinnedFiles.candidateCore",
+            "-CorePath $sourceCore -ExpectedSha256 $candidateCoreSha",
+            r"payload\cvr-2.5.10\clash-verge-service-install.exe",
+            r"payload\cvr-2.5.8\clash-verge-service-install.exe",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, source)
@@ -841,6 +857,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
                 self.assertIn(assertion, action_body)
         for assertion in (
             "Get-CvrCorePairPreimage",
+            "path=$programFilesCore; expected=$candidateCoreSha",
+            "path=$serviceCore; expected=$candidateCoreSha",
+            "[IO.Path]::GetFullPath($programFilesCore)",
+            "[IO.Path]::GetFullPath($serviceCore)",
             "Install-CvrIdleService -Version '2.5.10'",
             "Assert-CvrIdleBaseline",
         ):
@@ -849,8 +869,9 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             "Invoke-CvrInstaller -Version '2.5.8'",
             "Invoke-NativePhase -Phase recovery",
-            "Restore-CvrIdleFilePreimage",
-            "Restore-CvrCorePairPreimage",
+            "Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.gui",
+            "Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.serviceExe",
+            "Restore-CvrCorePairPreimage -Preimage $capture.corePair",
             "Restore-CvrLegacyState",
             "Install-CvrIdleService -Version '2.5.8'",
         ):
@@ -873,10 +894,12 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         stage = workflow.split("- name: Package protected stage for native idle transaction", 1)[1].split(
             "\n      - name:", 1
         )[0]
-        self.assertIn("rc11_stage_package.py\" pack", stage)
+        self.assertIn("'pack','--source-root'", stage)
+        self.assertIn("& python $packager @packArguments", stage)
         self.assertIn("Get-CvrIdlePackageStageBinding", stage)
         self.assertIn("Set-CvrIdleCaptureAcl", stage)
         self.assertIn("STCVRC_STAGE_ROOT=", stage)
+        self.assertNotIn("windows_install_update.ps1", (ROOT / "tools" / "network-lab" / "rc11_stage_package.py").read_text(encoding="utf-8"))
         self.assertLess(
             workflow.index("- name: Package protected stage for native idle transaction"),
             workflow.index("- name: Install, native acceptance, then recover to 2.5.8"),

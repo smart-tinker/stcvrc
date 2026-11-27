@@ -797,8 +797,170 @@ jobs:
             }
           }
 
+      - name: Package protected stage for native idle transaction
+        id: stage
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          . (Join-Path $env:PR_SOURCE 'tools\network-lab\windows_idle_transaction.ps1')
+          function Write-ProtectedStageEntry {
+            param(
+              [Parameter(Mandatory)][object]$Entry,
+              [Parameter(Mandatory)][string]$RelativePath,
+              [Parameter(Mandatory)][string]$ExpectedSha256,
+              [Parameter(Mandatory)][long]$ExpectedSize,
+              [Parameter(Mandatory)][string]$StageRoot
+            )
+            $segments = $RelativePath.Split([char]'/')
+            $current = $StageRoot
+            for ($i=0; $i -lt ($segments.Length - 1); $i++) {
+              $current = Join-Path $current $segments[$i]
+              if (Test-Path -LiteralPath $current) {
+                $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+                if (-not $item.PSIsContainer -or
+                    (([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) { throw 'Unsafe RC11 stage directory.' }
+                $null = Assert-CvrIdleCaptureAcl -Path $current -Directory
+              } else {
+                $null = New-Item -ItemType Directory -Path $current -ErrorAction Stop
+                $null = Set-CvrIdleCaptureAcl -Path $current -Directory
+              }
+            }
+            $destination = Join-Path $current $segments[$segments.Length - 1]
+            if (Test-Path -LiteralPath $destination) { throw 'Duplicate RC11 staged destination.' }
+            $created = [IO.File]::Open($destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $created.Dispose()
+            $null = Set-CvrIdleCaptureAcl -Path $destination
+            $archiveStream = $Entry.Open()
+            $targetStream = [IO.File]::Open($destination, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $archiveStream.CopyTo($targetStream); $targetStream.Flush() }
+            finally { $archiveStream.Dispose(); $targetStream.Dispose() }
+            if ((Get-Item -LiteralPath $destination -Force -ErrorAction Stop).Length -ne $ExpectedSize -or
+                (Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne $ExpectedSha256) {
+              throw 'Materialized RC11 stage file did not match its manifest pin.'
+            }
+            $null = Assert-CvrIdleCaptureAcl -Path $destination
+          }
+          $sourceSha = (& git -C $env:PR_SOURCE rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}$') { throw 'Native stage source SHA is invalid.' }
+          $inputsPath = Join-Path $env:PR_SOURCE 'candidates\cvr-2.5.10\inputs.json'
+          $inputs = Get-Content -LiteralPath $inputsPath -Raw | ConvertFrom-Json
+          $release258 = @($inputs.releases | Where-Object { [string]$_.version -ceq '2.5.8' })
+          $release2510 = @($inputs.releases | Where-Object { [string]$_.version -ceq '2.5.10' })
+          if ($release258.Count -ne 1 -or $release2510.Count -ne 1) { throw 'Native stage release pins are ambiguous.' }
+          $archiveRoot = Join-Path $env:RUNNER_TEMP 'stcvrc-native-stage-inputs'
+          if (Test-Path -LiteralPath $archiveRoot) { throw 'Refusing a preexisting native stage input directory.' }
+          $null = New-Item -ItemType Directory -Path $archiveRoot
+          $ipcArchives = @{}
+          foreach ($release in @($release258[0],$release2510[0])) {
+            $version = [string]$release.version
+            $provenance = $release.serviceInstallHelperProvenance
+            $asset = $provenance.asset
+            $uri = [Uri]$asset.url
+            $expectedPath = "/clash-verge-rev/clash-verge-service-ipc/releases/download/$($provenance.tag)/$($asset.name)"
+            if ($provenance.repository -cne 'clash-verge-rev/clash-verge-service-ipc' -or
+                $uri.Scheme -cne 'https' -or $uri.Host -cne 'github.com' -or
+                $uri.AbsolutePath -cne $expectedPath -or $uri.Query -or $uri.Fragment -or
+                $asset.name -notmatch '^clash-verge-service-ipc-v[0-9.]+-x86_64-pc-windows-msvc\.zip$' -or
+                [long]$asset.size -lt 1 -or [string]$asset.sha256 -notmatch '^[0-9a-f]{64}$') {
+              throw "Refusing an unpinned CVR $version service IPC archive."
+            }
+            $archive = Join-Path $archiveRoot $asset.name
+            & curl.exe --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 180 --max-filesize 67108864 --silent --show-error $asset.url -o $archive
+            if ($LASTEXITCODE -ne 0 -or
+                (Get-Item -LiteralPath $archive).Length -ne [long]$asset.size -or
+                (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$asset.sha256) {
+              throw "CVR $version service IPC archive size or SHA256 mismatch."
+            }
+            $ipcArchives[$version] = $archive
+          }
+          $packageZip = Join-Path $env:RUNNER_TEMP 'RC11-WINDOWS-STAGE.zip'
+          $packageRecordPath = Join-Path $env:RUNNER_TEMP 'RC11-WINDOWS-STAGE.record.json'
+          $packager = Join-Path $env:PR_SOURCE 'tools\network-lab\rc11_stage_package.py'
+          $packArguments = @(
+            'pack','--source-root',$env:PR_SOURCE,'--source-sha',$sourceSha,
+            '--build-report',$env:STCVRC_BUILD_JSON,'--inputs',$inputsPath,
+            '--core',$env:CUSTOM_CORE,'--native-core-sha256',$env:CUSTOM_CORE_SHA256,
+            '--recovery-installer',$env:CVR_258_INSTALLER,'--update-installer',$env:CVR_2510_INSTALLER,
+            '--recovery-ipc-archive',$ipcArchives['2.5.8'],'--update-ipc-archive',$ipcArchives['2.5.10'],
+            '--output',$packageZip,'--record',$packageRecordPath
+          )
+          & python $packager @packArguments
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned RC11 stage packaging failed.' }
+          $record = Get-Content -LiteralPath $packageRecordPath -Raw | ConvertFrom-Json
+          $packageHash = (Get-FileHash -LiteralPath $packageZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($record.schemaVersion -ne 1 -or $record.sourceCommit -cne $sourceSha -or
+              $record.archive.sha256 -cne $packageHash -or
+              (Get-Item -LiteralPath $packageZip).Length -ne [long]$record.archive.size -or
+              $record.sourceManifest.path -cne 'source-manifest.json' -or
+              [string]$record.sourceManifest.sha256 -notmatch '^[0-9a-f]{64}$' -or
+              [long]$record.sourceManifest.size -lt 1 -or [long]$record.sourceManifest.size -gt 1048576) {
+            throw 'RC11 stage archive record or source manifest does not match the built package.'
+          }
+          $stageRoot = Join-Path $env:RUNNER_TEMP 'stcvrc-native-idle-stage'
+          if (Test-Path -LiteralPath $stageRoot) { throw 'Refusing a preexisting native idle stage root.' }
+          $null = New-Item -ItemType Directory -Path $stageRoot
+          $null = Set-CvrIdleCaptureAcl -Path $stageRoot -Directory
+          $zip = [IO.Compression.ZipFile]::OpenRead($packageZip)
+          try {
+            $archiveEntries = @($zip.Entries)
+            $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($entry in $archiveEntries) {
+              if ($entry.FullName.EndsWith('/') -or -not $seen.Add([string]$entry.FullName)) {
+                throw 'RC11 stage archive contains a directory or duplicate entry.'
+              }
+            }
+            $manifestEntries = @($archiveEntries | Where-Object { [string]$_.FullName -ceq 'source-manifest.json' })
+            if ($manifestEntries.Count -ne 1) { throw 'RC11 stage source manifest is missing or ambiguous.' }
+            $manifestStream = $manifestEntries[0].Open()
+            $manifestMemory = [IO.MemoryStream]::new()
+            try { $manifestStream.CopyTo($manifestMemory); $manifestBytes = $manifestMemory.ToArray() }
+            finally { $manifestMemory.Dispose(); $manifestStream.Dispose() }
+            $manifestHasher = [Security.Cryptography.SHA256]::Create()
+            try { $manifestSha = ([BitConverter]::ToString($manifestHasher.ComputeHash($manifestBytes))).Replace('-', '').ToLowerInvariant() }
+            finally { $manifestHasher.Dispose() }
+            if ($manifestSha -cne [string]$record.sourceManifest.sha256 -or
+                $manifestBytes.Length -ne [long]$record.sourceManifest.size) {
+              throw 'RC11 stage source-manifest pin mismatch.'
+            }
+            $sourceManifest = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)) -ErrorAction Stop
+            $stageFiles = @($sourceManifest.files)
+            if ($sourceManifest.schemaVersion -ne 1 -or $stageFiles.Count -eq 0 -or
+                $archiveEntries.Count -ne ($stageFiles.Count + 1)) {
+              throw 'RC11 stage source-manifest schema or archive entry count is invalid.'
+            }
+            $null = Write-ProtectedStageEntry -Entry $manifestEntries[0] -RelativePath 'source-manifest.json' -ExpectedSha256 $manifestSha -ExpectedSize $manifestBytes.Length -StageRoot $stageRoot
+            foreach ($file in $stageFiles) {
+              $relative = [string]$file.path
+              $segments = $relative.Split([char]'/')
+              if ([string]::IsNullOrWhiteSpace($relative) -or $relative.StartsWith('/') -or
+                  $relative -match '[\\:\x00-\x1f]' -or
+                  @($segments | Where-Object { [string]::IsNullOrWhiteSpace($_) -or $_ -ceq '.' -or $_ -ceq '..' -or $_ -match '[. ]$' }).Count -gt 0 -or
+                  [string]$file.sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$file.size -lt 0) {
+                throw 'RC11 stage manifest contains an unsafe path or malformed file pin.'
+              }
+              $entryMatches = @($archiveEntries | Where-Object { [string]$_.FullName -ceq $relative })
+              if ($entryMatches.Count -ne 1 -or [long]$entryMatches[0].Length -ne [long]$file.size) {
+                throw 'RC11 stage file is absent, duplicated, or has the wrong size.'
+              }
+              $null = Write-ProtectedStageEntry -Entry $entryMatches[0] -RelativePath $relative -ExpectedSha256 ([string]$file.sha256) -ExpectedSize ([long]$file.size) -StageRoot $stageRoot
+            }
+          } finally { $zip.Dispose() }
+          $localRoot = Join-Path $stageRoot 'local'
+          if (Test-Path -LiteralPath $localRoot) { throw 'Refusing a preexisting protected idle state directory.' }
+          $null = New-Item -ItemType Directory -Path $localRoot
+          $null = Set-CvrIdleCaptureAcl -Path $localRoot -Directory
+          $binding = Get-CvrIdlePackageStageBinding -StageRoot $stageRoot -ExpectedStageRoot $stageRoot -ExpectedPackageManifestSha256 ([string]$record.sourceManifest.sha256)
+          try {
+            if ($binding.SourceManifestSha256 -cne [string]$record.sourceManifest.sha256) { throw 'Materialized package stage binding changed.' }
+          } finally { foreach ($handle in @($binding.OpenFiles)) { if ($handle) { $handle.Dispose() } } }
+          Remove-Item -LiteralPath $packageZip,$packageRecordPath,$archiveRoot -Recurse -Force -ErrorAction Stop
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "STCVRC_STAGE_ROOT=$stageRoot"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "STCVRC_STAGE_MANIFEST_SHA256=$manifestSha"
+          Write-Host 'Verified and materialized the pinned RC11 package under runner-only protected ACLs.'
+
       - name: Install, native acceptance, then recover to 2.5.8
-        if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' && steps.loopback.outcome == 'success' && steps.payloads.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.build.outputs.core-sha256 != '' && steps.loopback.outcome == 'success' && steps.payloads.outcome == 'success' && steps.stage.outcome == 'success' }}
         run: |
           & "$env:PR_SOURCE\\tools\\network-lab\\windows_install_update.ps1"
 

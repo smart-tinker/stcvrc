@@ -897,13 +897,13 @@ function Save-CvrIdleFilePreimageBackup {
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][ValidateSet('gui','service-exe')][string]$Role,
         [Parameter(Mandatory = $true)][string]$SourcePath,
-        [Parameter(Mandatory = $true)][string]$ExpectedInstallDirectory,
+        [Parameter(Mandatory = $true)][string]$ExpectedDirectory,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedSha256
     )
 
     $rootPath = [IO.Path]::GetFullPath($Root)
     $source = [IO.Path]::GetFullPath($SourcePath)
-    $install = [IO.Path]::GetFullPath($ExpectedInstallDirectory)
+    $install = [IO.Path]::GetFullPath($ExpectedDirectory)
     $directory = $null
     try {
         $null = Assert-CvrIdleCaptureAcl -Path $rootPath -Directory
@@ -974,13 +974,13 @@ function Get-CvrIdleFilePreimageBackupBytes {
         [Parameter(Mandatory = $true)][ValidateSet('gui','service-exe')][string]$Role,
         [Parameter(Mandatory = $true)][string]$ExpectedPath,
         [Parameter(Mandatory = $true)][string]$ExpectedLocalRoot,
-        [Parameter(Mandatory = $true)][string]$ExpectedInstallDirectory,
+        [Parameter(Mandatory = $true)][string]$ExpectedDirectory,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedSha256
     )
 
     try {
         $source = [IO.Path]::GetFullPath($ExpectedPath)
-        $install = [IO.Path]::GetFullPath($ExpectedInstallDirectory)
+        $install = [IO.Path]::GetFullPath($ExpectedDirectory)
         $root = [IO.Path]::GetFullPath($ExpectedLocalRoot)
         $entryPath = [IO.Path]::GetFullPath([string]$Entry.path)
         $pathPin = [IO.Path]::GetFullPath([string]$Entry.pathPin)
@@ -1040,11 +1040,11 @@ function Restore-CvrIdleFilePreimage {
         [Parameter(Mandatory = $true)][ValidateSet('gui','service-exe')][string]$Role,
         [Parameter(Mandatory = $true)][string]$ExpectedPath,
         [Parameter(Mandatory = $true)][string]$ExpectedLocalRoot,
-        [Parameter(Mandatory = $true)][string]$ExpectedInstallDirectory,
+        [Parameter(Mandatory = $true)][string]$ExpectedDirectory,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedSha256
     )
 
-    $bytes = Get-CvrIdleFilePreimageBackupBytes -Entry $Entry -Role $Role -ExpectedPath $ExpectedPath -ExpectedLocalRoot $ExpectedLocalRoot -ExpectedInstallDirectory $ExpectedInstallDirectory -ExpectedSha256 $ExpectedSha256
+    $bytes = Get-CvrIdleFilePreimageBackupBytes -Entry $Entry -Role $Role -ExpectedPath $ExpectedPath -ExpectedLocalRoot $ExpectedLocalRoot -ExpectedDirectory $ExpectedDirectory -ExpectedSha256 $ExpectedSha256
     $target = [IO.Path]::GetFullPath($ExpectedPath)
     $parent = [IO.Path]::GetDirectoryName($target)
     $parentItem = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
@@ -1092,15 +1092,23 @@ function Assert-CvrIdleRollbackState {
         $install = [IO.Path]::GetFullPath([string]$state.installDirectory)
         $guiPath = [IO.Path]::GetFullPath([string]$Capture.pinnedFiles.gui258)
         $servicePath = [IO.Path]::GetFullPath([string]$Capture.pinnedFiles.serviceExe258)
+        $programData = [IO.Path]::GetFullPath([string]$env:ProgramData)
+        $serviceDataDirectory = [IO.Path]::GetFullPath((Join-Path $programData 'clash-verge-service'))
+        $ExpectedServiceExecutableDirectory = [IO.Path]::GetFullPath((Join-Path $serviceDataDirectory 'bin'))
         if ([IO.Path]::GetDirectoryName($guiPath) -ine $install -or
-            [IO.Path]::GetDirectoryName($servicePath) -ine $install) { throw 'install path' }
+            [IO.Path]::GetDirectoryName($servicePath) -ine $ExpectedServiceExecutableDirectory) { throw 'install path' }
         $installItem = Get-Item -LiteralPath $install -Force -ErrorAction Stop
         if (-not $installItem.PSIsContainer -or
             (([int]$installItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) { throw 'install directory' }
+        foreach ($directory in @($programData,$serviceDataDirectory,$ExpectedServiceExecutableDirectory)) {
+            $directoryItem = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+            if (-not $directoryItem.PSIsContainer -or
+                (([int]$directoryItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) { throw 'service executable directory' }
+        }
 
         foreach ($item in @(
-            [PSCustomObject]@{ Role='gui'; Entry=$state.gui; Path=$guiPath; Pin='gui258' },
-            [PSCustomObject]@{ Role='service-exe'; Entry=$state.serviceExe; Path=$servicePath; Pin='serviceExe258' }
+            [PSCustomObject]@{ Role='gui'; Entry=$state.gui; Path=$guiPath; Directory=$install; Pin='gui258' },
+            [PSCustomObject]@{ Role='service-exe'; Entry=$state.serviceExe; Path=$servicePath; Directory=$ExpectedServiceExecutableDirectory; Pin='serviceExe258' }
         )) {
             $entry = $item.Entry
             if (-not $entry -or -not $ExpectedPins.Contains($item.Pin) -or
@@ -1116,7 +1124,7 @@ function Assert-CvrIdleRollbackState {
                 (Get-FileHash -LiteralPath $item.Path -Algorithm SHA256 -ErrorAction Stop).Hash -ine [string]$ExpectedPins[$item.Pin]) {
                 throw 'target drift'
             }
-            $null = Get-CvrIdleFilePreimageBackupBytes -Entry $entry -Role $item.Role -ExpectedPath $item.Path -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $install -ExpectedSha256 ([string]$ExpectedPins[$item.Pin])
+            $null = Get-CvrIdleFilePreimageBackupBytes -Entry $entry -Role $item.Role -ExpectedPath $item.Path -ExpectedLocalRoot $localRoot -ExpectedDirectory $item.Directory -ExpectedSha256 ([string]$ExpectedPins[$item.Pin])
         }
 
         $observer = $state.observer
@@ -1128,6 +1136,7 @@ function Assert-CvrIdleRollbackState {
 
         $legacy = $state.legacyState
         if (-not $legacy -or @($legacy.files).Count -ne 2 -or @($legacy.registry).Count -ne 4) { throw 'legacy shape' }
+        foreach ($entry in @($legacy.files)) { $null = Assert-CvrLegacyStatePath -Path ([string]$entry.path) }
         $currentLegacy = Get-CvrLegacyState
         if (@($currentLegacy.files).Count -ne 2 -or @($currentLegacy.registry).Count -ne 4) { throw 'legacy current shape' }
         for ($i = 0; $i -lt 2; $i++) {
@@ -1407,7 +1416,9 @@ function Invoke-CvrIdlePreflightTargetTransaction {
         $payloadPins = [ordered]@{
             candidateCore = 'payload/verge-mihomo.exe'
             updateInstaller = 'payload/Clash.Verge_2.5.10_x64-setup.exe'
+            updateHelper = 'payload/cvr-2.5.10/clash-verge-service-install.exe'
             recoveryInstaller = 'payload/Clash.Verge_2.5.8_x64-setup.exe'
+            recoveryHelper = 'payload/cvr-2.5.8/clash-verge-service-install.exe'
         }
         $manifestFile = Join-Path $binding.StageRoot 'source-manifest.json'
         if ((Get-Item -LiteralPath $manifestFile -Force -ErrorAction Stop).Length -gt 1048576) { throw 'Idle package stage manifest is oversized.' }
