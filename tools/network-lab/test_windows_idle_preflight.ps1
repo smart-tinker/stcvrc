@@ -1069,7 +1069,7 @@ exit ([int]$operatorExitCode)
     try {
         Invoke-CvrIdlePreflightTargetTransaction @wrongPlanArguments
     } catch { $refusal = $_.Exception.GetType().Name }
-    Assert-PreflightTest ($refusal) 'Mismatched Plan SHA was not rejected before Action.'
+    Assert-PreflightTest (-not [string]::IsNullOrEmpty($refusal)) 'Mismatched Plan SHA was not rejected before Action.'
     Assert-HandoffRefusalUnchanged 'plan-sha'
 
     function Assert-InvalidPreflightHandoff {
@@ -1095,6 +1095,7 @@ exit ([int]$operatorExitCode)
             Assert-HandoffRefusalUnchanged $Reason
         } finally {
             if (Test-Path -LiteralPath $badPreflightDirectory) { Remove-Item -LiteralPath $badPreflightDirectory -Recurse -Force -ErrorAction Stop }
+            Assert-PreflightTest (-not (Test-Path -LiteralPath $badPreflightDirectory)) 'Handoff refusal fixture cleanup failed.'
         }
     }
     Assert-InvalidPreflightHandoff 'preflight-fail' {
@@ -1151,11 +1152,8 @@ exit ([int]$operatorExitCode)
     try {
         Invoke-CvrIdlePreflightTargetTransaction @driftArguments
     } catch { $refusal = $_.Exception.GetType().Name }
-    Assert-PreflightTest ($refusal) 'Drifted fresh owner-scoped observation was not rejected before Action.'
+    Assert-PreflightTest (-not [string]::IsNullOrEmpty($refusal)) 'Drifted fresh owner-scoped observation was not rejected before Action.'
     Assert-HandoffRefusalUnchanged 'fresh-observation-drift'
-
-    Remove-Item -LiteralPath $badPreflightDirectory -Recurse -Force -ErrorAction Stop
-    Assert-PreflightTest (-not (Test-Path -LiteralPath $badPreflightDirectory)) 'Handoff refusal fixture cleanup failed.'
 
     $wrongRootBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
     $wrongRoot = Invoke-CaptureOperatorTestCommand -BootstrapPath $bootstrapPath -OperatorPath $operatorPath -StageRoot $fixtureRoot -ManifestSha256 $manifestSha256 -RequestPath $seedPath -ScenarioPath (Save-CaptureOperatorScenario -Name 'wrong-stage-root' -Scenario (New-CaptureOperatorScenario)) -TimeoutSeconds 30
@@ -1332,7 +1330,7 @@ exit ([int]$operatorExitCode)
 
         $readRefusal = $null
         try { $null = Get-CvrLegacyState } catch { $readRefusal = $_.Exception.GetType().Name }
-        Assert-PreflightTest $readRefusal 'Legacy Capture read accepted an AppData reparse path.'
+        Assert-PreflightTest (-not [string]::IsNullOrEmpty($readRefusal)) 'Legacy Capture read accepted an AppData reparse path.'
         Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
 
         $script:reparseActionCalls = 0
@@ -1357,13 +1355,13 @@ exit ([int]$operatorExitCode)
         try {
             Restore-CvrLegacyState -State $unsafeRestoreState
         } catch { $restoreRefusal = $_.Exception.GetType().Name }
-        Assert-PreflightTest $restoreRefusal 'Legacy restore accepted an AppData reparse path or deleted its sentinel.'
+        Assert-PreflightTest (-not [string]::IsNullOrEmpty($restoreRefusal)) 'Legacy restore accepted an AppData reparse path or deleted its sentinel.'
         Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
 
         $missingLeafRefusal = $null
         try { $null = Assert-CvrLegacyStatePath -Path (Join-Path $reparseWindowStateRoot '.window-state.json') }
         catch { $missingLeafRefusal = $_.Exception.GetType().Name }
-        Assert-PreflightTest $missingLeafRefusal 'Legacy path guard missed reparse ancestors for an absent leaf.'
+        Assert-PreflightTest (-not [string]::IsNullOrEmpty($missingLeafRefusal)) 'Legacy path guard missed reparse ancestors for an absent leaf.'
         Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
     } finally {
         $env:APPDATA = Join-Path $fixtureRoot 'appdata'
