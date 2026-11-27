@@ -941,7 +941,36 @@ exit ([int]$operatorExitCode)
     Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
     Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'injected action failure restore'
 
+    $restoreFailureArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $restoreFailureArguments[$key] = $transactionArguments[$key] }
+    $restoreFailureArguments.RestoreScript = {
+        param($context, $actionResult)
+        $script:preflightHandoffRestoreCalls++
+        $script:syntheticCandidateRunning = $false
+        throw 'synthetic restore failure'
+    }
+    $restoreFailure = Invoke-CvrIdlePreflightTargetTransaction @restoreFailureArguments
+    $afterRestoreFailure = Get-PreflightTestSnapshot -Paths $handoffTargets
+    Assert-PreflightTest (
+        $restoreFailure.status -ceq 'RESTORE_FAILED' -and
+        $null -eq $restoreFailure.actionErrorType -and
+        $restoreFailure.restoreErrorType -ceq 'RuntimeException' -and
+        $script:preflightHandoffActionCalls -eq 4 -and
+        $script:preflightHandoffCandidateChecks -eq 2 -and
+        $script:preflightHandoffRestoreCalls -eq 4 -and
+        -not $script:syntheticCandidateRunning -and
+        $afterRestoreFailure[$programFilesPath].Sha256 -cne $handoffSnapshot[$programFilesPath].Sha256
+    ) 'An injected restore exception was not reported as RESTORE_FAILED with the changed preimage visible.'
+    $cleanupContext = [PSCustomObject]@{
+        Capture = ConvertTo-CvrIdleTransactionCapture -Receipt $operatorCaptureReceipt
+        ExpectedPins = $expectedPins
+    }
+    $null = & $restoreAction $cleanupContext $null
+    Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
+    Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'restore-failure fixture cleanup'
+
     function Assert-HandoffRefusalUnchanged([string]$Reason) {
+
         $current = Get-PreflightTestSnapshot -Paths $handoffTargets
         foreach ($path in $handoffTargets) {
             if ($current[$path].Sha256 -cne $handoffSnapshot[$path].Sha256 -or $current[$path].Sddl -cne $handoffSnapshot[$path].Sddl) {
@@ -964,26 +993,65 @@ exit ([int]$operatorExitCode)
     Assert-PreflightTest ($refusal) 'Mismatched Plan SHA was not rejected before Action.'
     Assert-HandoffRefusalUnchanged 'plan-sha'
 
-    $badPreflightId = [Guid]::NewGuid().ToString('N')
-    $badPreflightDirectory = Join-Path $localRoot ('preflight-idle-' + $badPreflightId)
-    New-PreflightTestDirectory $badPreflightDirectory
-    $badPreflightPath = Join-Path $badPreflightDirectory 'result.json'
-    $badPreflightRecord = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($operatorPreflightReceiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
-    $badPreflightRecord.receiptId = $badPreflightId
-    $badPreflightRecord.result = 'FAIL'
-    $badPreflightRecord.exitCode = 1
-    $badPreflightRecord.childExitCode = 1
-    Write-PreflightTestFile -Path $badPreflightPath -Bytes ([Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $badPreflightRecord -Depth 5 -Compress))) -Protected
-    $refusal = $null
-    $badPreflightArguments = @{}
-    foreach ($key in $transactionArguments.Keys) { $badPreflightArguments[$key] = $transactionArguments[$key] }
-    $badPreflightArguments.PreflightReceiptPath = $badPreflightPath
-    $badPreflightArguments.ActionScript = { $script:transactionNegativeActionCalls++; 'unexpected' }
-    try {
-        Invoke-CvrIdlePreflightTargetTransaction @badPreflightArguments
-    } catch { $refusal = $_.Exception.GetType().Name }
-    Assert-PreflightTest ($refusal) 'A non-PASS Preflight receipt was not rejected before Action.'
-    Assert-HandoffRefusalUnchanged 'preflight-fail'
+    function Assert-InvalidPreflightHandoff {
+        param([string]$Reason, [scriptblock]$Mutate)
+        $badPreflightId = [Guid]::NewGuid().ToString('N')
+        $badPreflightDirectory = Join-Path $localRoot ('preflight-idle-' + $badPreflightId)
+        New-PreflightTestDirectory $badPreflightDirectory
+        try {
+            $badPreflightPath = Join-Path $badPreflightDirectory 'result.json'
+            $badPreflightRecord = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($operatorPreflightReceiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+            $badPreflightRecord.receiptId = $badPreflightId
+            & $Mutate $badPreflightRecord
+            Write-PreflightTestFile -Path $badPreflightPath -Bytes ([Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $badPreflightRecord -Depth 5 -Compress))) -Protected
+            $refusal = $null
+            $badPreflightArguments = @{}
+            foreach ($key in $transactionArguments.Keys) { $badPreflightArguments[$key] = $transactionArguments[$key] }
+            $badPreflightArguments.PreflightReceiptPath = $badPreflightPath
+            $badPreflightArguments.ActionScript = { $script:transactionNegativeActionCalls++; 'unexpected' }
+            try {
+                Invoke-CvrIdlePreflightTargetTransaction @badPreflightArguments
+            } catch { $refusal = $_.Exception.GetType().Name }
+            Assert-PreflightTest ($refusal -and $script:transactionNegativeActionCalls -eq 0) ('Malformed Preflight receipt reached Action: ' + $Reason)
+            Assert-HandoffRefusalUnchanged $Reason
+        } finally {
+            if (Test-Path -LiteralPath $badPreflightDirectory) { Remove-Item -LiteralPath $badPreflightDirectory -Recurse -Force -ErrorAction Stop }
+        }
+    }
+    Assert-InvalidPreflightHandoff 'preflight-fail' {
+        param($record)
+        $record.result = 'FAIL'
+        $record.exitCode = 1
+        $record.childExitCode = 1
+    }
+    Assert-InvalidPreflightHandoff 'preflight-schema-missing' {
+        param($record)
+        $null = $record.PSObject.Properties.Remove('schemaVersion')
+    }
+    Assert-InvalidPreflightHandoff 'preflight-schema-version' {
+        param($record)
+        $record.schemaVersion = 2
+    }
+    Assert-InvalidPreflightHandoff 'preflight-schema-type' {
+        param($record)
+        $record.schemaVersion = '1'
+    }
+    Assert-InvalidPreflightHandoff 'preflight-exit-missing' {
+        param($record)
+        $null = $record.PSObject.Properties.Remove('exitCode')
+    }
+    Assert-InvalidPreflightHandoff 'preflight-exit-type' {
+        param($record)
+        $record.exitCode = '0'
+    }
+    Assert-InvalidPreflightHandoff 'preflight-child-exit-missing' {
+        param($record)
+        $null = $record.PSObject.Properties.Remove('childExitCode')
+    }
+    Assert-InvalidPreflightHandoff 'preflight-child-exit-type' {
+        param($record)
+        $record.childExitCode = '0'
+    }
 
     $driftObservation = {
         param($freshCapture)
@@ -1165,6 +1233,64 @@ exit ([int]$operatorExitCode)
     $timeoutPreflight = Invoke-PreflightTestCommand -ScriptPath $scriptPath -PlanPath $plan.PlanPath -PlanSha256 $plan.PlanSha256 -StageRoot $stageRoot -ManifestSha256 $manifestSha256 -TimeoutSeconds 1 -SyntheticDelaySeconds 10
     Assert-PreflightReceipt -Invocation $timeoutPreflight -ExpectedResult 'TIMEOUT' -ExpectedExitCode 124 -ExpectedChildExitCode $null -ExpectedTimedOut $true -StageRoot $stageRoot
     Assert-PreflightTestSnapshot $snapshot $trackedPaths
+
+    $reparseAppData = Join-Path $fixtureRoot 'reparse-appdata'
+    $outsideAppData = Join-Path $fixtureRoot 'outside-appdata'
+    New-PreflightTestDirectory $reparseAppData
+    New-PreflightTestDirectory $outsideAppData
+    $reparseWindowStateRoot = Join-Path $reparseAppData 'io.github.clash-verge-rev.clash-verge-rev'
+    $sentinelPath = Join-Path $outsideAppData 'window-state.json'
+    Write-PreflightTestFile -Path $sentinelPath -Bytes ([byte[]]@(77, 78, 79, 80))
+    $sentinelBefore = Get-PreflightTestSnapshot -Paths @($sentinelPath)
+    $junctionCreated = $false
+    try {
+        $null = & $env:ComSpec /d /c ('mklink /J "{0}" "{1}"' -f $reparseWindowStateRoot, $outsideAppData) 2>&1
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $reparseWindowStateRoot)) {
+            throw 'Could not create the synthetic AppData junction.'
+        }
+        $junctionCreated = $true
+        $env:APPDATA = $reparseAppData
+
+        $readRefusal = $null
+        try { $null = Get-CvrLegacyState } catch { $readRefusal = $_.Exception.GetType().Name }
+        Assert-PreflightTest $readRefusal 'Legacy Capture read accepted an AppData reparse path.'
+        Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
+
+        $script:reparseActionCalls = 0
+        $reparseArguments = @{}
+        foreach ($key in $transactionArguments.Keys) { $reparseArguments[$key] = $transactionArguments[$key] }
+        $reparseArguments.ActionScript = { $script:reparseActionCalls++; 'unexpected' }
+        $handoffRefusal = $null
+        try {
+            Invoke-CvrIdlePreflightTargetTransaction @reparseArguments
+        } catch { $handoffRefusal = $_.Exception.GetType().Name }
+        Assert-PreflightTest ($handoffRefusal -and $script:reparseActionCalls -eq 0) 'Reparse drift reached candidate Action.'
+        Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
+
+        $unsafeRestoreState = [PSCustomObject]@{
+            files = @(
+                [PSCustomObject]@{ path=(Join-Path $reparseWindowStateRoot 'window-state.json'); present=$false; bytes=$null; sddl=$null },
+                [PSCustomObject]@{ path=(Join-Path $reparseWindowStateRoot '.window-state.json'); present=$false; bytes=$null; sddl=$null }
+            )
+            registry = @()
+        }
+        $restoreRefusal = $null
+        try {
+            Restore-CvrLegacyState -State $unsafeRestoreState
+        } catch { $restoreRefusal = $_.Exception.GetType().Name }
+        Assert-PreflightTest $restoreRefusal 'Legacy restore accepted an AppData reparse path or deleted its sentinel.'
+        Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
+
+        $missingLeafRefusal = $null
+        try { $null = Assert-CvrLegacyStatePath -Path (Join-Path $reparseWindowStateRoot '.window-state.json') }
+        catch { $missingLeafRefusal = $_.Exception.GetType().Name }
+        Assert-PreflightTest $missingLeafRefusal 'Legacy path guard missed reparse ancestors for an absent leaf.'
+        Assert-PreflightTestSnapshot $sentinelBefore @($sentinelPath)
+    } finally {
+        $env:APPDATA = Join-Path $fixtureRoot 'appdata'
+        if ($junctionCreated) { [IO.Directory]::Delete($reparseWindowStateRoot, $false) }
+    }
+
 } finally {
     try {
         if ($legacyFixture) { Remove-CvrSyntheticLegacyPreimage -Fixture $legacyFixture }
@@ -1178,4 +1304,4 @@ exit ([int]$operatorExitCode)
         }
     }
 }
-Write-Output 'Windows public Capture/Plan/Preflight operator passed synthetic owner, service, alpha-core, stage-pin, idle, stale, drift, refusal, receipt, and cleanup checks.'
+Write-Output 'Windows public Capture/Plan/Preflight operator passed synthetic owner, service, alpha-core, stage-pin, idle, receipt-schema, restore, reparse, drift, refusal, and cleanup checks.'
