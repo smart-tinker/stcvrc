@@ -313,6 +313,43 @@ jobs:
           printf '\nParser command: freshly built mihomo -d <temporary-home> -f docs/openvpn-profile-examples/<fixture>.yaml -t\n' >> "$GITHUB_STEP_SUMMARY"
           printf 'The three fixtures were checked against both source pins; no endpoint connection was attempted.\n' >> "$GITHUB_STEP_SUMMARY"
 
+  rc11-stage-contract:
+    if: >-
+      github.repository == 'smart-tinker/stcvrc' &&
+      !github.event.repository.private
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch the exact PR source
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SOURCE_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Invalid source SHA' }
+          $source = Join-Path $env:RUNNER_TEMP 'rc11-stage-source'
+          git init --quiet $source
+          if ($LASTEXITCODE -ne 0) { throw 'git init failed' }
+          git -C $source config core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'git configuration failed' }
+          git -C $source remote add origin https://github.com/smart-tinker/stcvrc.git
+          if ($LASTEXITCODE -ne 0) { throw 'git remote add failed' }
+          git -C $source fetch --quiet --depth=1 --no-tags origin $env:SOURCE_REF
+          if ($LASTEXITCODE -ne 0) { throw 'fetch of exact PR source failed' }
+          git -C $source checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'checkout of exact PR source failed' }
+          $actual = (& git -C $source rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
+      - name: Run synthetic stage manifest and tamper checks
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:RUNNER_TEMP 'rc11-stage-source'
+          & (Join-Path $source 'tools\network-lab\test_rc11_stage_manifest.ps1') -SourceRoot $source
+
   cvr-2-5-10-package:
     if: >-
       github.repository == 'smart-tinker/stcvrc' &&
@@ -772,6 +809,7 @@ jobs:
       - cvr-windows-payload
       - test-module
       - license-audit
+      - rc11-stage-contract
     runs-on: windows-2022
     timeout-minutes: 60
     permissions:
@@ -795,6 +833,7 @@ jobs:
           git -C "$recipe" fetch --quiet --depth=1 --no-tags origin "$SOURCE_SHA"
           git -C "$recipe" checkout --quiet --detach FETCH_HEAD
           test "$(git -C "$recipe" rev-parse HEAD)" = "$SOURCE_SHA"
+          python "$recipe/tools/network-lab/rc11_stage_package.py" check-source --source-root "$recipe" --source-sha "$SOURCE_SHA"
           bash "$recipe/tools/source-build/ci.sh"
           printf 'PR_SOURCE=%s\n' "$(cygpath -m "$recipe")" >> "$GITHUB_ENV"
       - name: Collect rebuilt native Windows license package
@@ -806,6 +845,31 @@ jobs:
           helper="$recipe/tools/source-build/collect.sh"
           bash -n "$helper"
           bash "$helper"
+
+      - name: Download pinned CVR installers and package the RC11 Windows stage
+        run: |
+          set -euo pipefail
+          root="$(cygpath -u "$RUNNER_TEMP")/stcvrc-source-built"
+          recipe="$(cygpath -u "$PR_SOURCE")"
+          installers="$root/cvr-installers"
+          mkdir -p "$installers"
+          for version in 2.5.8 2.5.10; do
+            name="Clash.Verge_${version}_x64-setup.exe"
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 300 --max-filesize 134217728 \
+              --silent --show-error \
+              "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v${version}/${name}" \
+              -o "$installers/$name"
+          done
+          python "$recipe/tools/network-lab/rc11_stage_package.py" pack \
+            --source-root "$recipe" --source-sha "$SOURCE_SHA" \
+            --build-report "$root/output/build.json" \
+            --inputs "$recipe/candidates/cvr-2.5.10/inputs.json" \
+            --core "$root/output/verge-mihomo.exe" \
+            --native-core-sha256 "$NATIVE_CORE_SHA256" \
+            --recovery-installer "$installers/Clash.Verge_2.5.8_x64-setup.exe" \
+            --update-installer "$installers/Clash.Verge_2.5.10_x64-setup.exe" \
+            --output "$root/output/RC11-WINDOWS-STAGE.zip" \
+            --record "$root/output/RC11-WINDOWS-STAGE.json"
 
       - name: Create and read back the draft RC release
         env:
@@ -820,7 +884,7 @@ jobs:
           tag=stcvrc-1.19.33-rc.11
           repo=smart-tinker/stcvrc
           python - "$root" "$recipe" "$tag" <<'PY'
-          import hashlib, json, os, re, shutil, sys
+          import hashlib, json, os, re, shutil, sys, zipfile
           from pathlib import Path
           root, recipe = map(Path, sys.argv[1:3])
           tag = sys.argv[3]
@@ -848,13 +912,34 @@ jobs:
               assert (out / name).is_file() and (out / name).stat().st_size > 0
           shutil.copyfile(out / "build.json", out / "SOURCE-BUILD.json")
           shutil.copyfile(root / "core/LICENSE", out / "LICENSE")
-          assets = ["verge-mihomo.exe", "SOURCE-BUILD.json", "THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-SOURCES.json", "LICENSE"]
+          stage_archive = out / "RC11-WINDOWS-STAGE.zip"
+          stage_record = json.loads((out / "RC11-WINDOWS-STAGE.json").read_text(encoding="utf-8"))
+          assert stage_record["sourceCommit"] == os.environ["HEAD_SHA"]
+          assert stage_record["inputManifestSha256"] == digest(inputs_path)
+          assert stage_record["archive"]["sha256"] == digest(stage_archive)
+          assert stage_record["archive"]["size"] == stage_archive.stat().st_size
+          assert stage_record["core"]["sha256"] == core["sha256"] == native_sha
+          assert stage_record["releaseTag"] == tag
+          assert stage_record["sourceManifest"]["path"] == "source-manifest.json"
+          assert re.fullmatch(r"[0-9a-f]{64}", stage_record["sourceManifest"]["sha256"])
+          assert stage_record["core"]["version"] == build["version"]
+          assert stage_record["core"]["coreSourceCommit"] == build["core_source_commit"]
+          for version in ("2.5.8", "2.5.10"):
+              installer = releases[version]["assets"]["installer"]
+              staged = stage_record["cvrInstallers"][version]
+              assert staged["releaseId"] == releases[version]["releaseId"]
+              assert staged["assetId"] == installer["id"] and staged["name"] == installer["name"]
+              assert staged["size"] == installer["size"] and staged["sha256"] == installer["sha256"]
+          with zipfile.ZipFile(stage_archive) as stage_zip:
+              assert hashlib.sha256(stage_zip.read("source-manifest.json")).hexdigest() == stage_record["sourceManifest"]["sha256"]
+          assets = ["verge-mihomo.exe", "SOURCE-BUILD.json", "THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-SOURCES.json", "LICENSE", "RC11-WINDOWS-STAGE.zip"]
           manifest = {
               "schemaVersion": 3, "releaseTag": tag, "releaseState": "DRAFT_NOT_PUBLISHED",
               "workflowHeadSha": os.environ["HEAD_SHA"], "createdByWorkflowRun": int(os.environ["RUN_ID"]),
               "inputManifestSha256": digest(inputs_path),
               "recovery": releases["2.5.8"], "update": releases["2.5.10"],
               "core": core, "sourceBuild": build,
+              "preflightStage": stage_record,
               "acceptance": {"nativeGuiServiceTunDns": "PASS_SAME_WORKFLOW_EXACT_BYTES",
                   "installUpdateRecovery": "PASS_SAME_WORKFLOW_EXACT_BYTES",
                   "licenseInventory": "COLLECTED_FROM_ACTUAL_BUILD_GRAPH",
@@ -875,7 +960,7 @@ jobs:
           Wintun prebuilt binary terms are included separately. The custom core is unsigned.
           This draft does not publish stable or deploy to any working machine.
           EOF
-          assets=(verge-mihomo.exe RC-MANIFEST.json SOURCE-BUILD.json THIRD-PARTY-NOTICES.txt THIRD-PARTY-SOURCES.json SHA256SUMS LICENSE)
+          assets=(verge-mihomo.exe RC-MANIFEST.json SOURCE-BUILD.json THIRD-PARTY-NOTICES.txt THIRD-PARTY-SOURCES.json SHA256SUMS LICENSE RC11-WINDOWS-STAGE.zip)
           release_id="$(gh api "repos/$repo/releases" --paginate --jq ".[] | select(.tag_name == \"$tag\") | .id")"
           if [[ -z "$release_id" ]]; then
             tag_refs="$(gh api "repos/$repo/git/matching-refs/tags/$tag" --jq '.[].ref')"
@@ -902,7 +987,9 @@ jobs:
           for name in "${assets[@]}"; do
             asset_id="$(gh api "$assets_api" --paginate --jq ".[] | select(.name == \"$name\") | .id")"
             [[ "$asset_id" =~ ^[0-9]+$ ]]
-            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 300 --max-filesize 134217728 \
+            max_bytes=134217728
+            if [[ "$name" == RC11-WINDOWS-STAGE.zip ]]; then max_bytes=268435456; fi
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 300 --max-filesize "$max_bytes" \
               --silent --show-error -H 'Accept: application/octet-stream' -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$repo/releases/assets/$asset_id" -o "$readback/$name"
             cmp --silent "$out/$name" "$readback/$name"
@@ -929,7 +1016,7 @@ jobs:
             fi
           fi
           printf 'Actual Git tag ref: %s\n' "$tag_ref_state" >> "$GITHUB_STEP_SUMMARY"
-          printf 'Draft remains unpublished: %s\nAll seven assets matched exact byte readback.\n' \
+          printf 'Draft remains unpublished: %s\nAll eight assets matched exact byte readback.\n' \
             "$(gh api "$api" --jq .html_url)" >> "$GITHUB_STEP_SUMMARY"
       - name: Remove disposable build directories
         if: always()
