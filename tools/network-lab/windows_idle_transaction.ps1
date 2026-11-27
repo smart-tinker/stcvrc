@@ -513,6 +513,7 @@ function Save-CvrIdlePreflightCapture {
     )
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    $null = Assert-CvrIdleRollbackState -Capture $Capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot ([IO.Path]::GetFullPath((Join-Path $PackageRoot 'local')))
     $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
     try {
     try {
@@ -538,8 +539,10 @@ function Save-CvrIdlePreflightCapture {
         'recoveryInstaller', 'recoveryHelper'
     )
     $storedPins = [ordered]@{}
+    $storedPinnedFiles = [ordered]@{}
     foreach ($pinName in $pinNames) {
         $storedPins[$pinName] = [string]$ExpectedPins[$pinName]
+        $storedPinnedFiles[$pinName] = [string]$Capture.pinnedFiles[$pinName]
     }
     $observation = $Capture.idleObservation
     $storedObservation = [ordered]@{
@@ -565,6 +568,8 @@ function Save-CvrIdlePreflightCapture {
         capturedAtUtc = $Capture.capturedAtUtc.ToString('o')
         coreShouldBeRunning = [bool]$Capture.coreShouldBeRunning
         expectedPins = $storedPins
+        pinnedFiles = $storedPinnedFiles
+        rollbackState = $Capture.rollbackState
         idleObservation = $storedObservation
         corePair = [ordered]@{
             programFiles = [ordered]@{
@@ -655,6 +660,7 @@ function Save-CvrIdlePreflightPlan {
     )
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+    $null = Assert-CvrIdleRollbackState -Capture $Capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot ([IO.Path]::GetFullPath((Join-Path $PackageRoot 'local')))
     $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
     try {
 
@@ -720,6 +726,8 @@ function Save-CvrIdlePreflightPlan {
         capturedAtUtc = $Capture.capturedAtUtc.ToString('o')
         coreShouldBeRunning = [bool]$Capture.coreShouldBeRunning
         expectedPins = $storedPins
+        pinnedFiles = $storedPinnedFiles
+        rollbackState = $Capture.rollbackState
         idleObservation = $storedObservation
         corePair = $storedCorePair
     }
@@ -877,3 +885,610 @@ function Invoke-CvrIdlePreflightPackageWriter {
     $writerArguments.ReceiptPath = $ReceiptPath
     return Save-CvrIdlePreflightPlan @writerArguments
 }
+
+
+function Save-CvrIdleFilePreimageBackup {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][ValidateSet('gui','service-exe')][string]$Role,
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$ExpectedInstallDirectory,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedSha256
+    )
+
+    $rootPath = [IO.Path]::GetFullPath($Root)
+    $source = [IO.Path]::GetFullPath($SourcePath)
+    $install = [IO.Path]::GetFullPath($ExpectedInstallDirectory)
+    $directory = $null
+    try {
+        $null = Assert-CvrIdleCaptureAcl -Path $rootPath -Directory
+        $sourceItem = Get-Item -LiteralPath $source -Force -ErrorAction Stop
+        if ($sourceItem.PSIsContainer -or
+            (([int]$sourceItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            [IO.Path]::GetDirectoryName($source) -ine $install -or
+            [IO.Path]::GetFileName($source) -notmatch '^[A-Za-z0-9_. -]{1,120}\.exe$') {
+            throw 'source'
+        }
+        $sourceAcl = Get-Acl -LiteralPath $source -ErrorAction Stop
+        $sourceSddl = [string]$sourceAcl.Sddl
+        if ([string]::IsNullOrWhiteSpace($sourceSddl)) { throw 'source acl' }
+
+        $input = [IO.File]::Open($source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+                $actualSha = ([BitConverter]::ToString($hasher.ComputeHash($input))).Replace('-', '').ToLowerInvariant()
+            } finally { $hasher.Dispose() }
+            if ($actualSha -ine $ExpectedSha256.ToLowerInvariant()) { throw 'source hash' }
+            $input.Position = 0
+
+            $directory = Join-Path $rootPath ('stcvrc-idle-preimage-' + $Role + '-' + [Guid]::NewGuid().ToString('N'))
+            if (Test-Path -LiteralPath $directory) { throw 'preexisting backup' }
+            $null = New-Item -ItemType Directory -Path $directory -ErrorAction Stop
+            $null = Set-CvrIdleCaptureAcl -Path $directory -Directory
+            $backup = Join-Path $directory ([IO.Path]::GetFileName($source))
+            $create = [IO.File]::Open($backup, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $create.Dispose()
+            $null = Set-CvrIdleCaptureAcl -Path $backup
+            $output = [IO.File]::Open($backup, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try {
+                $input.CopyTo($output)
+                $output.Flush()
+            } finally { $output.Dispose() }
+        } finally { $input.Dispose() }
+
+        $backupSha = (Get-FileHash -LiteralPath $backup -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $backupSddl = [string](Get-Acl -LiteralPath $backup -ErrorAction Stop).Sddl
+        $directorySddl = [string](Get-Acl -LiteralPath $directory -ErrorAction Stop).Sddl
+        if ($backupSha -ine $ExpectedSha256.ToLowerInvariant()) { throw 'backup hash' }
+        $null = Assert-CvrIdleCaptureAcl -Path $directory -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $backup
+        return [PSCustomObject]@{
+            path = $source
+            pathPin = $source
+            backup = [IO.Path]::GetFullPath($backup)
+            backupPathPin = [IO.Path]::GetFullPath($backup)
+            backupRoot = $rootPath
+            backupSddl = $backupSddl
+            backupDirectorySddl = $directorySddl
+            sha256 = $ExpectedSha256.ToLowerInvariant()
+            sddl = $sourceSddl
+        }
+    } catch {
+        if ($directory -and (Test-Path -LiteralPath $directory -PathType Container)) {
+            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        throw 'Idle executable preimage backup could not be created.'
+    }
+}
+
+function Get-CvrIdleFilePreimageBackupBytes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Entry,
+        [Parameter(Mandatory = $true)][ValidateSet('gui','service-exe')][string]$Role,
+        [Parameter(Mandatory = $true)][string]$ExpectedPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedLocalRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedInstallDirectory,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedSha256
+    )
+
+    try {
+        $source = [IO.Path]::GetFullPath($ExpectedPath)
+        $install = [IO.Path]::GetFullPath($ExpectedInstallDirectory)
+        $root = [IO.Path]::GetFullPath($ExpectedLocalRoot)
+        $entryPath = [IO.Path]::GetFullPath([string]$Entry.path)
+        $pathPin = [IO.Path]::GetFullPath([string]$Entry.pathPin)
+        $backup = [IO.Path]::GetFullPath([string]$Entry.backup)
+        $backupPin = [IO.Path]::GetFullPath([string]$Entry.backupPathPin)
+        $directory = [IO.Path]::GetDirectoryName($backup)
+        $label = if ($Role -ceq 'gui') { 'gui' } else { 'service-exe' }
+        if ($entryPath -ine $source -or $pathPin -ine $source -or
+            $backup -ine $backupPin -or
+            [IO.Path]::GetDirectoryName($source) -ine $install -or
+            [string]$Entry.backupRoot -ine $root -or
+            [IO.Path]::GetDirectoryName($directory) -ine $root -or
+            [IO.Path]::GetFileName($directory) -notmatch ('^stcvrc-idle-preimage-' + $label + '-[0-9a-f]{32}$') -or
+            [IO.Path]::GetFileName($backup) -cne [IO.Path]::GetFileName($source) -or
+            [string]$Entry.sha256 -ine $ExpectedSha256 -or
+            [string]::IsNullOrWhiteSpace([string]$Entry.backupSddl) -or
+            [string]::IsNullOrWhiteSpace([string]$Entry.backupDirectorySddl) -or
+            [string]::IsNullOrWhiteSpace([string]$Entry.sddl)) {
+            throw 'metadata'
+        }
+        $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+        $directoryItem = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+        $backupItem = Get-Item -LiteralPath $backup -Force -ErrorAction Stop
+        if (-not $rootItem.PSIsContainer -or -not $directoryItem.PSIsContainer -or $backupItem.PSIsContainer -or
+            (([int]$rootItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            (([int]$directoryItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+            (([int]$backupItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            throw 'type'
+        }
+        $null = Assert-CvrIdleCaptureAcl -Path $root -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $directory -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $backup
+        if ((Get-Acl -LiteralPath $directory -ErrorAction Stop).Sddl -cne [string]$Entry.backupDirectorySddl -or
+            (Get-Acl -LiteralPath $backup -ErrorAction Stop).Sddl -cne [string]$Entry.backupSddl) {
+            throw 'acl'
+        }
+        $bytes = [IO.File]::ReadAllBytes($backup)
+        if ((Get-CvrByteArraySha256 -Bytes $bytes) -ine $ExpectedSha256) { throw 'hash' }
+        return ,$bytes
+    } catch {
+        throw "Idle $Role executable preimage backup validation failed."
+    }
+}
+
+function ConvertTo-CvrIdleFileSecurity {
+    param([Parameter(Mandatory = $true)][string]$Sddl)
+    if ([string]::IsNullOrWhiteSpace($Sddl)) { throw 'Idle file preimage ACL is missing.' }
+    $security = [Security.AccessControl.FileSecurity]::new()
+    $security.SetSecurityDescriptorSddlForm($Sddl)
+    return $security
+}
+
+function Restore-CvrIdleFilePreimage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Entry,
+        [Parameter(Mandatory = $true)][ValidateSet('gui','service-exe')][string]$Role,
+        [Parameter(Mandatory = $true)][string]$ExpectedPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedLocalRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedInstallDirectory,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedSha256
+    )
+
+    $bytes = Get-CvrIdleFilePreimageBackupBytes -Entry $Entry -Role $Role -ExpectedPath $ExpectedPath -ExpectedLocalRoot $ExpectedLocalRoot -ExpectedInstallDirectory $ExpectedInstallDirectory -ExpectedSha256 $ExpectedSha256
+    $target = [IO.Path]::GetFullPath($ExpectedPath)
+    $parent = [IO.Path]::GetDirectoryName($target)
+    $parentItem = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+    if (-not $parentItem.PSIsContainer -or
+        (([int]$parentItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "Idle $Role executable preimage restore failed."
+    }
+    if (Test-Path -LiteralPath $target) {
+        $item = Get-Item -LiteralPath $target -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or (([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+            throw "Idle $Role executable preimage restore failed."
+        }
+    }
+    try {
+        [IO.File]::WriteAllBytes($target, $bytes)
+        $acl = if ($Entry.PSObject.Properties['acl'] -and $Entry.acl) {
+            $Entry.acl
+        } else {
+            ConvertTo-CvrIdleFileSecurity -Sddl ([string]$Entry.sddl)
+        }
+        Set-Acl -LiteralPath $target -AclObject $acl -ErrorAction Stop
+        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedSha256 -or
+            (Get-Acl -LiteralPath $target -ErrorAction Stop).Sddl -cne [string]$Entry.sddl) {
+            throw 'restore verification'
+        }
+    } catch {
+        throw "Idle $Role executable preimage restore failed."
+    }
+    return $true
+}
+
+function Assert-CvrIdleRollbackState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][string]$ExpectedLocalRoot
+    )
+
+    try {
+        $localRoot = [IO.Path]::GetFullPath($ExpectedLocalRoot)
+        $null = Assert-CvrIdleCaptureAcl -Path $localRoot -Directory
+        $state = $Capture.rollbackState
+        if (-not $state -or [int]$state.schemaVersion -ne 1) { throw 'schema' }
+        $install = [IO.Path]::GetFullPath([string]$state.installDirectory)
+        $guiPath = [IO.Path]::GetFullPath([string]$Capture.pinnedFiles.gui258)
+        $servicePath = [IO.Path]::GetFullPath([string]$Capture.pinnedFiles.serviceExe258)
+        if ([IO.Path]::GetDirectoryName($guiPath) -ine $install -or
+            [IO.Path]::GetDirectoryName($servicePath) -ine $install) { throw 'install path' }
+        $installItem = Get-Item -LiteralPath $install -Force -ErrorAction Stop
+        if (-not $installItem.PSIsContainer -or
+            (([int]$installItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) { throw 'install directory' }
+
+        foreach ($item in @(
+            [PSCustomObject]@{ Role='gui'; Entry=$state.gui; Path=$guiPath; Pin='gui258' },
+            [PSCustomObject]@{ Role='service-exe'; Entry=$state.serviceExe; Path=$servicePath; Pin='serviceExe258' }
+        )) {
+            $entry = $item.Entry
+            if (-not $entry -or -not $ExpectedPins.Contains($item.Pin) -or
+                [string]$entry.path -ine $item.Path -or
+                [string]$entry.pathPin -ine $item.Path -or
+                [string]$entry.sha256 -ine [string]$ExpectedPins[$item.Pin] -or
+                [string]$entry.sddl -cne [string](Get-Acl -LiteralPath $item.Path -ErrorAction Stop).Sddl) {
+                throw 'target metadata'
+            }
+            $target = Get-Item -LiteralPath $item.Path -Force -ErrorAction Stop
+            if ($target.PSIsContainer -or
+                (([int]$target.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+                (Get-FileHash -LiteralPath $item.Path -Algorithm SHA256 -ErrorAction Stop).Hash -ine [string]$ExpectedPins[$item.Pin]) {
+                throw 'target drift'
+            }
+            $null = Get-CvrIdleFilePreimageBackupBytes -Entry $entry -Role $item.Role -ExpectedPath $item.Path -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $install -ExpectedSha256 ([string]$ExpectedPins[$item.Pin])
+        }
+
+        $observer = $state.observer
+        if (-not $observer -or
+            [string]$observer.ownerSid -notmatch '^S-\d(-\d+)+$' -or
+            [int]$observer.sessionId -lt 0 -or
+            [string]$observer.serviceAccountSid -notmatch '^S-\d(-\d+)+$' -or
+            [int]$observer.serviceProcessId -le 0) { throw 'observer' }
+
+        $legacy = $state.legacyState
+        if (-not $legacy -or @($legacy.files).Count -ne 2 -or @($legacy.registry).Count -ne 4) { throw 'legacy shape' }
+        $currentLegacy = Get-CvrLegacyState
+        if (@($currentLegacy.files).Count -ne 2 -or @($currentLegacy.registry).Count -ne 4) { throw 'legacy current shape' }
+        for ($i = 0; $i -lt 2; $i++) {
+            $before = $legacy.files[$i]
+            $after = $currentLegacy.files[$i]
+            if ([string]$before.path -ine [string]$after.path -or
+                [bool]$before.present -ne [bool]$after.present) { throw 'legacy path' }
+            if ($before.present) {
+                if ([string]$before.bytes -notmatch '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$' -or
+                    [Convert]::FromBase64String([string]$before.bytes).Length -gt 262144 -or
+                    [string]::IsNullOrWhiteSpace([string]$before.sddl)) { throw 'legacy preimage' }
+                $null = ConvertTo-CvrIdleFileSecurity -Sddl ([string]$before.sddl)
+            } elseif ($null -ne $before.bytes -or $null -ne $before.sddl) { throw 'legacy absent' }
+        }
+        $expectedRunNames = @(
+            'CurrentUser|Clash Verge', 'LocalMachine|Clash Verge',
+            'CurrentUser|clash-verge', 'LocalMachine|clash-verge'
+        )
+        for ($i = 0; $i -lt 4; $i++) {
+            $entry = $legacy.registry[$i]
+            if (($entry.hive + '|' + $entry.name) -cne $expectedRunNames[$i] -or
+                ($entry.present -and
+                    ([string]$entry.kind -notin @('String','ExpandString') -or
+                     $entry.data -isnot [string] -or $entry.data.Length -gt 4096)) -or
+                (-not $entry.present -and ($null -ne $entry.kind -or $null -ne $entry.data))) {
+                throw 'legacy Run preimage'
+            }
+        }
+        Assert-CvrLegacyState -Expected $legacy -Phase 'idle rollback preimage'
+        return $true
+    } catch {
+        $message = [string]$_.Exception.Message
+        if ($message -match 'CVR (?:window-state|Run-value|preimage)') { throw }
+        throw 'Idle target legacy rollback preimage validation failed.'
+    }
+}
+
+function ConvertTo-CvrIdleTransactionCapture {
+    param([Parameter(Mandatory = $true)][object]$Receipt)
+
+    $receiptText = ConvertTo-Json -InputObject $Receipt -Depth 16 -Compress -ErrorAction Stop
+    $Receipt = ConvertFrom-Json -InputObject $receiptText -ErrorAction Stop
+    $capturedAt = [DateTime]::Parse(
+        [string]$Receipt.capturedAtUtc,
+        [Globalization.CultureInfo]::InvariantCulture,
+        ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
+    )
+    $pins = [ordered]@{}
+    foreach ($property in @($Receipt.expectedPins.PSObject.Properties)) {
+        $pins[[string]$property.Name] = [string]$property.Value
+    }
+    $files = [ordered]@{}
+    foreach ($property in @($Receipt.pinnedFiles.PSObject.Properties)) {
+        $files[[string]$property.Name] = [string]$property.Value
+    }
+    $observation = [ordered]@{}
+    foreach ($property in @($Receipt.idleObservation.PSObject.Properties)) {
+        $observation[[string]$property.Name] = $property.Value
+    }
+    foreach ($role in @('programFiles','service')) {
+        $entry = $Receipt.corePair.$role
+        $null = $entry | Add-Member -MemberType NoteProperty -Name 'acl' -Value (ConvertTo-CvrIdleFileSecurity -Sddl ([string]$entry.sddl)) -Force
+    }
+    foreach ($entry in @($Receipt.rollbackState.legacyState.files)) {
+        if ($entry.present) {
+            $null = $entry | Add-Member -MemberType NoteProperty -Name 'acl' -Value (ConvertTo-CvrIdleFileSecurity -Sddl ([string]$entry.sddl)) -Force
+        } else {
+            $null = $entry | Add-Member -MemberType NoteProperty -Name 'acl' -Value $null -Force
+        }
+    }
+    return [PSCustomObject]@{
+        targetIdentity = [string]$Receipt.targetIdentity
+        capturedAtUtc = $capturedAt
+        coreShouldBeRunning = [bool]$Receipt.coreShouldBeRunning
+        expectedPins = $pins
+        pinnedFiles = $files
+        rollbackState = $Receipt.rollbackState
+        idleObservation = $observation
+        corePair = $Receipt.corePair
+    }
+}
+
+function Open-CvrIdleHandoffRecord {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$LocalRoot,
+        [Parameter(Mandatory = $true)][ValidateSet('capture-idle','prepared-idle','preflight-idle')][string]$DirectoryPrefix,
+        [Parameter(Mandatory = $true)][string]$FileName,
+        [Parameter(Mandatory = $true)][ValidateRange(1,1048576)][int]$MaximumBytes,
+        [Parameter(Mandatory = $true)][Collections.Generic.List[IO.FileStream]]$OpenFiles
+    )
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $directory = [IO.Path]::GetDirectoryName($fullPath)
+    if ([IO.Path]::GetDirectoryName($directory) -ine [IO.Path]::GetFullPath($LocalRoot) -or
+        [IO.Path]::GetFileName($directory) -notmatch ('^' + $DirectoryPrefix + '-[0-9a-f]{32}$') -or
+        [IO.Path]::GetFileName($fullPath) -cne $FileName) { throw 'path' }
+    $directoryItem = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+    $fileItem = Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop
+    if (-not $directoryItem.PSIsContainer -or $fileItem.PSIsContainer -or
+        (([int]$directoryItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+        (([int]$fileItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) { throw 'type' }
+    $null = Assert-CvrIdleCaptureAcl -Path $directory -Directory
+    $null = Assert-CvrIdleCaptureAcl -Path $fullPath
+    $stream = [IO.File]::Open($fullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $null = $OpenFiles.Add($stream)
+    if ($stream.Length -gt $MaximumBytes) { throw 'size' }
+    $memory = [IO.MemoryStream]::new()
+    try { $stream.CopyTo($memory); $bytes = $memory.ToArray() }
+    finally { $memory.Dispose() }
+    $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+    $sha = Get-CvrByteArraySha256 -Bytes $bytes
+    $document = ConvertFrom-Json -InputObject $text -ErrorAction Stop
+    if ($document -isnot [PSCustomObject]) { throw 'shape' }
+    return [PSCustomObject]@{ Path=$fullPath; Bytes=$bytes; Sha256=$sha; Document=$document }
+}
+
+function Get-CvrIdleHandoffProjection {
+    param([Parameter(Mandatory = $true)][object]$Document)
+    $projection = [ordered]@{}
+    foreach ($name in @(
+        'targetIdentity','packageStageBinding','capturedAtUtc','coreShouldBeRunning',
+        'expectedPins','pinnedFiles','rollbackState','idleObservation','corePair'
+    )) {
+        $property = $Document.PSObject.Properties[$name]
+        if (-not $property) { throw 'Idle handoff binding is incomplete.' }
+        $projection[$name] = $property.Value
+    }
+    return ConvertTo-Json -InputObject $projection -Depth 16 -Compress -ErrorAction Stop
+}
+
+function Get-CvrIdleObservationText {
+    param([Parameter(Mandatory = $true)][System.Collections.IDictionary]$Observation)
+    $projection = [ordered]@{
+        CoreShouldBeRunning = $Observation.CoreShouldBeRunning
+        OwnedGuiProcessIds = @($Observation.OwnedGuiProcessIds)
+        OwnedCoreProcessIds = @($Observation.OwnedCoreProcessIds)
+        ControllerListening = $Observation.ControllerListening
+        OwnedListenerProcessIds = @($Observation.OwnedListenerProcessIds)
+        ServiceStatus = [string]$Observation.ServiceStatus
+        ExpectedProgramFilesCoreSha256 = [string]$Observation.ExpectedProgramFilesCoreSha256
+        ObservedProgramFilesCoreSha256 = [string]$Observation.ObservedProgramFilesCoreSha256
+        ExpectedServiceCoreSha256 = [string]$Observation.ExpectedServiceCoreSha256
+        ObservedServiceCoreSha256 = [string]$Observation.ObservedServiceCoreSha256
+    }
+    return ConvertTo-Json -InputObject $projection -Depth 5 -Compress -ErrorAction Stop
+}
+
+function Assert-CvrIdleFreshObservation {
+    param(
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][object]$Fresh,
+        [switch]$RequireSameServicePid
+    )
+
+    if (-not $Fresh -or $Fresh.SampledAtUtc -isnot [DateTime] -or
+        $Fresh.SampledAtUtc.Kind -ne [DateTimeKind]::Utc) {
+        throw 'Fresh idle observation is unavailable.'
+    }
+    $age = [DateTime]::UtcNow - $Fresh.SampledAtUtc
+    if ($age.TotalSeconds -lt 0 -or $age.TotalSeconds -gt 60) { throw 'Fresh idle observation is stale.' }
+    $expected = $Capture.rollbackState.observer
+    $actual = $Fresh.Observer
+    if (-not $expected -or
+        [string]$expected.ownerSid -notmatch '^S-\d(-\d+)+$' -or
+        [int]$expected.sessionId -lt 0 -or
+        [string]$expected.serviceAccountSid -notmatch '^S-\d(-\d+)+$' -or
+        [int]$expected.serviceProcessId -le 0 -or
+        -not $actual -or
+        [string]$actual.ownerSid -notmatch '^S-\d(-\d+)+$' -or
+        [int]$actual.sessionId -lt 0 -or
+        [string]$actual.serviceAccountSid -notmatch '^S-\d(-\d+)+$' -or
+        [int]$actual.serviceProcessId -le 0 -or
+        [string]$actual.ownerSid -cne [string]$expected.ownerSid -or
+        [int]$actual.sessionId -ne [int]$expected.sessionId -or
+        [string]$actual.serviceAccountSid -cne [string]$expected.serviceAccountSid -or
+        ($RequireSameServicePid -and [int]$actual.serviceProcessId -ne [int]$expected.serviceProcessId)) {
+        throw 'Fresh idle observation ownership does not match the capture.'
+    }
+    $observation = $Fresh.Observation
+    if ($observation -isnot [System.Collections.IDictionary]) { throw 'Fresh idle observation is incomplete.' }
+    $null = Assert-CvrIdleBaseline @observation
+    if ((Get-CvrIdleObservationText -Observation $observation) -cne
+        (Get-CvrIdleObservationText -Observation $Capture.idleObservation)) {
+        throw 'Fresh idle observation differs from the protected capture.'
+    }
+    return $true
+}
+
+function Invoke-CvrIdlePreflightTargetTransaction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$CaptureReceiptPath,
+        [Parameter(Mandatory = $true)][string]$PlanPath,
+        [Parameter(Mandatory = $true)][string]$PreflightReceiptPath,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedPlanSha256,
+        [Parameter(Mandatory = $true)][string]$ExpectedStageRoot,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedPackageManifestSha256,
+        [Parameter(Mandatory = $true)][string]$ExpectedTargetIdentity,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins,
+        [Parameter(Mandatory = $true)][scriptblock]$RefreshObservationScript,
+        [Parameter(Mandatory = $true)][scriptblock]$ActionScript,
+        [Parameter(Mandatory = $true)][scriptblock]$CandidateCheckScript,
+        [Parameter(Mandatory = $true)][scriptblock]$RestoreScript,
+        [Parameter(Mandatory = $true)][scriptblock]$VerifyScript
+    )
+
+    $binding = $null
+    $openFiles = [Collections.Generic.List[IO.FileStream]]::new()
+    $handoffState = [PSCustomObject]@{
+        ActionErrorType = $null
+        RestoreErrorType = $null
+        VerifyErrorType = $null
+        ActionResult = $null
+    }
+    try {
+        $localRoot = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetFullPath($ExpectedStageRoot)) 'local'))
+        $null = Assert-CvrIdleCaptureAcl -Path ([IO.Path]::GetFullPath($ExpectedStageRoot)) -Directory
+        $null = Assert-CvrIdleCaptureAcl -Path $localRoot -Directory
+        $binding = Get-CvrIdlePackageStageBinding -StageRoot $ExpectedStageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
+        $captureRecord = Open-CvrIdleHandoffRecord -Path $CaptureReceiptPath -LocalRoot $localRoot -DirectoryPrefix 'capture-idle' -FileName 'capture.json' -MaximumBytes 1048576 -OpenFiles $openFiles
+        $planRecord = Open-CvrIdleHandoffRecord -Path $PlanPath -LocalRoot $localRoot -DirectoryPrefix 'prepared-idle' -FileName 'plan.json' -MaximumBytes 1048576 -OpenFiles $openFiles
+        $preflightRecord = Open-CvrIdleHandoffRecord -Path $PreflightReceiptPath -LocalRoot $localRoot -DirectoryPrefix 'preflight-idle' -FileName 'result.json' -MaximumBytes 4096 -OpenFiles $openFiles
+        if ($planRecord.Sha256 -ine $ExpectedPlanSha256 -or
+            [string]$planRecord.Document.targetIdentity -cne $ExpectedTargetIdentity -or
+            [string]$planRecord.Document.packageStageBinding.stageRoot -ine $binding.StageRoot -or
+            [string]$planRecord.Document.packageStageBinding.sourceManifestSha256 -ine $binding.SourceManifestSha256) {
+            throw 'Idle handoff Plan or stage pin mismatch.'
+        }
+        $plan = $planRecord.Document
+        if ([IO.Path]::GetFullPath([string]$plan.captureDirectory) -ine [IO.Path]::GetDirectoryName($captureRecord.Path) -or
+            [IO.Path]::GetFullPath([string]$plan.captureReceiptPath) -ine $captureRecord.Path -or
+            [string]$plan.captureReceiptSha256 -ine $captureRecord.Sha256 -or
+            (Get-CvrIdleHandoffProjection -Document $captureRecord.Document) -cne
+            (Get-CvrIdleHandoffProjection -Document $plan)) {
+            throw 'Idle handoff Capture and Plan do not match.'
+        }
+        $preflight = $preflightRecord.Document
+        if ([string]$preflight.result -cne 'PASS' -or [int]$preflight.exitCode -ne 0 -or
+            $preflight.timedOut -isnot [bool] -or $preflight.timedOut -or
+            $preflight.childStopped -isnot [bool] -or -not $preflight.childStopped -or
+            [int]$preflight.childExitCode -ne 0 -or
+            [string]$preflight.planSha256 -ine $planRecord.Sha256 -or
+            [string]$preflight.sourceManifestSha256 -ine $binding.SourceManifestSha256 -or
+            [string]$preflight.receiptId -notmatch '^[0-9a-f]{32}$' -or
+            [IO.Path]::GetDirectoryName($preflightRecord.Path) -ine
+                [IO.Path]::GetFullPath((Join-Path $localRoot ('preflight-idle-' + [string]$preflight.receiptId))) {
+            throw 'Idle handoff does not contain a successful bound Preflight.'
+        }
+
+        $capture = ConvertTo-CvrIdleTransactionCapture -Receipt $captureRecord.Document
+        if ($capture.targetIdentity -cne $ExpectedTargetIdentity -or
+            $ExpectedPins.Count -ne 9 -or $capture.expectedPins.Count -ne $ExpectedPins.Count) {
+            throw 'Idle handoff target or pin set is incomplete.'
+        }
+        foreach ($name in $ExpectedPins.Keys) {
+            if (-not $capture.expectedPins.Contains($name) -or
+                [string]$capture.expectedPins[$name] -ine [string]$ExpectedPins[$name]) {
+                throw 'Idle handoff pins differ from the approved inputs.'
+            }
+        }
+        $payloadPins = [ordered]@{
+            candidateCore = 'payload/verge-mihomo.exe'
+            updateInstaller = 'payload/Clash.Verge_2.5.10_x64-setup.exe'
+            recoveryInstaller = 'payload/Clash.Verge_2.5.8_x64-setup.exe'
+        }
+        $manifestFile = Join-Path $binding.StageRoot 'source-manifest.json'
+        if ((Get-Item -LiteralPath $manifestFile -Force -ErrorAction Stop).Length -gt 1048576) { throw 'Idle package stage manifest is oversized.' }
+        $manifestText = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($manifestFile))
+        $manifest = ConvertFrom-Json -InputObject $manifestText -ErrorAction Stop
+        foreach ($name in $payloadPins.Keys) {
+            $entry = @($manifest.files | Where-Object { [string]$_.path -ceq [string]$payloadPins[$name] })
+            $relative = ([string]$payloadPins[$name]).Replace('/', '\')
+            $stagePath = [IO.Path]::GetFullPath((Join-Path $binding.StageRoot $relative))
+            if ($entry.Count -ne 1 -or
+                [string]$entry[0].sha256 -ine [string]$ExpectedPins[$name] -or
+                [IO.Path]::GetFullPath([string]$capture.pinnedFiles[$name]) -ine $stagePath) {
+                throw 'Idle handoff candidate payload identity does not match the pinned stage.'
+            }
+        }
+        $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+        $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot $localRoot
+
+        $actionClosure = {
+            param($unused)
+            try {
+                $contextPins = [ordered]@{}
+                foreach ($pinName in $ExpectedPins.Keys) { $contextPins[$pinName] = [string]$ExpectedPins[$pinName] }
+                $context = [PSCustomObject]@{
+                    Capture = ConvertTo-CvrIdleTransactionCapture -Receipt $captureRecord.Document
+                    StageRoot = $binding.StageRoot
+                    SourceManifestSha256 = $binding.SourceManifestSha256
+                    ExpectedPins = $contextPins
+                }
+                $handoffState.ActionResult = & $ActionScript $context
+                $candidateAccepted = & $CandidateCheckScript $context $handoffState.ActionResult
+                if ($candidateAccepted -isnot [bool] -or -not $candidateAccepted) {
+                    throw 'Candidate acceptance check did not pass.'
+                }
+                return $handoffState.ActionResult
+            } catch {
+                $handoffState.ActionErrorType = $_.Exception.GetBaseException().GetType().Name
+                throw 'candidate-action'
+            }
+        }.GetNewClosure()
+        $restoreClosure = {
+            param($unused)
+            try {
+                $contextPins = [ordered]@{}
+                foreach ($pinName in $ExpectedPins.Keys) { $contextPins[$pinName] = [string]$ExpectedPins[$pinName] }
+                $context = [PSCustomObject]@{
+                    Capture = ConvertTo-CvrIdleTransactionCapture -Receipt $captureRecord.Document
+                    StageRoot = $binding.StageRoot
+                    SourceManifestSha256 = $binding.SourceManifestSha256
+                    ExpectedPins = $contextPins
+                }
+                $restoreResult = & $RestoreScript $context $handoffState.ActionResult
+                return $restoreResult
+            } catch {
+                $handoffState.RestoreErrorType = $_.Exception.GetBaseException().GetType().Name
+                throw 'restore-callback'
+            }
+        }.GetNewClosure()
+        $verifyClosure = {
+            param($unused, $restoreResult)
+            try {
+                $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+                $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot $localRoot
+                $freshAfter = & $RefreshObservationScript $capture
+                $null = Assert-CvrIdleFreshObservation -Capture $capture -Fresh $freshAfter
+                $contextPins = [ordered]@{}
+                foreach ($pinName in $ExpectedPins.Keys) { $contextPins[$pinName] = [string]$ExpectedPins[$pinName] }
+                $context = [PSCustomObject]@{
+                    Capture = ConvertTo-CvrIdleTransactionCapture -Receipt $captureRecord.Document
+                    StageRoot = $binding.StageRoot
+                    SourceManifestSha256 = $binding.SourceManifestSha256
+                    ExpectedPins = $contextPins
+                }
+                $verified = & $VerifyScript $context $restoreResult $handoffState.ActionResult
+                if ($verified -isnot [bool] -or -not $verified) { throw 'Caller restore verification did not pass.' }
+                return [bool]$true
+            } catch {
+                $handoffState.VerifyErrorType = $_.Exception.GetBaseException().GetType().Name
+                throw 'restore-verification'
+            }
+        }.GetNewClosure()
+        $captureScript = {
+            $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
+            $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot $localRoot
+            $freshBefore = & $RefreshObservationScript $capture
+            $null = Assert-CvrIdleFreshObservation -Capture $capture -Fresh $freshBefore -RequireSameServicePid
+            return $capture
+        }.GetNewClosure()
+        $transaction = Invoke-CvrIdleTargetTransaction -CaptureScript $captureScript -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins -ActionScript $actionClosure -RestoreScript $restoreClosure -VerifyScript $verifyClosure
+        return [PSCustomObject]@{
+            status = if ($transaction.RestoreFailure) { 'RESTORE_FAILED' } elseif ($transaction.ActionFailure) { 'ACTION_FAILED_RESTORED' } else { 'PASS' }
+            actionErrorType = $handoffState.ActionErrorType
+            restoreErrorType = if ($transaction.RestoreFailure) { if ($handoffState.RestoreErrorType) { $handoffState.RestoreErrorType } else { $handoffState.VerifyErrorType } } else { $null }
+        }
+    } finally {
+        if ($binding) {
+            foreach ($handle in @($binding.OpenFiles)) { if ($handle) { $handle.Dispose() } }
+        }
+        foreach ($handle in $openFiles) { if ($handle) { $handle.Dispose() } }
+    }
+}
+

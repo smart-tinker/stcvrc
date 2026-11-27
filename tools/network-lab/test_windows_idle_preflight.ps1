@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows_core_preimage_paths.ps1')
 . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
+. (Join-Path $PSScriptRoot 'windows_legacy_state_transaction.ps1')
 . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
 
 function Assert-PreflightTest([bool]$Condition, [string]$Message) {
@@ -16,6 +17,17 @@ function Write-PreflightTestFile([string]$Path, [byte[]]$Bytes, [switch]$Protect
     $null = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None).Dispose()
     if ($Protected) { $null = Set-CvrIdleCaptureAcl -Path $Path }
     [IO.File]::WriteAllBytes($Path, $Bytes)
+}
+
+function Add-PreflightTestAclDrift([string]$Path) {
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'),
+        [Security.AccessControl.FileSystemRights]::Read,
+        [Security.AccessControl.AccessControlType]::Allow
+    )
+    $null = $acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
 }
 
 function Get-PreflightTestSnapshot([string[]]$Paths) {
@@ -284,8 +296,13 @@ $localRoot = Join-Path $packageRoot 'local'
 $stageFilesRoot = Join-Path $packageRoot 'pins'
 $payloadRoot = Join-Path $packageRoot 'payload'
 $targetIdentity = 'stcvrc-ci-synthetic-preflight'
+$originalAppData = $env:APPDATA
+$legacyFixture = $null
 try {
     New-PreflightTestDirectory $fixtureRoot
+    $env:APPDATA = Join-Path $fixtureRoot 'appdata'
+    New-PreflightTestDirectory $env:APPDATA
+    $legacyFixture = New-CvrSyntheticLegacyPreimage
     New-PreflightTestDirectory $packageRoot
     New-PreflightTestDirectory $toolsStageRoot
     New-PreflightTestDirectory $networkLabStageRoot
@@ -314,6 +331,7 @@ try {
         recoveryInstaller = 'Clash.Verge_2.5.8_x64-setup.exe'
     }
     foreach ($name in $pinBytes.Keys) {
+        if ($name -in @('gui258','serviceExe258')) { continue }
         if ($payloadFileNames.ContainsKey($name)) {
             $fileName = $payloadFileNames[$name]
             $path = Join-Path $payloadRoot $fileName
@@ -336,6 +354,7 @@ try {
         'windows_core_preimage_paths.ps1',
         'windows_idle_baseline_guard.ps1',
         'windows_idle_transaction.ps1',
+        'windows_legacy_state_transaction.ps1',
         'windows_idle_preflight_package_writer.ps1',
         'windows_idle_preflight.ps1'
     )
@@ -359,9 +378,17 @@ try {
     $programFilesDirectory = Join-Path $fixtureRoot 'program-files'
     $serviceDirectory = Join-Path $fixtureRoot 'service-core'
     $null = New-Item -ItemType Directory -Path $programFilesDirectory -ErrorAction Stop
+    $null = Set-CvrIdleCaptureAcl -Path $programFilesDirectory -Directory
     $null = New-Item -ItemType Directory -Path $serviceDirectory -ErrorAction Stop
+    $null = Set-CvrIdleCaptureAcl -Path $serviceDirectory -Directory
     $programFilesPath = Join-Path $programFilesDirectory 'verge-mihomo.exe'
     $serviceCorePath = Join-Path $serviceDirectory 'verge-mihomo.exe'
+    $guiPath = Join-Path $programFilesDirectory 'Clash Verge.exe'
+    $serviceExePath = Join-Path $programFilesDirectory 'clash-verge-service.exe'
+    Write-PreflightTestFile -Path $guiPath -Bytes $pinBytes.gui258 -Protected
+    Write-PreflightTestFile -Path $serviceExePath -Bytes $pinBytes.serviceExe258 -Protected
+    $pinPaths.gui258 = $guiPath
+    $pinPaths.serviceExe258 = $serviceExePath
     [IO.File]::WriteAllBytes($programFilesPath, [byte[]]@(2, 5, 8, 4))
     [IO.File]::WriteAllBytes($serviceCorePath, [byte[]]@(2, 5, 8, 5))
     $programFilesBackup = Save-CvrCorePreimageBackup -Root $fixtureRoot -Label 'program-files' -SourcePath $programFilesPath -ExpectedSha256 (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256).Hash
@@ -434,6 +461,27 @@ try {
         $entry.acl = [ordered]@{ Sddl = [string]$entry.sddl }
     }
     $capture.capturedAtUtc = $capture.capturedAtUtc.ToString('o')
+    $legacyForCapture = [ordered]@{
+        files = @($legacyFixture.state.files | ForEach-Object {
+            [ordered]@{ path=[string]$_.path; present=[bool]$_.present; bytes=$_.bytes; sddl=$_.sddl }
+        })
+        registry = @($legacyFixture.state.registry | ForEach-Object {
+            [ordered]@{ hive=[string]$_.hive; name=[string]$_.name; present=[bool]$_.present; kind=$_.kind; data=$_.data }
+        })
+    }
+    $capture | Add-Member -MemberType NoteProperty -Name 'rollbackState' -Value ([ordered]@{
+        schemaVersion = 1
+        installDirectory = $programFilesDirectory
+        gui = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'gui' -SourcePath $guiPath -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.gui258
+        serviceExe = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'service-exe' -SourcePath $serviceExePath -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.serviceExe258
+        legacyState = $legacyForCapture
+        observer = [ordered]@{
+            ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            sessionId = [int][Diagnostics.Process]::GetCurrentProcess().SessionId
+            serviceAccountSid = 'S-1-5-18'
+            serviceProcessId = 8101
+        }
+    })
     $writerRequest = [ordered]@{
         Capture = $capture
         ExpectedTargetIdentity = $targetIdentity
@@ -448,6 +496,7 @@ try {
     $seedCapture = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $capture -Depth 20 -Compress) -ErrorAction Stop
     $null = $seedCapture.PSObject.Properties.Remove('capturedAtUtc')
     $null = $seedCapture.PSObject.Properties.Remove('idleObservation')
+    $null = $seedCapture.PSObject.Properties.Remove('rollbackState')
     $seedRequest = [ordered]@{
         Capture = $seedCapture
         ExpectedTargetIdentity = $targetIdentity
@@ -528,9 +577,10 @@ exit ([int]$operatorExitCode)
 '@
     Write-PreflightTestFile -Path $bootstrapPath -Bytes ([Text.UTF8Encoding]::new($false, $true).GetBytes($bootstrapSource)) -Protected
     $operatorTrackedPaths = @(
-        $manifestPath, $programFilesPath, $serviceCorePath,
+        $manifestPath, $programFilesPath, $serviceCorePath, $guiPath, $serviceExePath,
         $programFilesBackup.backup, $serviceBackup.backup, $seedPath
-    ) + @($pinPaths.Values) + @($operatorStageFiles | ForEach-Object { Join-Path $networkLabStageRoot $_ })
+    ) + @($legacyFixture.state.files | Where-Object { $_.present } | ForEach-Object { $_.path }) +
+        @($pinPaths.Values) + @($operatorStageFiles | ForEach-Object { Join-Path $networkLabStageRoot $_ })
     $operatorInputSnapshot = Get-PreflightTestSnapshot -Paths $operatorTrackedPaths
 
     function New-CaptureOperatorScenario(
@@ -707,31 +757,258 @@ exit ([int]$operatorExitCode)
     Assert-PreflightReceipt -Invocation $operatorPreflightInvocation -ExpectedResult 'PASS' -ExpectedExitCode 0 -ExpectedChildExitCode 0 -ExpectedTimedOut $false -StageRoot $stageRoot
 
     $operatorPreflightReceiptPath = Join-Path (Join-Path $localRoot ('preflight-idle-' + [string]$validOperatorResult.receiptId)) 'result.json'
-    $preflightHandoffActionCalls = 0
-    $preflightHandoffError = $null
-    try {
-        $handoff = Invoke-CvrIdlePreflightTargetTransaction -CaptureReceiptPath $operatorCaptureReceiptPath -PlanPath $operatorPlanPath -PreflightReceiptPath $operatorPreflightReceiptPath -ExpectedPlanSha256 ([string]$validOperatorResult.planSha256) -ExpectedStageRoot $stageRoot -ExpectedPackageManifestSha256 $manifestSha256 -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
-            $script:preflightHandoffActionCalls++
-            'synthetic-candidate-accepted'
-        } -RestoreScript {
-            'synthetic-idle-restored'
-        } -VerifyScript {
-            param($capture, $restored)
-            $restored -ceq 'synthetic-idle-restored'
+    $operatorCaptureReceipt = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($operatorCaptureReceiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $handoffTargets = @(
+        $guiPath, $serviceExePath, $programFilesPath, $serviceCorePath,
+        $operatorCaptureReceipt.rollbackState.gui.backup,
+        $operatorCaptureReceipt.rollbackState.serviceExe.backup
+    ) + @($legacyFixture.state.files | Where-Object { $_.present } | ForEach-Object { $_.path })
+    $handoffSnapshot = Get-PreflightTestSnapshot -Paths $handoffTargets
+    $script:syntheticCandidateRunning = $false
+    $script:preflightHandoffActionCalls = 0
+    $script:preflightHandoffCandidateChecks = 0
+    $script:preflightHandoffRestoreCalls = 0
+    $script:transactionNegativeActionCalls = 0
+    $candidateGuiBytes = [byte[]]@(9, 9, 9, 1)
+    $candidateServiceBytes = [byte[]]@(9, 9, 9, 2)
+    $candidateCheckBytes = [Text.UTF8Encoding]::new($false).GetBytes('{"fixture":"synthetic-candidate","state":"changed"}')
+    $expectedCandidateGuiSha256 = Get-CvrByteArraySha256 -Bytes $candidateGuiBytes
+    $expectedCandidateServiceSha256 = Get-CvrByteArraySha256 -Bytes $candidateServiceBytes
+    $refreshObservation = {
+        param($freshCapture)
+        $observed = $freshCapture.idleObservation
+        if ($script:syntheticCandidateRunning) {
+            $observed = [ordered]@{}
+            foreach ($key in $freshCapture.idleObservation.Keys) { $observed[$key] = $freshCapture.idleObservation[$key] }
+            $observed.OwnedCoreProcessIds = [int[]]@(8199)
         }
-    } catch {
-        $preflightHandoffError = $_.Exception.Message
+        return [PSCustomObject]@{
+            SampledAtUtc = [DateTime]::UtcNow
+            Observation = $observed
+            Observer = $freshCapture.rollbackState.observer
+        }
     }
-    if ($preflightHandoffActionCalls -ne 1) {
-        Write-Output ('Observed Capture/Plan/Preflight PASS; candidate action calls={0}; handoff error={1}' -f $preflightHandoffActionCalls, $(if ($preflightHandoffError) { $preflightHandoffError } else { 'none' }))
-        throw 'Expected behavior RED: the valid idle Capture/Plan/Preflight chain has no guarded candidate-action handoff.'
+    $candidateAction = {
+        param($context)
+        $script:preflightHandoffActionCalls++
+        $script:syntheticCandidateRunning = $true
+        $candidateCoreBytes = [IO.File]::ReadAllBytes([string]$context.Capture.pinnedFiles.candidateCore)
+        [IO.File]::WriteAllBytes($guiPath, $candidateGuiBytes)
+        [IO.File]::WriteAllBytes($serviceExePath, $candidateServiceBytes)
+        [IO.File]::WriteAllBytes([string]$context.Capture.corePair.programFiles.path, $candidateCoreBytes)
+        [IO.File]::WriteAllBytes([string]$context.Capture.corePair.service.path, $candidateCoreBytes)
+        foreach ($path in @($guiPath,$serviceExePath,$programFilesPath,$serviceCorePath)) {
+            Add-PreflightTestAclDrift -Path $path
+        }
+        foreach ($entry in @($context.Capture.rollbackState.legacyState.files)) {
+            if ($entry.present) {
+                [IO.File]::WriteAllBytes([string]$entry.path, $candidateCheckBytes)
+                Add-PreflightTestAclDrift -Path ([string]$entry.path)
+            }
+        }
+        foreach ($entry in @($context.Capture.rollbackState.legacyState.registry)) {
+            if ($entry.present) {
+                Set-CvrLegacyRunValue -Hive ([string]$entry.hive) -Name ([string]$entry.name) -Kind ([string]$entry.kind) -Data 'STCVRC-synthetic-candidate'
+            }
+        }
+        return [PSCustomObject]@{
+            candidateCoreSha256 = (Get-FileHash -LiteralPath ([string]$context.Capture.pinnedFiles.candidateCore) -Algorithm SHA256).Hash.ToLowerInvariant()
+            programFilesCoreSha256 = (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            serviceCoreSha256 = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            guiSha256 = (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            serviceExeSha256 = (Get-FileHash -LiteralPath $serviceExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            approvedTraffic = 'synthetic-pass'
+        }
     }
+    $candidateCheck = {
+        param($context, $actionResult)
+        $script:preflightHandoffCandidateChecks++
+        $legacyFileCount = @($context.Capture.rollbackState.legacyState.files | Where-Object { $_.present }).Count
+        $legacyAclDriftCount = 0
+        foreach ($entry in @($context.Capture.rollbackState.legacyState.files | Where-Object { $_.present })) {
+            if ((Get-Acl -LiteralPath ([string]$entry.path)).Sddl -cne [string]$entry.sddl) { $legacyAclDriftCount++ }
+        }
+        return (
+            $script:syntheticCandidateRunning -and
+            [string]$actionResult.candidateCoreSha256 -ceq [string]$context.ExpectedPins.candidateCore -and
+            [string]$actionResult.programFilesCoreSha256 -ceq [string]$context.ExpectedPins.candidateCore -and
+            [string]$actionResult.serviceCoreSha256 -ceq [string]$context.ExpectedPins.candidateCore -and
+            (Get-Acl -LiteralPath $guiPath).Sddl -cne [string]$context.Capture.rollbackState.gui.sddl -and
+            (Get-Acl -LiteralPath $serviceExePath).Sddl -cne [string]$context.Capture.rollbackState.serviceExe.sddl -and
+            (Get-Acl -LiteralPath $programFilesPath).Sddl -cne [string]$context.Capture.corePair.programFiles.sddl -and
+            (Get-Acl -LiteralPath $serviceCorePath).Sddl -cne [string]$context.Capture.corePair.service.sddl -and
+            $legacyAclDriftCount -eq $legacyFileCount -and
+            [string]$actionResult.guiSha256 -ceq $expectedCandidateGuiSha256 -and
+            [string]$actionResult.serviceExeSha256 -ceq $expectedCandidateServiceSha256 -and
+            [string]$actionResult.approvedTraffic -ceq 'synthetic-pass'
+        )
+    }
+    $restoreAction = {
+        param($context, $actionResult)
+        $script:preflightHandoffRestoreCalls++
+        try {
+            Restore-CvrCoreFilePreimage -Entry $context.Capture.corePair.programFiles -Role 'Program Files'
+            Restore-CvrCoreFilePreimage -Entry $context.Capture.corePair.service -Role 'service'
+            Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.gui -Role 'gui' -ExpectedPath $guiPath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
+            Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath $serviceExePath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
+            Restore-CvrLegacyState -State $context.Capture.rollbackState.legacyState
+            return 'synthetic-idle-restored'
+        } finally {
+            $script:syntheticCandidateRunning = $false
+        }
+    }
+    $verifyRestore = {
+        param($context, $restoreResult, $actionResult)
+        Assert-CvrLegacyState -Expected $context.Capture.rollbackState.legacyState -Phase 'synthetic handoff verification'
+        return ($restoreResult -ceq 'synthetic-idle-restored')
+    }
+    $transactionArguments = @{
+        CaptureReceiptPath = $operatorCaptureReceiptPath
+        PlanPath = $operatorPlanPath
+        PreflightReceiptPath = $operatorPreflightReceiptPath
+        ExpectedPlanSha256 = [string]$validOperatorResult.planSha256
+        ExpectedStageRoot = $stageRoot
+        ExpectedPackageManifestSha256 = $manifestSha256
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+        RefreshObservationScript = $refreshObservation
+        ActionScript = $candidateAction
+        CandidateCheckScript = $candidateCheck
+        RestoreScript = $restoreAction
+        VerifyScript = $verifyRestore
+    }
+    $handoff = Invoke-CvrIdlePreflightTargetTransaction @transactionArguments
     Assert-PreflightTest (
-        $null -eq $preflightHandoffError -and
-        $handoff.ActionFailure -eq $null -and
-        $handoff.RestoreFailure -eq $null -and
-        $handoff.ActionResult -ceq 'synthetic-candidate-accepted'
-    ) 'The guarded candidate-action handoff did not complete after the verified PASS.'
+        $handoff.status -ceq 'PASS' -and
+        $null -eq $handoff.actionErrorType -and
+        $null -eq $handoff.restoreErrorType -and
+        $script:preflightHandoffActionCalls -eq 1 -and
+        $script:preflightHandoffCandidateChecks -eq 1 -and
+        $script:preflightHandoffRestoreCalls -eq 1 -and
+        -not $script:syntheticCandidateRunning
+    ) 'The verified public Preflight handoff did not run candidate acceptance and exact restore.'
+    Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
+    Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'successful candidate handoff'
+
+    $rejectedCandidateArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $rejectedCandidateArguments[$key] = $transactionArguments[$key] }
+    $rejectedCandidateArguments.CandidateCheckScript = {
+        param($context, $actionResult)
+        return [bool]$false
+    }
+    $candidateRejected = Invoke-CvrIdlePreflightTargetTransaction @rejectedCandidateArguments
+    Assert-PreflightTest (
+        $candidateRejected.status -ceq 'ACTION_FAILED_RESTORED' -and
+        $candidateRejected.actionErrorType -ceq 'RuntimeException' -and
+        $candidateRejected.restoreErrorType -ceq $null -and
+        $script:preflightHandoffRestoreCalls -eq 2 -and
+        -not $script:syntheticCandidateRunning
+    ) 'A rejected candidate identity/traffic result did not trigger restoration.'
+    Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
+    Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'candidate rejection restore'
+
+    $failedActionArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $failedActionArguments[$key] = $transactionArguments[$key] }
+    $failedActionArguments.ActionScript = {
+        param($context)
+        $script:preflightHandoffActionCalls++
+        $script:syntheticCandidateRunning = $true
+        $candidateCoreBytes = [IO.File]::ReadAllBytes([string]$context.Capture.pinnedFiles.candidateCore)
+        [IO.File]::WriteAllBytes($guiPath, $candidateGuiBytes)
+        [IO.File]::WriteAllBytes($serviceExePath, $candidateServiceBytes)
+        [IO.File]::WriteAllBytes($programFilesPath, $candidateCoreBytes)
+        [IO.File]::WriteAllBytes($serviceCorePath, $candidateCoreBytes)
+        foreach ($path in @($guiPath, $serviceExePath, $programFilesPath, $serviceCorePath)) { Add-PreflightTestAclDrift -Path $path }
+        foreach ($entry in @($context.Capture.rollbackState.legacyState.files)) {
+            if ($entry.present) {
+                [IO.File]::WriteAllBytes([string]$entry.path, $candidateCheckBytes)
+                Add-PreflightTestAclDrift -Path ([string]$entry.path)
+            }
+        }
+        foreach ($entry in @($context.Capture.rollbackState.legacyState.registry)) {
+            if ($entry.present) { Set-CvrLegacyRunValue -Hive ([string]$entry.hive) -Name ([string]$entry.name) -Kind ([string]$entry.kind) -Data 'STCVRC-synthetic-failure' }
+        }
+        throw 'synthetic acceptance failure after changes'
+    }
+    $actionFailure = Invoke-CvrIdlePreflightTargetTransaction @failedActionArguments
+    Assert-PreflightTest (
+        $actionFailure.status -ceq 'ACTION_FAILED_RESTORED' -and
+        $actionFailure.actionErrorType -ceq 'RuntimeException' -and
+        $actionFailure.restoreErrorType -ceq $null -and
+        $script:preflightHandoffRestoreCalls -eq 3 -and
+        -not $script:syntheticCandidateRunning
+    ) 'An injected candidate failure did not remain visible after exact restoration.'
+    Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
+    Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'injected action failure restore'
+
+    function Assert-HandoffRefusalUnchanged([string]$Reason) {
+        $current = Get-PreflightTestSnapshot -Paths $handoffTargets
+        foreach ($path in $handoffTargets) {
+            if ($current[$path].Sha256 -cne $handoffSnapshot[$path].Sha256 -or $current[$path].Sddl -cne $handoffSnapshot[$path].Sddl) {
+                throw ('Idle handoff refusal changed a synthetic preimage: ' + $Reason)
+            }
+        }
+        Assert-CvrLegacyState -Expected $legacyFixture.state -Phase ('handoff refusal ' + $Reason)
+        if ($script:transactionNegativeActionCalls -ne 0) { throw ('Idle handoff refusal invoked Action: ' + $Reason) }
+    }
+    $wrongPlanSha = '0' * 64
+    if ($wrongPlanSha -ceq [string]$validOperatorResult.planSha256) { $wrongPlanSha = 'f' * 64 }
+    $refusal = $null
+    $wrongPlanArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $wrongPlanArguments[$key] = $transactionArguments[$key] }
+    $wrongPlanArguments.ExpectedPlanSha256 = $wrongPlanSha
+    $wrongPlanArguments.ActionScript = { $script:transactionNegativeActionCalls++; 'unexpected' }
+    try {
+        Invoke-CvrIdlePreflightTargetTransaction @wrongPlanArguments
+    } catch { $refusal = $_.Exception.GetType().Name }
+    Assert-PreflightTest ($refusal) 'Mismatched Plan SHA was not rejected before Action.'
+    Assert-HandoffRefusalUnchanged 'plan-sha'
+
+    $badPreflightId = [Guid]::NewGuid().ToString('N')
+    $badPreflightDirectory = Join-Path $localRoot ('preflight-idle-' + $badPreflightId)
+    New-PreflightTestDirectory $badPreflightDirectory
+    $badPreflightPath = Join-Path $badPreflightDirectory 'result.json'
+    $badPreflightRecord = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($operatorPreflightReceiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $badPreflightRecord.receiptId = $badPreflightId
+    $badPreflightRecord.result = 'FAIL'
+    $badPreflightRecord.exitCode = 1
+    $badPreflightRecord.childExitCode = 1
+    Write-PreflightTestFile -Path $badPreflightPath -Bytes ([Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $badPreflightRecord -Depth 5 -Compress))) -Protected
+    $refusal = $null
+    $badPreflightArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $badPreflightArguments[$key] = $transactionArguments[$key] }
+    $badPreflightArguments.PreflightReceiptPath = $badPreflightPath
+    $badPreflightArguments.ActionScript = { $script:transactionNegativeActionCalls++; 'unexpected' }
+    try {
+        Invoke-CvrIdlePreflightTargetTransaction @badPreflightArguments
+    } catch { $refusal = $_.Exception.GetType().Name }
+    Assert-PreflightTest ($refusal) 'A non-PASS Preflight receipt was not rejected before Action.'
+    Assert-HandoffRefusalUnchanged 'preflight-fail'
+
+    $driftObservation = {
+        param($freshCapture)
+        $changed = [ordered]@{}
+        foreach ($key in $freshCapture.idleObservation.Keys) { $changed[$key] = $freshCapture.idleObservation[$key] }
+        $changed.OwnedCoreProcessIds = [int[]]@(8199)
+        return [PSCustomObject]@{
+            SampledAtUtc = [DateTime]::UtcNow
+            Observation = $changed
+            Observer = $freshCapture.rollbackState.observer
+        }
+    }
+    $refusal = $null
+    $driftArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $driftArguments[$key] = $transactionArguments[$key] }
+    $driftArguments.RefreshObservationScript = $driftObservation
+    $driftArguments.ActionScript = { $script:transactionNegativeActionCalls++; 'unexpected' }
+    try {
+        Invoke-CvrIdlePreflightTargetTransaction @driftArguments
+    } catch { $refusal = $_.Exception.GetType().Name }
+    Assert-PreflightTest ($refusal) 'Drifted fresh owner-scoped observation was not rejected before Action.'
+    Assert-HandoffRefusalUnchanged 'fresh-observation-drift'
+
+    Remove-Item -LiteralPath $badPreflightDirectory -Recurse -Force -ErrorAction Stop
+    Assert-PreflightTest (-not (Test-Path -LiteralPath $badPreflightDirectory)) 'Handoff refusal fixture cleanup failed.'
 
     $wrongRootBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
     $wrongRoot = Invoke-CaptureOperatorTestCommand -BootstrapPath $bootstrapPath -OperatorPath $operatorPath -StageRoot $fixtureRoot -ManifestSha256 $manifestSha256 -RequestPath $seedPath -ScenarioPath (Save-CaptureOperatorScenario -Name 'wrong-stage-root' -Scenario (New-CaptureOperatorScenario)) -TimeoutSeconds 30
@@ -808,6 +1085,7 @@ exit ([int]$operatorExitCode)
         $captureDirectoriesAfter.Count -eq $captureDirectoriesBefore.Count
     ) 'Invalid Capture stage pin was not rejected before output.'
 
+    $writerRequest.Capture.capturedAtUtc = [DateTime]::UtcNow.ToString('o')
     $captureInvocation = Invoke-PreflightTestCommand -ScriptPath $writerPath -WriterMode Capture -Request $writerRequest -TimeoutSeconds 30
     Assert-PreflightTest ($captureInvocation.ExitCode -eq 0 -and $null -ne $captureInvocation.Document -and [string]::IsNullOrEmpty($captureInvocation.StdErr)) 'The actual PS5.1 Capture CLI did not return a clean result.'
     $captureResult = $captureInvocation.Document
@@ -861,9 +1139,10 @@ exit ([int]$operatorExitCode)
 
     $scriptPath = Join-Path $PSScriptRoot 'windows_idle_preflight.ps1'
     $trackedPaths = @(
-        $manifestPath, $programFilesPath, $serviceCorePath,
+        $manifestPath, $programFilesPath, $serviceCorePath, $guiPath, $serviceExePath,
         $programFilesBackup.backup, $serviceBackup.backup
-    ) + @($pinPaths.Values) + @($captureResult.ReceiptPath, $plan.PlanPath)
+    ) + @($legacyFixture.state.files | Where-Object { $_.present } | ForEach-Object { $_.path }) +
+        @($pinPaths.Values) + @($captureResult.ReceiptPath, $plan.PlanPath)
     $snapshot = Get-PreflightTestSnapshot -Paths $trackedPaths
     $firstPreflight = Invoke-PreflightTestCommand -ScriptPath $scriptPath -PlanPath $plan.PlanPath -PlanSha256 $plan.PlanSha256 -StageRoot $stageRoot -ManifestSha256 $manifestSha256 -TimeoutSeconds 30
     Assert-PreflightReceipt -Invocation $firstPreflight -ExpectedResult 'PASS' -ExpectedExitCode 0 -ExpectedChildExitCode 0 -ExpectedTimedOut $false -StageRoot $stageRoot
@@ -887,8 +1166,16 @@ exit ([int]$operatorExitCode)
     Assert-PreflightReceipt -Invocation $timeoutPreflight -ExpectedResult 'TIMEOUT' -ExpectedExitCode 124 -ExpectedChildExitCode $null -ExpectedTimedOut $true -StageRoot $stageRoot
     Assert-PreflightTestSnapshot $snapshot $trackedPaths
 } finally {
-    if (Test-Path -LiteralPath $fixtureRoot -PathType Container) {
-        Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction Stop
+    try {
+        if ($legacyFixture) { Remove-CvrSyntheticLegacyPreimage -Fixture $legacyFixture }
+    } finally {
+        try {
+            if (Test-Path -LiteralPath $fixtureRoot -PathType Container) {
+                Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction Stop
+            }
+        } finally {
+            $env:APPDATA = $originalAppData
+        }
     }
 }
 Write-Output 'Windows public Capture/Plan/Preflight operator passed synthetic owner, service, alpha-core, stage-pin, idle, stale, drift, refusal, receipt, and cleanup checks.'

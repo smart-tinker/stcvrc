@@ -12,6 +12,7 @@ $requestShape = 'unread'
 try {
     . (Join-Path $PSScriptRoot 'windows_core_preimage_paths.ps1')
     . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
+    . (Join-Path $PSScriptRoot 'windows_legacy_state_transaction.ps1')
     . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
 
     $stage = 'read-request'

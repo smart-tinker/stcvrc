@@ -51,6 +51,8 @@ function Get-CvrLegacyState {
     )
     $files = foreach ($path in $filePaths) {
         if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if ($item.Length -gt 262144) { throw 'CVR window-state preimage exceeds the bounded receipt size.' }
             $acl = Get-Acl -LiteralPath $path
             [PSCustomObject]@{
                 path = $path
@@ -71,6 +73,9 @@ function Get-CvrLegacyState {
     )
     $registry = foreach ($target in $registryTargets) {
         $value = Get-CvrLegacyRunValue -Hive $target.hive -Name $target.name
+        if ($value -and ($value.kind -notin @('String','ExpandString') -or $value.data -isnot [string] -or $value.data.Length -gt 4096)) {
+            throw 'CVR Run-value preimage is outside the bounded rollback contract.'
+        }
         [PSCustomObject]@{
             hive = $target.hive
             name = $target.name

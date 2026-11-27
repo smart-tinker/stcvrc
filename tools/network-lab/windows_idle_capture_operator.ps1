@@ -248,6 +248,33 @@ function ConvertTo-CvrIdleOperatorObservation {
     }
 }
 
+function Get-CvrIdleOperatorFreshObservation {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object]$Capture)
+
+    $observer = $Capture.rollbackState.observer
+    $request = [PSCustomObject]@{
+        Capture = $Capture
+        Observer = [PSCustomObject]@{
+            ExpectedOwnerSid = [string]$observer.ownerSid
+            ExpectedSessionId = [int]$observer.sessionId
+            ExpectedServiceAccountSid = [string]$observer.serviceAccountSid
+        }
+    }
+    $snapshot = Get-CvrIdleOperatorWindowsSnapshot -Request $request
+    $observation = ConvertTo-CvrIdleOperatorObservation -Snapshot $snapshot -Request $request
+    return [PSCustomObject]@{
+        SampledAtUtc = $snapshot.SampledAtUtc
+        Observation = $observation
+        Observer = [PSCustomObject]@{
+            ownerSid = [string]$snapshot.CurrentOwnerSid
+            sessionId = [int]$snapshot.CurrentSessionId
+            serviceAccountSid = [string]$snapshot.Service.AccountSid
+            serviceProcessId = [int]$snapshot.Service.ProcessId
+        }
+    }
+}
+
 function Quote-CvrIdleOperatorArgument([string]$Value) {
     if ($Value.Contains('"')) { throw 'CVR_CAPTURE_UNKNOWN:argument' }
     return '"' + $Value + '"'
@@ -441,6 +468,7 @@ function Invoke-CvrIdleCaptureOperator {
             'tools/network-lab/windows_core_preimage_paths.ps1',
             'tools/network-lab/windows_idle_baseline_guard.ps1',
             'tools/network-lab/windows_idle_transaction.ps1',
+            'tools/network-lab/windows_legacy_state_transaction.ps1',
             'tools/network-lab/windows_idle_preflight_package_writer.ps1',
             'tools/network-lab/windows_idle_preflight.ps1'
         )
@@ -465,6 +493,7 @@ function Invoke-CvrIdleCaptureOperator {
         }
         . (Join-Path $root 'tools\network-lab\windows_core_preimage_paths.ps1')
         . (Join-Path $root 'tools\network-lab\windows_idle_baseline_guard.ps1')
+        . (Join-Path $root 'tools\network-lab\windows_legacy_state_transaction.ps1')
         . (Join-Path $root 'tools\network-lab\windows_idle_transaction.ps1')
         $null = Assert-CvrIdleCaptureAcl -Path $root -Directory
         $stage = 'binding'
@@ -499,7 +528,8 @@ function Invoke-CvrIdleCaptureOperator {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'seed-shape') }
         }
         if ($request.Capture.PSObject.Properties['capturedAtUtc'] -or
-            $request.Capture.PSObject.Properties['idleObservation']) {
+            $request.Capture.PSObject.Properties['idleObservation'] -or
+            $request.Capture.PSObject.Properties['rollbackState']) {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stale-seed') }
         }
         $payloadPins = [ordered]@{
@@ -562,10 +592,38 @@ function Invoke-CvrIdleCaptureOperator {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'REFUSED' -Reason 'not-idle') }
         }
         try {
+            $installDirectory = [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName([string]$capture.pinnedFiles.gui258))
+            if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath([string]$capture.pinnedFiles.serviceExe258)) -ine $installDirectory) {
+                throw 'rollback install directory'
+            }
+            $legacySnapshot = Get-CvrLegacyState
+            $legacyState = [ordered]@{
+                files = @($legacySnapshot.files | ForEach-Object {
+                    [ordered]@{ path=[string]$_.path; present=[bool]$_.present; bytes=$_.bytes; sddl=$_.sddl }
+                })
+                registry = @($legacySnapshot.registry | ForEach-Object {
+                    [ordered]@{ hive=[string]$_.hive; name=[string]$_.name; present=[bool]$_.present; kind=$_.kind; data=$_.data }
+                })
+            }
+            $rollbackState = [ordered]@{
+                schemaVersion = 1
+                installDirectory = $installDirectory
+                gui = Save-CvrIdleFilePreimageBackup -Root $local -Role 'gui' -SourcePath ([string]$capture.pinnedFiles.gui258) -ExpectedInstallDirectory $installDirectory -ExpectedSha256 ([string]$pins.gui258)
+                serviceExe = Save-CvrIdleFilePreimageBackup -Root $local -Role 'service-exe' -SourcePath ([string]$capture.pinnedFiles.serviceExe258) -ExpectedInstallDirectory $installDirectory -ExpectedSha256 ([string]$pins.serviceExe258)
+                legacyState = $legacyState
+                observer = [ordered]@{
+                    ownerSid = [string]$request.Observer.ExpectedOwnerSid
+                    sessionId = [int]$request.Observer.ExpectedSessionId
+                    serviceAccountSid = [string]$request.Observer.ExpectedServiceAccountSid
+                    serviceProcessId = [int]$snapshot.Service.ProcessId
+                }
+            }
+            $null = $capture | Add-Member -MemberType NoteProperty -Name 'rollbackState' -Value $rollbackState
             $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity ([string]$request.ExpectedTargetIdentity) -ExpectedPins $pins
+            $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $pins -ExpectedLocalRoot $local
         } catch {
-            $reason = if ($_.Exception.Message -match 'pin|pinned input') { 'pin-drift' } else { 'capture-guard' }
-            return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'REFUSED' -Reason $reason) }
+            $reason = if ($_.Exception.Message -match 'pin|pinned input') { 'pin-drift' } else { 'rollback-state' }
+            return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason $reason) }
         }
         $capture.capturedAtUtc = $capture.capturedAtUtc.ToString('o')
         $writerRequest = [ordered]@{
@@ -656,6 +714,9 @@ function Invoke-CvrIdleCaptureOperator {
             [string]$stored.sourceManifestSha256 -ine $ExpectedPackageManifestSha256) {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'preflight-receipt') }
         }
+        $stage = 'post-preflight-observation'
+        $freshObservation = Get-CvrIdleOperatorFreshObservation -Capture $capture
+        $null = Assert-CvrIdleFreshObservation -Capture $capture -Fresh $freshObservation -RequireSameServicePid
         $public = New-CvrIdleOperatorOutcome -Status 'COMPLETE' -Reason 'preflight-complete' -Result ([string]$preflight.result) -ExitCode ([int]$preflight.exitCode) -TimedOut ([bool]$preflight.timedOut) -ChildStopped ([bool]$preflight.childStopped) -ChildExitCode $preflight.childExitCode -ReceiptId ([string]$preflight.receiptId) -PlanSha256 $planSha -SourceManifestSha256 ([string]$preflight.sourceManifestSha256)
         return [PSCustomObject]@{
             Public = $public
@@ -673,6 +734,7 @@ function Invoke-CvrIdleCaptureOperator {
         elseif ($stage -eq 'capture') { $reason = 'capture-failed' }
         elseif ($stage -eq 'plan') { $reason = 'plan-failed' }
         elseif ($stage -eq 'preflight') { $reason = 'preflight-unknown' }
+        elseif ($stage -eq 'post-preflight-observation') { $reason = 'fresh-observation' }
         return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason $reason) }
     } finally {
         if ($binding -and $binding.OpenFiles) {
