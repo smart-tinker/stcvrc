@@ -305,7 +305,11 @@ try {
             $provenance.serviceIpcLicense.sourcePath -ceq $record.serviceIpcLicense.sourcePath -and
             $provenance.serviceIpcLicense.sourceCommit -ceq $record.serviceIpcLicense.sourceCommit -and
             $provenance.serviceIpcLicense.sourceSha256 -ceq $record.serviceIpcLicense.sourceSha256 -and
-            $provenance.serviceIpcLicense.archive -ceq $record.serviceIpcLicense.archive
+            $provenance.serviceIpcLicense.archive.id -eq $record.serviceIpcLicense.archive.id -and
+            $provenance.serviceIpcLicense.archive.name -ceq $record.serviceIpcLicense.archive.name -and
+            $provenance.serviceIpcLicense.archive.size -eq $record.serviceIpcLicense.archive.size -and
+            $provenance.serviceIpcLicense.archive.sha256 -ceq $record.serviceIpcLicense.archive.sha256 -and
+            $provenance.serviceIpcLicense.archive.url -ceq $record.serviceIpcLicense.archive.url
         ) 'Inner and external Service IPC license records differ.'
 
         Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 14) 'Source manifest schema or file count is wrong.'
