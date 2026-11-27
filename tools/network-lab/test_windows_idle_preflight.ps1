@@ -887,7 +887,7 @@ exit ([int]$operatorExitCode)
         VerifyScript = $verifyRestore
     }
     $handoff = Invoke-CvrIdlePreflightTargetTransaction @transactionArguments
-    Assert-PreflightTest (
+    $handoffAccepted = (
         $handoff.status -ceq 'PASS' -and
         $null -eq $handoff.actionErrorType -and
         $null -eq $handoff.restoreErrorType -and
@@ -895,7 +895,72 @@ exit ([int]$operatorExitCode)
         $script:preflightHandoffCandidateChecks -eq 1 -and
         $script:preflightHandoffRestoreCalls -eq 1 -and
         -not $script:syntheticCandidateRunning
-    ) 'The verified public Preflight handoff did not run candidate acceptance and exact restore.'
+    )
+    if (-not $handoffAccepted) {
+        $handoffType = '<null>'
+        $handoffCount = 0
+        $handoffStatus = '<missing>'
+        $handoffActionErrorType = '<missing>'
+        $handoffRestoreErrorType = '<missing>'
+        if ($null -ne $handoff) {
+            if ($handoff -is [PSCustomObject]) {
+                $handoffType = 'PSCustomObject'
+                $handoffCount = @($handoff.PSObject.Properties).Count
+            } elseif ($handoff -is [System.Collections.IDictionary]) {
+                $handoffType = 'IDictionary'
+                $handoffCount = $handoff.Count
+            } elseif ($handoff -is [System.Collections.ICollection]) {
+                $handoffType = 'ICollection'
+                $handoffCount = $handoff.Count
+            } else {
+                $handoffType = '<other>'
+                $handoffCount = @($handoff.PSObject.Properties).Count
+            }
+            $statusProperty = $handoff.PSObject.Properties['status']
+            if ($statusProperty) {
+                if ([string]$statusProperty.Value -cin @('PASS','ACTION_FAILED_RESTORED','RESTORE_FAILED')) {
+                    $handoffStatus = [string]$statusProperty.Value
+                } else {
+                    $handoffStatus = '<other>'
+                }
+            }
+            $actionErrorProperty = $handoff.PSObject.Properties['actionErrorType']
+            if ($actionErrorProperty) {
+                if ($null -eq $actionErrorProperty.Value) {
+                    $handoffActionErrorType = $null
+                } elseif ($actionErrorProperty.Value -is [string] -and
+                    [string]$actionErrorProperty.Value -match '^[A-Za-z][A-Za-z0-9_.]{0,63}$') {
+                    $handoffActionErrorType = [string]$actionErrorProperty.Value
+                } else {
+                    $handoffActionErrorType = '<other>'
+                }
+            }
+            $restoreErrorProperty = $handoff.PSObject.Properties['restoreErrorType']
+            if ($restoreErrorProperty) {
+                if ($null -eq $restoreErrorProperty.Value) {
+                    $handoffRestoreErrorType = $null
+                } elseif ($restoreErrorProperty.Value -is [string] -and
+                    [string]$restoreErrorProperty.Value -match '^[A-Za-z][A-Za-z0-9_.]{0,63}$') {
+                    $handoffRestoreErrorType = [string]$restoreErrorProperty.Value
+                } else {
+                    $handoffRestoreErrorType = '<other>'
+                }
+            }
+        }
+        $failureEvidence = [ordered]@{
+            status = $handoffStatus
+            actionErrorType = $handoffActionErrorType
+            restoreErrorType = $handoffRestoreErrorType
+            resultType = $handoffType
+            resultCount = [int]$handoffCount
+            actionCalls = [int]$script:preflightHandoffActionCalls
+            candidateCheckCalls = [int]$script:preflightHandoffCandidateChecks
+            restoreCalls = [int]$script:preflightHandoffRestoreCalls
+            syntheticCandidateRunning = [bool]$script:syntheticCandidateRunning
+        }
+        $evidenceJson = ConvertTo-Json -InputObject $failureEvidence -Compress -Depth 3 -ErrorAction Stop
+        throw ("The verified public Preflight handoff did not run candidate acceptance and exact restore. evidence=" + $evidenceJson)
+    }
     Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
     Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'successful candidate handoff'
 
