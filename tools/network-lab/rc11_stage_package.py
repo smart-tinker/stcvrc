@@ -241,7 +241,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
         }
 
     require(license_bytes is not None, "pinned Service IPC license is missing")
-    normalized_license = license_bytes.replace(b"\\r\\n", b"\\n")
+    normalized_license = license_bytes.replace(b"\r\n", b"\n")
     require(hashlib.sha256(normalized_license).hexdigest() == license_pin["sourceSha256"], "Service IPC LICENSE differs from the pinned source")
     license_record = bytes_record(license_bytes, SERVICE_IPC_LICENSE_PATH)
     require(license_record["sha256"] == license_pin["archiveSha256"], "Service IPC LICENSE archive SHA256 mismatch")
@@ -272,7 +272,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
     }
     provenance_bytes = (
         json.dumps({"schemaVersion": 1, "cvrServiceInstallHelpers": helper_records, "serviceIpcLicense": license_record_external},
-                   ensure_ascii=False, separators=(",", ":")) + "\\n"
+                   ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode("utf-8")
     provenance_record = bytes_record(provenance_bytes, SERVICE_IPC_PROVENANCE_PATH)
 
@@ -285,7 +285,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
     )
     manifest_bytes = (
         json.dumps({"schemaVersion": 1, "files": [{"path": item["path"], "sha256": item["sha256"]} for item in file_records]},
-                   ensure_ascii=False, separators=(",", ":")) + "\\n"
+                   ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode("utf-8")
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
 
@@ -345,7 +345,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
             "provenanceFile": provenance_record,
             "sourceFiles": source_records,
         }
-        record_output.write_text(json.dumps(record, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+        record_output.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return record
     except Exception:
         output.unlink(missing_ok=True)

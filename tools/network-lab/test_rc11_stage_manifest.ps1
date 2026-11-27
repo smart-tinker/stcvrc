@@ -147,7 +147,8 @@ try {
     $updatePath = Join-Path $tempRoot 'Clash.Verge_2.5.10_x64-setup.exe'
     $script:recoveryIpcArchivePath = Join-Path $tempRoot 'clash-verge-service-ipc-v2.7.6.zip'
     $script:updateIpcArchivePath = Join-Path $tempRoot 'clash-verge-service-ipc-v2.7.7.zip'
-    $licenseBytes = [Text.Encoding]::UTF8.GetBytes('Synthetic Service IPC license')
+    $licenseBytes = [Text.Encoding]::UTF8.GetBytes("Synthetic Service IPC license`r`n")
+    $sourceLicenseBytes = [Text.Encoding]::UTF8.GetBytes("Synthetic Service IPC license`n")
     $recoveryHelperBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.6-helper')
     $updateHelperBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.7-helper')
     Write-TestZip $script:recoveryIpcArchivePath @{
@@ -178,7 +179,7 @@ try {
     $recoveryHelperSha = Get-StageBytesSha256 $recoveryHelperBytes
     $updateHelperSha = Get-StageBytesSha256 $updateHelperBytes
     $licenseSha = Get-StageBytesSha256 $licenseBytes
-    $sourceLicenseSha = Get-StageBytesSha256 ([Text.Encoding]::UTF8.GetBytes('Synthetic Service IPC license'))
+    $sourceLicenseSha = Get-StageBytesSha256 $sourceLicenseBytes
     $buildPath = Join-Path $tempRoot 'build.json'
     $inputsPath = Join-Path $tempRoot 'inputs.json'
     $build = [ordered]@{
@@ -258,6 +259,55 @@ try {
         $manifestSha = Get-StageBytesSha256 $manifestBytes
         Assert-StageTest ($manifestSha -ceq $record.sourceManifest.sha256) 'External manifest digest does not pin archive bytes.'
         $manifest = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)) -ErrorAction Stop
+        $provenanceEntry = $archive.GetEntry('provenance/cvr-service-install-helpers.json')
+        Assert-StageTest ($null -ne $provenanceEntry) 'Stage archive has no helper provenance JSON.'
+        $provenanceBytes = Read-ZipEntryBytes $provenanceEntry
+        Assert-StageTest ((Get-StageBytesSha256 $provenanceBytes) -ceq $record.provenanceFile.sha256) 'Inner provenance bytes do not match the external stage record.'
+        $provenance = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($provenanceBytes)) -ErrorAction Stop
+        $innerHelpers = @($provenance.cvrServiceInstallHelpers)
+        $externalHelpers = @($record.cvrServiceInstallHelpers)
+        Assert-StageTest ($provenance.schemaVersion -eq 1 -and $innerHelpers.Count -eq 2 -and $externalHelpers.Count -eq 2) 'Inner or external helper provenance schema/count is wrong.'
+        foreach ($version in @('2.5.8', '2.5.10')) {
+            $innerMatches = @($innerHelpers | Where-Object { $_.version -ceq $version })
+            $externalMatches = @($externalHelpers | Where-Object { $_.version -ceq $version })
+            Assert-StageTest ($innerMatches.Count -eq 1 -and $externalMatches.Count -eq 1) ('Helper provenance omitted or duplicated CVR ' + $version)
+            $innerHelper = $innerMatches[0]
+            $externalHelper = $externalMatches[0]
+            Assert-StageTest (
+                $innerHelper.version -ceq $externalHelper.version -and
+                $innerHelper.path -ceq $externalHelper.path -and
+                $innerHelper.sha256 -ceq $externalHelper.sha256 -and
+                $innerHelper.size -eq $externalHelper.size -and
+                $innerHelper.installer.path -ceq $externalHelper.installer.path -and
+                $innerHelper.installer.sha256 -ceq $externalHelper.installer.sha256 -and
+                $innerHelper.installer.size -eq $externalHelper.installer.size -and
+                $innerHelper.installer.tag -ceq $externalHelper.installer.tag -and
+                $innerHelper.installer.releaseId -eq $externalHelper.installer.releaseId -and
+                $innerHelper.installer.assetId -eq $externalHelper.installer.assetId -and
+                $innerHelper.serviceIpc.repository -ceq $externalHelper.serviceIpc.repository -and
+                $innerHelper.serviceIpc.tag -ceq $externalHelper.serviceIpc.tag -and
+                $innerHelper.serviceIpc.sourceCommit -ceq $externalHelper.serviceIpc.sourceCommit -and
+                $innerHelper.serviceIpc.asset.id -eq $externalHelper.serviceIpc.asset.id -and
+                $innerHelper.serviceIpc.asset.name -ceq $externalHelper.serviceIpc.asset.name -and
+                $innerHelper.serviceIpc.asset.size -eq $externalHelper.serviceIpc.asset.size -and
+                $innerHelper.serviceIpc.asset.sha256 -ceq $externalHelper.serviceIpc.asset.sha256 -and
+                $innerHelper.serviceIpc.asset.url -ceq $externalHelper.serviceIpc.asset.url -and
+                $innerHelper.serviceIpc.helper.file -ceq $externalHelper.serviceIpc.helper.file -and
+                $innerHelper.serviceIpc.helper.size -eq $externalHelper.serviceIpc.helper.size -and
+                $innerHelper.serviceIpc.helper.sha256 -ceq $externalHelper.serviceIpc.helper.sha256
+            ) ('Inner and external provenance differ for CVR ' + $version)
+        }
+        Assert-StageTest (
+            $provenance.serviceIpcLicense.path -ceq $record.serviceIpcLicense.path -and
+            $provenance.serviceIpcLicense.sha256 -ceq $record.serviceIpcLicense.sha256 -and
+            $provenance.serviceIpcLicense.size -eq $record.serviceIpcLicense.size -and
+            $provenance.serviceIpcLicense.repository -ceq $record.serviceIpcLicense.repository -and
+            $provenance.serviceIpcLicense.sourcePath -ceq $record.serviceIpcLicense.sourcePath -and
+            $provenance.serviceIpcLicense.sourceCommit -ceq $record.serviceIpcLicense.sourceCommit -and
+            $provenance.serviceIpcLicense.sourceSha256 -ceq $record.serviceIpcLicense.sourceSha256 -and
+            $provenance.serviceIpcLicense.archive -ceq $record.serviceIpcLicense.archive
+        ) 'Inner and external Service IPC license records differ.'
+
         Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 14) 'Source manifest schema or file count is wrong.'
         $expectedFiles = @($sourceNames)
         $expectedFiles += @(
@@ -361,6 +411,27 @@ try {
     $wrongSourceZip = Join-Path $tempRoot 'wrong-source.zip'
     $wrongSourceRecord = Join-Path $tempRoot 'wrong-source.json'
     Assert-PackageRejected $packager $syntheticSource $wrongSourceSha $buildPath $inputsPath $corePath $coreSha $recoveryPath $updatePath $wrongSourceZip $wrongSourceRecord 'source SHA mismatch'
+
+    $swappedIpcZip = Join-Path $tempRoot 'swapped-ipc.zip'
+    $swappedIpcRecord = Join-Path $tempRoot 'swapped-ipc.json'
+    $originalRecoveryIpcArchivePath = $script:recoveryIpcArchivePath
+    $originalUpdateIpcArchivePath = $script:updateIpcArchivePath
+    try {
+        $script:recoveryIpcArchivePath = $originalUpdateIpcArchivePath
+        $script:updateIpcArchivePath = $originalRecoveryIpcArchivePath
+        Assert-PackageRejected $packager $syntheticSource $sourceSha $buildPath $inputsPath $corePath $coreSha $recoveryPath $updatePath $swappedIpcZip $swappedIpcRecord 'swapped Service IPC archives'
+    } finally {
+        $script:recoveryIpcArchivePath = $originalRecoveryIpcArchivePath
+        $script:updateIpcArchivePath = $originalUpdateIpcArchivePath
+    }
+
+    $badLicenseInputsPath = Join-Path $tempRoot 'wrong-service-ipc-source-license.json'
+    $badLicenseInputs = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($inputsPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $badLicenseInputs.serviceIpcLicense.sourceSha256 = if ($sourceLicenseSha[0] -ceq '0') { '1' + $sourceLicenseSha.Substring(1) } else { '0' + $sourceLicenseSha.Substring(1) }
+    [IO.File]::WriteAllText($badLicenseInputsPath, (ConvertTo-Json -InputObject $badLicenseInputs -Depth 10), [Text.UTF8Encoding]::new($false))
+    $wrongLicenseZip = Join-Path $tempRoot 'wrong-service-ipc-source-license.zip'
+    $wrongLicenseRecord = Join-Path $tempRoot 'wrong-service-ipc-source-license.record.json'
+    Assert-PackageRejected $packager $syntheticSource $sourceSha $buildPath $badLicenseInputsPath $corePath $coreSha $recoveryPath $updatePath $wrongLicenseZip $wrongLicenseRecord 'wrong Service IPC source LICENSE digest'
 
     $sourceTamperPath = Join-Path $syntheticSource 'tools\network-lab\windows_idle_preflight.ps1'
     [IO.File]::AppendAllText($sourceTamperPath, 'uncommitted source bytes', [Text.UTF8Encoding]::new($false))
