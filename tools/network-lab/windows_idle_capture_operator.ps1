@@ -250,11 +250,15 @@ function ConvertTo-CvrIdleOperatorObservation {
 
 function Get-CvrIdleOperatorFreshObservation {
     [CmdletBinding()]
-    param([Parameter(Mandatory = $true)][object]$Capture)
+    param(
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins
+    )
 
     $observer = $Capture.rollbackState.observer
     $request = [PSCustomObject]@{
         Capture = $Capture
+        ExpectedPins = $ExpectedPins
         Observer = [PSCustomObject]@{
             ExpectedOwnerSid = [string]$observer.ownerSid
             ExpectedSessionId = [int]$observer.sessionId
@@ -715,7 +719,7 @@ function Invoke-CvrIdleCaptureOperator {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'preflight-receipt') }
         }
         $stage = 'post-preflight-observation'
-        $freshObservation = Get-CvrIdleOperatorFreshObservation -Capture $capture
+        $freshObservation = Get-CvrIdleOperatorFreshObservation -Capture $capture -ExpectedPins $pins
         $null = Assert-CvrIdleFreshObservation -Capture $capture -Fresh $freshObservation -RequireSameServicePid
         $public = New-CvrIdleOperatorOutcome -Status 'COMPLETE' -Reason 'preflight-complete' -Result ([string]$preflight.result) -ExitCode ([int]$preflight.exitCode) -TimedOut ([bool]$preflight.timedOut) -ChildStopped ([bool]$preflight.childStopped) -ChildExitCode $preflight.childExitCode -ReceiptId ([string]$preflight.receiptId) -PlanSha256 $planSha -SourceManifestSha256 ([string]$preflight.sourceManifestSha256)
         return [PSCustomObject]@{

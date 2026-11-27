@@ -684,6 +684,15 @@ exit ([int]$operatorExitCode)
     $operatorPlanDirectoriesBefore = @(Get-ChildItem -LiteralPath $localRoot -Directory -Filter 'prepared-idle-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
     $validOperator = Invoke-CaptureOperatorScenario -Name 'valid' -Scenario (New-CaptureOperatorScenario)
     $validOperatorResult = $validOperator.Document
+    $observedStatus = if ($validOperatorResult -and [string]$validOperatorResult.status -in @('COMPLETE','REFUSED','INCOMPLETE')) { [string]$validOperatorResult.status } else { 'other' }
+    $observedReason = if ($validOperatorResult -and [string]$validOperatorResult.reason -match '^[a-z][a-z0-9-]{0,63}$') { [string]$validOperatorResult.reason } else { 'other' }
+    $observedResult = if ($validOperatorResult -and [string]$validOperatorResult.result -in @('PASS','FAIL','TIMEOUT','UNKNOWN')) { [string]$validOperatorResult.result } else { 'other' }
+    $observedResultExitCode = if ($validOperatorResult -and ($validOperatorResult.exitCode -is [int] -or $validOperatorResult.exitCode -is [long])) { [string]$validOperatorResult.exitCode } else { 'missing' }
+    $observedProcessExitCode = if ($validOperator.ExitCode -is [int] -or $validOperator.ExitCode -is [long]) { [string]$validOperator.ExitCode } else { 'missing' }
+    $observedTimedOut = if ($validOperatorResult -and $validOperatorResult.timedOut -is [bool]) { [string]$validOperatorResult.timedOut } else { 'missing' }
+    $observedChildStopped = if ($validOperatorResult -and $validOperatorResult.childStopped -is [bool]) { [string]$validOperatorResult.childStopped } else { 'missing' }
+    $observedChildExitCode = if ($validOperatorResult -and ($validOperatorResult.childExitCode -is [int] -or $validOperatorResult.childExitCode -is [long])) { [string]$validOperatorResult.childExitCode } else { 'missing' }
+    $stderrPresent = -not [string]::IsNullOrEmpty($validOperator.StdErr)
     Assert-PreflightTest (
         $null -ne $validOperatorResult -and
         $validOperator.ExitCode -eq 0 -and
@@ -698,7 +707,7 @@ exit ([int]$operatorExitCode)
         [string]$validOperatorResult.sourceManifestSha256 -ceq $manifestSha256 -and
         [string]$validOperatorResult.receiptId -match '^[0-9a-f]{32}$' -and
         [string]::IsNullOrEmpty($validOperator.StdErr)
-    ) 'The public Capture operator did not complete Capture/Plan/Preflight with distinct PASS evidence.'
+    ) ("The public Capture operator did not complete Capture/Plan/Preflight with distinct PASS evidence. status=$observedStatus reason=$observedReason result=$observedResult resultExit=$observedResultExitCode processExit=$observedProcessExitCode timedOut=$observedTimedOut childStopped=$observedChildStopped childExitCode=$observedChildExitCode stderrPresent=$stderrPresent.")
     Assert-PreflightTest (
         -not $validOperator.StdOut.Contains($stageRoot) -and
         -not $validOperator.StdOut.Contains($seedPath) -and
