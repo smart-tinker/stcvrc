@@ -860,6 +860,15 @@ jobs:
               "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v${version}/${name}" \
               -o "$installers/$name"
           done
+          ipc="$root/cvr-service-ipc"
+          mkdir -p "$ipc"
+          for tag in v2.7.6 v2.7.7; do
+            name="clash-verge-service-ipc-${tag}-x86_64-pc-windows-msvc.zip"
+            curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 180 --max-filesize 16777216 \
+              --silent --show-error \
+              "https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/download/${tag}/${name}" \
+              -o "$ipc/$name"
+          done
           python "$recipe/tools/network-lab/rc11_stage_package.py" pack \
             --source-root "$recipe" --source-sha "$SOURCE_SHA" \
             --build-report "$root/output/build.json" \
@@ -868,6 +877,8 @@ jobs:
             --native-core-sha256 "$NATIVE_CORE_SHA256" \
             --recovery-installer "$installers/Clash.Verge_2.5.8_x64-setup.exe" \
             --update-installer "$installers/Clash.Verge_2.5.10_x64-setup.exe" \
+            --recovery-ipc-archive "$ipc/clash-verge-service-ipc-v2.7.6-x86_64-pc-windows-msvc.zip" \
+            --update-ipc-archive "$ipc/clash-verge-service-ipc-v2.7.7-x86_64-pc-windows-msvc.zip" \
             --output "$root/output/RC11-WINDOWS-STAGE.zip" \
             --record "$root/output/RC11-WINDOWS-STAGE.json"
 
