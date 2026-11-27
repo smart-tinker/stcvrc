@@ -245,7 +245,7 @@ try {
     }
 
     $badBuildPath = Join-Path $tempRoot 'wrong-release-build.json'
-    $badBuild = $build.Clone()
+    $badBuild = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $build -Depth 8) -ErrorAction Stop
     $badBuild.version = '1.19.33-STCVRC-rc.10'
     [IO.File]::WriteAllText($badBuildPath, (ConvertTo-Json -InputObject $badBuild -Depth 8), [Text.UTF8Encoding]::new($false))
     $badReleaseZip = Join-Path $tempRoot 'wrong-release.zip'
@@ -253,7 +253,7 @@ try {
     Assert-PackageRejected $packager $syntheticSource $sourceSha $badBuildPath $inputsPath $corePath $coreSha $recoveryPath $updatePath $badReleaseZip $badReleaseRecord 'RC10 build identity'
 
     $badDependencyBuildPath = Join-Path $tempRoot 'wrong-dependency-build.json'
-    $badDependencyBuild = $build.Clone()
+    $badDependencyBuild = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $build -Depth 8) -ErrorAction Stop
     $badDependencyBuild.selected_dependency_versions = @{
         'github.com/gobwas/ws' = 'v1.4.0'
         'github.com/insomniacslk/dhcp' = 'v0.0.0-20260719225207-c76316d4aa82'
