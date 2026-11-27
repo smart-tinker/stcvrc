@@ -32,8 +32,45 @@ function Invoke-StagePack(
         '--native-core-sha256', $CoreSha, '--recovery-installer', $RecoveryPath,
         '--update-installer', $UpdatePath, '--output', $OutputPath, '--record', $RecordPath
     )
-    $output = @(& $python $Packager @packArgs 2>&1 | ForEach-Object { [string]$_ })
-    return [PSCustomObject]@{ ExitCode = [int]$LASTEXITCODE; Output = $output }
+    $arguments = @($Packager) + $packArgs
+    foreach ($argument in $arguments) {
+        if ($argument.Contains('"')) { throw 'Unsafe Python argument.' }
+    }
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $python
+    $startInfo.Arguments = (@($arguments | ForEach-Object { '"' + $_ + '"' }) -join ' ')
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false, $true)
+    $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false, $true)
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    $started = $false
+    try {
+        if (-not $process.Start()) { throw 'Python stage packager did not start.' }
+        $started = $true
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(30000)) {
+            try { $process.Kill(); $null = $process.WaitForExit(5000) } catch {}
+            if (-not $process.HasExited) { throw 'Python stage packager stop could not be proven.' }
+            throw 'Python stage packager exceeded 30 seconds.'
+        }
+        $output = @()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($stdout.Length -gt 0) { $output += $stdout }
+        if ($stderr.Length -gt 0) { $output += $stderr }
+        return [PSCustomObject]@{ ExitCode = [int]$process.ExitCode; StdOut = $stdout; StdErr = $stderr; Output = $output }
+    } finally {
+        if ($started -and -not $process.HasExited) {
+            try { $process.Kill(); $null = $process.WaitForExit(5000) } catch {}
+            if (-not $process.HasExited) { throw 'Python stage packager did not stop.' }
+        }
+        $process.Dispose()
+    }
 }
 function Assert-PackageRejected(
     [string]$Packager, [string]$SyntheticSource, [string]$SourceSha,
@@ -43,6 +80,7 @@ function Assert-PackageRejected(
 ) {
     $result = Invoke-StagePack $Packager $SyntheticSource $SourceSha $BuildPath $InputsPath $CorePath $CoreSha $RecoveryPath $UpdatePath $OutputPath $RecordPath
     Assert-StageTest ($result.ExitCode -ne 0) "$Case was accepted by the RC11 stage packager."
+    Assert-StageTest ($result.StdErr -match '(?m)^RC11 stage packaging failed: .+') "$Case did not return a packager rejection diagnostic on stderr."
     Assert-StageTest (-not (Test-Path -LiteralPath $OutputPath) -and -not (Test-Path -LiteralPath $RecordPath)) "$Case left a partial stage package."
 }
 
