@@ -1217,7 +1217,7 @@ function Open-CvrIdleHandoffRecord {
         [Parameter(Mandatory = $true)][ValidateSet('capture-idle','prepared-idle','preflight-idle')][string]$DirectoryPrefix,
         [Parameter(Mandatory = $true)][string]$FileName,
         [Parameter(Mandatory = $true)][ValidateRange(1,1048576)][int]$MaximumBytes,
-        [Parameter(Mandatory = $true)][Collections.Generic.List[IO.FileStream]]$OpenFiles
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][Collections.Generic.List[IO.FileStream]]$OpenFiles
     )
 
     $fullPath = [IO.Path]::GetFullPath($Path)
