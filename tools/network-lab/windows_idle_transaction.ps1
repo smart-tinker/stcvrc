@@ -513,7 +513,9 @@ function Save-CvrIdlePreflightCapture {
     )
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
-    $null = Assert-CvrIdleRollbackState -Capture $Capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot ([IO.Path]::GetFullPath((Join-Path $PackageRoot 'local')))
+    if ($null -ne $Capture.rollbackState) {
+        $null = Assert-CvrIdleRollbackState -Capture $Capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot ([IO.Path]::GetFullPath((Join-Path $PackageRoot 'local')))
+    }
     $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
     try {
     try {
@@ -660,7 +662,9 @@ function Save-CvrIdlePreflightPlan {
     )
 
     $null = Assert-CvrIdleTargetCapture -Capture $Capture -ExpectedTargetIdentity $ExpectedTargetIdentity -ExpectedPins $ExpectedPins
-    $null = Assert-CvrIdleRollbackState -Capture $Capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot ([IO.Path]::GetFullPath((Join-Path $PackageRoot 'local')))
+    if ($null -ne $Capture.rollbackState) {
+        $null = Assert-CvrIdleRollbackState -Capture $Capture -ExpectedPins $ExpectedPins -ExpectedLocalRoot ([IO.Path]::GetFullPath((Join-Path $PackageRoot 'local')))
+    }
     $packageStageBinding = Get-CvrIdlePackageStageBinding -StageRoot $PackageRoot -ExpectedStageRoot $ExpectedStageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256
     try {
 
