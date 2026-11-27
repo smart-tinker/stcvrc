@@ -777,6 +777,7 @@ exit ([int]$operatorExitCode)
     $script:preflightHandoffActionCalls = 0
     $script:preflightHandoffCandidateChecks = 0
     $script:preflightHandoffRestoreCalls = 0
+    $script:preflightHandoffVerifyCalls = 0
     $script:transactionNegativeActionCalls = 0
     $candidateGuiBytes = [byte[]]@(9, 9, 9, 1)
     $candidateServiceBytes = [byte[]]@(9, 9, 9, 2)
@@ -858,8 +859,8 @@ exit ([int]$operatorExitCode)
         try {
             Restore-CvrCoreFilePreimage -Entry $context.Capture.corePair.programFiles -Role 'Program Files'
             Restore-CvrCoreFilePreimage -Entry $context.Capture.corePair.service -Role 'service'
-            Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.gui -Role 'gui' -ExpectedPath $guiPath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
-            Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath $serviceExePath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
+            $null = Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.gui -Role 'gui' -ExpectedPath $guiPath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
+            $null = Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath $serviceExePath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
             Restore-CvrLegacyState -State $context.Capture.rollbackState.legacyState
             return 'synthetic-idle-restored'
         } finally {
@@ -868,6 +869,7 @@ exit ([int]$operatorExitCode)
     }
     $verifyRestore = {
         param($context, $restoreResult, $actionResult)
+        $script:preflightHandoffVerifyCalls++
         Assert-CvrLegacyState -Expected $context.Capture.rollbackState.legacyState -Phase 'synthetic handoff verification'
         return ($restoreResult -ceq 'synthetic-idle-restored')
     }
@@ -947,7 +949,9 @@ exit ([int]$operatorExitCode)
                 }
             }
         }
+        $failurePhase = if ($script:preflightHandoffRestoreCalls -eq 0) { 'before-restore' } elseif ($script:preflightHandoffVerifyCalls -gt 0) { 'verify' } else { 'restore-callback' }
         $failureEvidence = [ordered]@{
+            phase = $failurePhase
             status = $handoffStatus
             actionErrorType = $handoffActionErrorType
             restoreErrorType = $handoffRestoreErrorType
@@ -956,6 +960,7 @@ exit ([int]$operatorExitCode)
             actionCalls = [int]$script:preflightHandoffActionCalls
             candidateCheckCalls = [int]$script:preflightHandoffCandidateChecks
             restoreCalls = [int]$script:preflightHandoffRestoreCalls
+            verifyCalls = [int]$script:preflightHandoffVerifyCalls
             syntheticCandidateRunning = [bool]$script:syntheticCandidateRunning
         }
         $evidenceJson = ConvertTo-Json -InputObject $failureEvidence -Compress -Depth 3 -ErrorAction Stop
