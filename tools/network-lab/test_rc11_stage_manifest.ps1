@@ -92,6 +92,7 @@ try {
     $null = New-Item -ItemType Directory -Path $syntheticSource
     $packager = Join-Path $SourceRoot 'tools\network-lab\rc11_stage_package.py'
     $sourceNames = @(
+        'tools/network-lab/windows_idle_capture_operator.ps1',
         'tools/network-lab/windows_core_preimage_paths.ps1',
         'tools/network-lab/windows_idle_baseline_guard.ps1',
         'tools/network-lab/windows_idle_transaction.ps1',
@@ -206,7 +207,7 @@ try {
         $manifestSha = Get-StageBytesSha256 $manifestBytes
         Assert-StageTest ($manifestSha -ceq $record.sourceManifest.sha256) 'External manifest digest does not pin archive bytes.'
         $manifest = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)) -ErrorAction Stop
-        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 8) 'Source manifest schema or file count is wrong.'
+        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 9) 'Source manifest schema or file count is wrong.'
         $expectedFiles = @($sourceNames)
         $expectedFiles += @(
             'payload/verge-mihomo.exe',
@@ -265,7 +266,7 @@ try {
         } catch { $wrongDigestRejected = $true }
         Assert-StageTest $wrongDigestRejected 'Wrong external source-manifest SHA256 reached stage handoff.'
         $binding = Get-CvrIdlePackageStageBinding -StageRoot $expectedRoot -ExpectedStageRoot $expectedRoot -ExpectedPackageManifestSha256 $manifestSha
-        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 9) 'Verified package did not bind all listed files.'
+        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 10) 'Verified package did not bind all listed files.'
         foreach ($handle in $binding.OpenFiles) { $handle.Dispose() }
 
         $tamperPath = Join-Path $stageRoot 'payload\verge-mihomo.exe'

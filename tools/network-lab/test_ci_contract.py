@@ -764,6 +764,9 @@ class CIContractTests(unittest.TestCase):
         self.assertNotIn("upload-artifact", stage_job)
         self.assertNotIn("actions/cache", stage_job)
         packager = (HERE / "rc11_stage_package.py").read_text(encoding="utf-8")
+        self.assertIn('"tools/network-lab/windows_idle_capture_operator.ps1"', packager)
+        stage_fixture = (HERE / "test_rc11_stage_manifest.ps1").read_text(encoding="utf-8")
+        self.assertIn("tools/network-lab/windows_idle_capture_operator.ps1", stage_fixture)
         self.assertIn("blocked until #86 provides", packager)
         assembly = workflow.split("\n  assemble-draft-rc:\n", 1)[1].split(
             "\n  test-module:\n", 1

@@ -17,6 +17,7 @@ DEPENDENCIES = {
     "github.com/insomniacslk/dhcp": "v0.0.0-20260719225207-c76316d4aa82",
 }
 SOURCE_FILES = (
+    "tools/network-lab/windows_idle_capture_operator.ps1",
     "tools/network-lab/windows_core_preimage_paths.ps1",
     "tools/network-lab/windows_idle_baseline_guard.ps1",
     "tools/network-lab/windows_idle_transaction.ps1",
