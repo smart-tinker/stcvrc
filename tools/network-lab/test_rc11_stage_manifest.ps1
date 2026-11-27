@@ -180,7 +180,7 @@ try {
         Assert-StageTest (($actualFiles -join ([string][char]10)) -ceq ($expectedFiles -join ([string][char]10))) 'Stage manifest does not contain the explicit RC11 file allowlist.'
         Assert-StageTest (-not (@($manifest.files | Where-Object { $_.path -ceq 'source-manifest.json' }).Count)) 'Source manifest recursively lists itself.'
         foreach ($entry in @($manifest.files)) {
-            Assert-StageTest ($entry.path -notmatch '(^/|\\|:|(^|/)\.\.?(/|$)') 'Source manifest contains an unsafe path.'
+            Assert-StageTest ($entry.path -notmatch '(^/|\\|:|(^|/)\.\.?(/|$))') 'Source manifest contains an unsafe path.'
             $zipEntry = $archive.GetEntry([string]$entry.path)
             Assert-StageTest ($null -ne $zipEntry) 'A source manifest file is missing from the package.'
             Assert-StageTest ((Get-StageBytesSha256 (Read-ZipEntryBytes $zipEntry)) -ceq [string]$entry.sha256) 'A packaged stage file does not match its manifest.'
