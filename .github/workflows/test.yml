@@ -641,6 +641,13 @@ jobs:
           & $powershell51 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $test
           if ($LASTEXITCODE -ne 0) { throw 'Native UDP parent readiness check failed.' }
 
+      - name: Check native public preflight wiring before native build
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location (Join-Path $env:PR_SOURCE 'tools\network-lab')
+          python -m unittest -v test_windows_native_acceptance.NativeWindowsAcceptanceContract.test_public_installer_runs_candidate_from_captured_idle_baseline_and_restores_it
+          if ($LASTEXITCODE -ne 0) { throw 'Native public preflight contract failed before the build.' }
+
       - name: Fresh native Windows core build
         id: build
         shell: bash
