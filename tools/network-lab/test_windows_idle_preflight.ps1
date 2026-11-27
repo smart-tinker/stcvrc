@@ -356,7 +356,8 @@ try {
         'windows_idle_transaction.ps1',
         'windows_legacy_state_transaction.ps1',
         'windows_idle_preflight_package_writer.ps1',
-        'windows_idle_preflight.ps1'
+        'windows_idle_preflight.ps1',
+        'windows_idle_preflight_target_operator.ps1'
     )
     foreach ($name in $operatorStageFiles) {
         $sourcePath = Join-Path $PSScriptRoot $name
@@ -374,6 +375,7 @@ try {
     [IO.File]::WriteAllText($manifestPath, (ConvertTo-Json -InputObject $manifest -Depth 5 -Compress), [Text.UTF8Encoding]::new($false))
     $manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $stageRoot = [IO.Path]::GetFullPath($packageRoot)
+    . (Join-Path $networkLabStageRoot 'windows_idle_preflight_target_operator.ps1')
 
     $programFilesDirectory = Join-Path $fixtureRoot 'program-files'
     $serviceDirectory = Join-Path $fixtureRoot 'service-core'
@@ -739,6 +741,15 @@ exit ([int]$operatorExitCode)
     $null = Assert-CvrIdleCaptureAcl -Path $operatorCaptureDirectory -Directory
     $null = Assert-CvrIdleCaptureAcl -Path $operatorCaptureReceiptPath
     $operatorCaptureReceipt = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($operatorCaptureReceiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $packagedRestoreContext = [PSCustomObject]@{
+        Capture = ConvertTo-CvrIdleTransactionCapture -Receipt $operatorCaptureReceipt
+        StageRoot = $stageRoot
+        SourceManifestSha256 = $manifestSha256
+        ExpectedPins = $expectedPins
+    }
+    $packagedRestoreValid = Assert-CvrIdlePackagedRestoreState -Context $packagedRestoreContext -Restored $packagedRestoreContext.Capture.idleObservation
+    Assert-PreflightTest ($packagedRestoreValid -is [bool] -and $packagedRestoreValid) 'Packaged restore verification required a successful Action result.'
+
     Assert-PreflightTest (
         [string]$operatorCaptureReceipt.packageStageBinding.sourceManifestSha256 -ceq $manifestSha256 -and
         [string]$operatorCaptureReceipt.idleObservation.ServiceStatus -ceq 'Running' -and
@@ -1020,6 +1031,59 @@ exit ([int]$operatorExitCode)
     Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
     Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'injected action failure restore'
 
+    $stopMutationCalls = 0
+    $stopRefusal = $null
+    try {
+        Invoke-CvrIdleStoppedMutation -StopScript { throw 'synthetic stop failure' } -MutationScript { $script:stopMutationCalls++ }
+    } catch { $stopRefusal = $_.Exception.GetBaseException().GetType().Name }
+    Assert-PreflightTest ($stopRefusal -ceq 'InvalidOperationException' -and $stopMutationCalls -eq 0) 'A failed stopped-state proof reached the dependent mutation.'
+
+    $script:stopFailureActionSnapshot = $null
+    $script:stopFailureDependentMutationCalls = 0
+    $stopFailureArguments = @{}
+    foreach ($key in $transactionArguments.Keys) { $stopFailureArguments[$key] = $transactionArguments[$key] }
+    $stopFailureArguments.ActionScript = {
+        param($context)
+        $script:preflightHandoffActionCalls++
+        $script:syntheticCandidateRunning = $true
+        [IO.File]::WriteAllBytes($guiPath, $candidateGuiBytes)
+        Add-PreflightTestAclDrift -Path $guiPath
+        $script:stopFailureActionSnapshot = Get-PreflightTestSnapshot -Paths $handoffTargets
+        throw 'synthetic candidate failure before rollback stop proof'
+    }
+    $stopFailureArguments.RestoreScript = {
+        param($context, $actionResult)
+        $null = Invoke-CvrIdleStoppedMutation -StopScript { throw 'synthetic stop proof failure' } -MutationScript {
+            $script:stopFailureDependentMutationCalls++
+            & $restoreAction $context $actionResult
+        }
+    }
+    $stopFailure = Invoke-CvrIdlePreflightTargetTransaction @stopFailureArguments
+    $stopFailureAfter = Get-PreflightTestSnapshot -Paths $handoffTargets
+    $stopFailureStatePreserved = $true
+    foreach ($path in $handoffTargets) {
+        if ($script:stopFailureActionSnapshot[$path].Sha256 -cne $stopFailureAfter[$path].Sha256 -or
+            $script:stopFailureActionSnapshot[$path].Sddl -cne $stopFailureAfter[$path].Sddl) {
+            $stopFailureStatePreserved = $false
+        }
+    }
+    Assert-PreflightTest (
+        $stopFailure.status -ceq 'RESTORE_FAILED' -and
+        $stopFailure.actionErrorType -ceq 'RuntimeException' -and
+        $stopFailure.restoreErrorType -ceq 'InvalidOperationException' -and
+        $script:stopFailureDependentMutationCalls -eq 0 -and
+        $script:syntheticCandidateRunning -and
+        $script:stopFailureActionSnapshot[$guiPath].Sha256 -cne $handoffSnapshot[$guiPath].Sha256 -and
+        $stopFailureStatePreserved
+    ) 'An Action failure with an unproven stop did not fail rollback before its dependent writes.'
+    $stopCleanupContext = [PSCustomObject]@{
+        Capture = ConvertTo-CvrIdleTransactionCapture -Receipt $operatorCaptureReceipt
+        ExpectedPins = $expectedPins
+    }
+    $null = & $restoreAction $stopCleanupContext $null
+    Assert-PreflightTestSnapshot $handoffSnapshot $handoffTargets
+    Assert-CvrLegacyState -Expected $legacyFixture.state -Phase 'stop-failure fixture cleanup'
+
     $restoreFailureArguments = @{}
     foreach ($key in $transactionArguments.Keys) { $restoreFailureArguments[$key] = $transactionArguments[$key] }
     $restoreFailureArguments.RestoreScript = {
@@ -1034,9 +1098,9 @@ exit ([int]$operatorExitCode)
         $restoreFailure.status -ceq 'RESTORE_FAILED' -and
         $null -eq $restoreFailure.actionErrorType -and
         $restoreFailure.restoreErrorType -ceq 'RuntimeException' -and
-        $script:preflightHandoffActionCalls -eq 4 -and
+        $script:preflightHandoffActionCalls -eq 5 -and
         $script:preflightHandoffCandidateChecks -eq 2 -and
-        $script:preflightHandoffRestoreCalls -eq 4 -and
+        $script:preflightHandoffRestoreCalls -eq 5 -and
         -not $script:syntheticCandidateRunning -and
         $afterRestoreFailure[$programFilesPath].Sha256 -cne $handoffSnapshot[$programFilesPath].Sha256
     ) 'An injected restore exception was not reported as RESTORE_FAILED with the changed preimage visible.'

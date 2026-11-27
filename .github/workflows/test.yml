@@ -166,7 +166,7 @@ jobs:
           set -euo pipefail
           NATIVE_DIRECTORY="$GITHUB_WORKSPACE/source/tools/network-lab" pwsh -NoLogo -NoProfile -NonInteractive -Command - <<'POWERSHELL'
             $failed = $false
-            foreach ($name in @('windows_native_acceptance.ps1','windows_native_port_plan.ps1','test_windows_native_port_plan_startup.ps1','windows_install_update.ps1','windows_ssh_fixture_cleanup.ps1','test_windows_ssh_fixture_cleanup.ps1')) {
+            foreach ($name in @('windows_native_acceptance.ps1','windows_native_port_plan.ps1','windows_idle_preflight_target_operator.ps1','test_windows_native_port_plan_startup.ps1','windows_install_update.ps1','windows_ssh_fixture_cleanup.ps1','test_windows_ssh_fixture_cleanup.ps1')) {
               $script = Join-Path $env:NATIVE_DIRECTORY $name
               if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { Write-Error "Missing native script: $name"; exit 1 }
               $tokens = $null
@@ -546,7 +546,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'checkout of PR source failed' }
           $actual = (& git -C $source rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne $env:SOURCE_SHA) { throw 'PR source SHA mismatch' }
-          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_core_preimage_paths.ps1','windows_core_identity.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1','windows_ssh_fixture_cleanup.ps1','test_windows_ssh_fixture_cleanup.ps1')) {
+          foreach ($name in @('windows_native_acceptance.ps1','windows_install_update.ps1','windows_idle_preflight_target_operator.ps1','windows_core_preimage_paths.ps1','windows_core_identity.ps1','windows_legacy_state_transaction.ps1','windows_idle_transaction.ps1','test_windows_idle_transaction.ps1','windows_ssh_fixture_cleanup.ps1','test_windows_ssh_fixture_cleanup.ps1')) {
             $nativeScript = Join-Path $source "tools\network-lab\$name"
             $tokens = $null
             $parseErrors = $null
@@ -933,7 +933,7 @@ jobs:
             foreach ($file in $stageFiles) {
               $relative = [string]$file.path
               $segments = $relative.Split([char]'/')
-              if ([string]::IsNullOrWhiteSpace($relative) -or $relative.StartsWith('/') -or
+              if ([string]::IsNullOrWhiteSpace($relative) -or ([string]$relative[0] -eq '/') -or
                   $relative -match '[\\:\x00-\x1f]' -or
                   @($segments | Where-Object { [string]::IsNullOrWhiteSpace($_) -or $_ -ceq '.' -or $_ -ceq '..' -or $_ -match '[. ]$' }).Count -gt 0 -or
                   [string]$file.sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$file.size -lt 0) {

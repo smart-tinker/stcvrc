@@ -539,7 +539,9 @@ function Invoke-CvrIdleCaptureOperator {
         $payloadPins = [ordered]@{
             candidateCore = 'payload/verge-mihomo.exe'
             updateInstaller = 'payload/Clash.Verge_2.5.10_x64-setup.exe'
+            updateHelper = 'payload/cvr-2.5.10/clash-verge-service-install.exe'
             recoveryInstaller = 'payload/Clash.Verge_2.5.8_x64-setup.exe'
+            recoveryHelper = 'payload/cvr-2.5.8/clash-verge-service-install.exe'
         }
         foreach ($name in $payloadPins.Keys) {
             $archivePath = [string]$payloadPins[$name]
@@ -597,8 +599,18 @@ function Invoke-CvrIdleCaptureOperator {
         }
         try {
             $installDirectory = [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName([string]$capture.pinnedFiles.gui258))
-            if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath([string]$capture.pinnedFiles.serviceExe258)) -ine $installDirectory) {
-                throw 'rollback install directory'
+            $programData = [IO.Path]::GetFullPath([string]$env:ProgramData)
+            $serviceDataDirectory = [IO.Path]::GetFullPath((Join-Path $programData 'clash-verge-service'))
+            $ExpectedServiceExecutableDirectory = [IO.Path]::GetFullPath((Join-Path $serviceDataDirectory 'bin'))
+            if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath([string]$capture.pinnedFiles.serviceExe258)) -ine $ExpectedServiceExecutableDirectory) {
+                throw 'rollback service executable directory'
+            }
+            foreach ($directory in @($programData,$serviceDataDirectory,$ExpectedServiceExecutableDirectory)) {
+                $directoryItem = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+                if (-not $directoryItem.PSIsContainer -or
+                    (([int]$directoryItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+                    throw 'rollback service executable reparse path'
+                }
             }
             $legacySnapshot = Get-CvrLegacyState
             $legacyState = [ordered]@{
@@ -612,8 +624,8 @@ function Invoke-CvrIdleCaptureOperator {
             $rollbackState = [ordered]@{
                 schemaVersion = 1
                 installDirectory = $installDirectory
-                gui = Save-CvrIdleFilePreimageBackup -Root $local -Role 'gui' -SourcePath ([string]$capture.pinnedFiles.gui258) -ExpectedInstallDirectory $installDirectory -ExpectedSha256 ([string]$pins.gui258)
-                serviceExe = Save-CvrIdleFilePreimageBackup -Root $local -Role 'service-exe' -SourcePath ([string]$capture.pinnedFiles.serviceExe258) -ExpectedInstallDirectory $installDirectory -ExpectedSha256 ([string]$pins.serviceExe258)
+                gui = Save-CvrIdleFilePreimageBackup -Root $local -Role 'gui' -SourcePath ([string]$capture.pinnedFiles.gui258) -ExpectedDirectory $installDirectory -ExpectedSha256 ([string]$pins.gui258)
+                serviceExe = Save-CvrIdleFilePreimageBackup -Root $local -Role 'service-exe' -SourcePath ([string]$capture.pinnedFiles.serviceExe258) -ExpectedDirectory $ExpectedServiceExecutableDirectory -ExpectedSha256 ([string]$pins.serviceExe258)
                 legacyState = $legacyState
                 observer = [ordered]@{
                     ownerSid = [string]$request.Observer.ExpectedOwnerSid

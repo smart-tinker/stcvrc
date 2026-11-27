@@ -890,6 +890,7 @@ try {
 . (Join-Path $script:idleStageRoot 'tools\network-lab\windows_legacy_state_transaction.ps1')
 . (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_transaction.ps1')
 . (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_capture_operator.ps1')
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_preflight_target_operator.ps1')
 $script:idlePinnedFiles = @{
     gui258 = (Join-Path $install258 'clash-verge.exe')
     serviceExe258 = (Join-Path $serviceData 'bin\clash-verge-service.exe')
@@ -983,158 +984,18 @@ $captureReceiptPath = Join-Path $captureDirectories[0].FullName 'capture.json'
 $planPath = Join-Path $planDirectories[0].FullName 'plan.json'
 $preflightReceiptPath = Join-Path $localRoot ("preflight-idle-" + [string]$publicCaptureResult.receiptId + '\result.json')
 
-$targetTransactionArguments = @{
-    CaptureReceiptPath = $captureReceiptPath
-    PlanPath = $planPath
-    PreflightReceiptPath = $preflightReceiptPath
-    ExpectedPlanSha256 = [string]$publicCaptureResult.planSha256
-    ExpectedStageRoot = $script:idleStageRoot
-    ExpectedPackageManifestSha256 = $script:idleStageManifestSha256
-    ExpectedTargetIdentity = $targetIdentity
-    ExpectedPins = $script:idleExpectedPins
-    RefreshObservationScript = {
-        param($capture)
-        Get-CvrIdleOperatorFreshObservation -Capture $capture -ExpectedPins $capture.expectedPins
-    }
-    ActionScript = {
-        param($context)
-        $capture = $context.Capture
-        $installDirectory = [IO.Path]::GetFullPath([string]$capture.installDirectory)
-        $candidateCoreSha = [string]$context.ExpectedPins.candidateCore
-        if ($capture.coreShouldBeRunning -isnot [bool] -or $capture.coreShouldBeRunning) { throw 'Captured idle intent is not strict false.' }
-        Assert-CvrCorePairPreimage -Preimage $capture.corePair -Phase 'before 2.5.10 action'
-        if ([string]$capture.corePair.programFiles.sha256 -cne [string]$context.ExpectedPins.programFilesCore -or
-            [string]$capture.corePair.service.sha256 -cne [string]$context.ExpectedPins.serviceCore -or
-            [string]$capture.corePair.programFiles.sha256 -ceq $candidateCoreSha -or
-            [string]$capture.corePair.service.sha256 -cne $candidateCoreSha) {
-            throw 'Captured 2.5.8 Program Files and service core SHA pins do not match their separate preimages.'
-        }
-        $sourceCore = [string]$capture.pinnedFiles.candidateCore
-        if ((Get-FileHash -LiteralPath $sourceCore -Algorithm SHA256).Hash.ToLowerInvariant() -cne $candidateCoreSha) {
-            throw 'Staged candidate core changed after packaged Capture/Preflight.'
-        }
-        Stop-CvrRunnerRuntime
-        $install2510 = Invoke-CvrInstaller -Version '2.5.10' -Arguments @('/S','/P','/UPDATE','/NS') -PreserveCorePair
-        if ([IO.Path]::GetFullPath($install2510) -ine $installDirectory) { throw 'CVR 2.5.10 update changed the captured install directory.' }
-        Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 update' -HelperVersion '2.5.10' -CorePath $sourceCore -ExpectedSha256 $candidateCoreSha
-        Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install2510 -StockCore $capture.corePair.programFiles
-        Invoke-CvrOverlayReinstall -InstallDirectory $install2510
-        Install-CandidateCore -InstallDirectory $install2510 -Phase '2.5.10 overlay' -HelperVersion '2.5.10' -CorePath $sourceCore -ExpectedSha256 $candidateCoreSha
-        $nativeFailureCountBeforeExercise = $script:nativeFailures.Count
-        Invoke-NativePhase -Phase exercise -InstallDirectory $install2510 -ExpectedProgramFilesCoreSha $candidateCoreSha -ExpectedServiceCoreSha $candidateCoreSha
-        return [PSCustomObject]@{ version='2.5.10'; sourceManifestSha256=[string]$context.SourceManifestSha256; candidateCoreSha256=$candidateCoreSha; nativeFailureCountBeforeExercise=$nativeFailureCountBeforeExercise }
-    }
-    CandidateCheckScript = {
-        param($context,$actionResult)
-        $capture = $context.Capture
-        $installDirectory = [IO.Path]::GetFullPath([string]$capture.installDirectory)
-        $candidateCoreSha = [string]$context.ExpectedPins.candidateCore
-        $programFilesCore = [IO.Path]::GetFullPath((Join-Path $installDirectory 'verge-mihomo.exe'))
-        $serviceCore = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'clash-verge-service\cores\verge-mihomo.exe'))
-        Stop-CvrRunnerRuntime
-        foreach ($entry in @(
-            [PSCustomObject]@{ path=$programFilesCore; expected=$candidateCoreSha },
-            [PSCustomObject]@{ path=$serviceCore; expected=$candidateCoreSha }
-        )) {
-            if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf) -or
-                (([int](Get-Item -LiteralPath $entry.path -Force -ErrorAction Stop).Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
-                (Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.expected) {
-                throw 'Candidate 2.5.10 Program Files or service core differs from its pinned SHA.'
-            }
-        }
-        if ([IO.Path]::GetFullPath($programFilesCore) -ieq [IO.Path]::GetFullPath($serviceCore)) { throw 'Candidate Program Files and service core paths are not separate.' }
-        if ($script:nativeFailures.Count -gt [int]$actionResult.nativeFailureCountBeforeExercise) { throw 'Candidate native exercise did not pass its acceptance checks.' }
-        $candidateCorePair = Get-CvrCorePairPreimage -InstallDirectory $installDirectory
-        if ($candidateCorePair.programFiles.sha256 -cne $candidateCoreSha -or $candidateCorePair.service.sha256 -cne $candidateCoreSha) {
-            throw 'Candidate 2.5.10 core pair did not retain both separately verified candidate SHA values.'
-        }
-        $candidateIdleObservation = Install-CvrIdleService -Version '2.5.10' -InstallDirectory $installDirectory -ProgramFilesEntry $candidateCorePair.programFiles -CoreEntry $candidateCorePair.service -CoreShouldBeRunning $false
-        $null = Assert-CvrIdleBaseline @candidateIdleObservation
-        Stop-CvrRunnerRuntime
-        return [bool]$true
-    }
-    RestoreScript = {
-        param($context,$actionResult)
-        $capture = $context.Capture
-        $localRoot = Join-Path ([IO.Path]::GetFullPath([string]$context.StageRoot)) 'local'
-        $installDirectory = [IO.Path]::GetFullPath([string]$capture.installDirectory)
-        $expectedServiceExecutableDirectory = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'clash-verge-service\bin'))
-        $restoreErrors = [Collections.Generic.List[string]]::new()
-        $nativeRecoveryErrorType = $null
-
-        try { Stop-CvrRunnerRuntime } catch { $restoreErrors.Add('stop-before-install:' + $_.Exception.GetBaseException().GetType().Name) }
-        try {
-            $installRecovered = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S','/P','/UPDATE','/NS') -PreserveCorePair
-            if ([IO.Path]::GetFullPath($installRecovered) -ine $installDirectory) { throw 'install-directory' }
-        } catch { $restoreErrors.Add('installer:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { Stop-CvrRunnerRuntime } catch { $restoreErrors.Add('stop-before-preimage:' + $_.Exception.GetBaseException().GetType().Name) }
-
-        try {
-            $null = Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.gui -Role 'gui' -ExpectedPath ([string]$capture.pinnedFiles.gui258) -ExpectedLocalRoot $localRoot -ExpectedDirectory $installDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
-        } catch { $restoreErrors.Add('gui-preimage:' + $_.Exception.GetBaseException().GetType().Name) }
-        try {
-            $null = Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath ([string]$capture.pinnedFiles.serviceExe258) -ExpectedLocalRoot $localRoot -ExpectedDirectory $expectedServiceExecutableDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
-        } catch { $restoreErrors.Add('service-exe-preimage:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { Restore-CvrCorePairPreimage -Preimage $capture.corePair -HelperVersion '2.5.8' } catch { $restoreErrors.Add('core-pair-preimage:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { Restore-CvrLegacyState -State $capture.legacyState } catch { $restoreErrors.Add('legacy-preimage:' + $_.Exception.GetBaseException().GetType().Name) }
-
-        if ($restoreErrors.Count -eq 0) {
-            try {
-                Assert-CvrCorePairPreimage -Preimage $capture.corePair -Phase 'before native 2.5.8 rollback acceptance'
-                Assert-CvrLegacyState -Expected $capture.legacyState -Phase 'before native 2.5.8 rollback acceptance'
-                $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $context.ExpectedPins -ExpectedLocalRoot $localRoot
-                Assert-NoService
-                Assert-NoCvrProcesses
-                $failureCount = $script:nativeFailures.Count
-                Invoke-NativePhase -Phase recovery -InstallDirectory $installDirectory -ExpectedProgramFilesCoreSha $capture.corePair.programFiles.sha256 -ExpectedServiceCoreSha $capture.corePair.service.sha256 -RecoveryServiceCorePreimagePath $capture.corePair.service.backup
-                if ($script:nativeFailures.Count -gt $failureCount) { throw 'NativeAcceptanceFailure' }
-            } catch { $nativeRecoveryErrorType = $_.Exception.GetBaseException().GetType().Name }
-        } else {
-            $nativeRecoveryErrorType = 'PreimageRestoreIncomplete'
-        }
-
-        try { Stop-CvrRunnerRuntime } catch { $restoreErrors.Add('stop-final:' + $_.Exception.GetBaseException().GetType().Name) }
-        try {
-            $null = Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.gui -Role 'gui' -ExpectedPath ([string]$capture.pinnedFiles.gui258) -ExpectedLocalRoot $localRoot -ExpectedDirectory $installDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
-        } catch { $restoreErrors.Add('gui-final:' + $_.Exception.GetBaseException().GetType().Name) }
-        try {
-            $null = Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath ([string]$capture.pinnedFiles.serviceExe258) -ExpectedLocalRoot $localRoot -ExpectedDirectory $expectedServiceExecutableDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
-        } catch { $restoreErrors.Add('service-exe-final:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { Restore-CvrCorePairPreimage -Preimage $capture.corePair -HelperVersion '2.5.8' } catch { $restoreErrors.Add('core-pair-final:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { Restore-CvrLegacyState -State $capture.legacyState } catch { $restoreErrors.Add('legacy-final:' + $_.Exception.GetBaseException().GetType().Name) }
-        try {
-            $null = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $installDirectory -ProgramFilesEntry $capture.corePair.programFiles -CoreEntry $capture.corePair.service -CoreShouldBeRunning $false
-        } catch { $restoreErrors.Add('idle-service-final:' + $_.Exception.GetBaseException().GetType().Name) }
-
-        try { Assert-CvrCorePairPreimage -Preimage $capture.corePair -Phase 'final idle rollback' } catch { $restoreErrors.Add('core-pair-verify:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { Assert-CvrLegacyState -Expected $capture.legacyState -Phase 'final idle rollback' } catch { $restoreErrors.Add('legacy-verify:' + $_.Exception.GetBaseException().GetType().Name) }
-        try { $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $context.ExpectedPins -ExpectedLocalRoot $localRoot } catch { $restoreErrors.Add('file-preimage-verify:' + $_.Exception.GetBaseException().GetType().Name) }
-        $restored = $null
-        try {
-            $restored = Get-CvrIdleBaselineObservation -Version '2.5.8' -InstallDirectory $installDirectory -CoreShouldBeRunning $false -ExpectedProgramFilesCoreSha256 $capture.corePair.programFiles.sha256 -ExpectedServiceCoreSha256 $capture.corePair.service.sha256
-            $null = Assert-CvrIdleBaseline @restored
-        } catch { $restoreErrors.Add('idle-baseline-verify:' + $_.Exception.GetBaseException().GetType().Name) }
-        if ($nativeRecoveryErrorType) { $restoreErrors.Add('native-2.5.8:' + $nativeRecoveryErrorType) }
-        if ($restoreErrors.Count) { throw ('RestoreVerificationFailure:' + ($restoreErrors -join ',')) }
-        return $restored
-    }
-    VerifyScript = {
-        param($context,$restored,$actionResult)
-        $localRoot = Join-Path ([IO.Path]::GetFullPath([string]$context.StageRoot)) 'local'
-        if ($restored.CoreShouldBeRunning -isnot [bool] -or $restored.CoreShouldBeRunning -or
-            $actionResult.version -cne '2.5.10' -or
-            [string]$actionResult.sourceManifestSha256 -ine $context.SourceManifestSha256 -or
-            [string]$actionResult.candidateCoreSha256 -ine [string]$context.ExpectedPins.candidateCore) {
-            throw 'Restored idle intent or packaged candidate identity differs from the transaction.'
-        }
-        $null = Assert-CvrIdleBaseline @restored
-        Assert-CvrCorePairPreimage -Preimage $context.Capture.corePair -Phase 'shared idle transaction verification'
-        Assert-CvrLegacyState -Expected $context.Capture.legacyState -Phase 'shared idle transaction verification'
-        $null = Assert-CvrIdleRollbackState -Capture $context.Capture -ExpectedPins $context.ExpectedPins -ExpectedLocalRoot $localRoot
-        return [bool]$true
-    }
-}
-$targetTransactionResult = Invoke-CvrIdlePreflightTargetTransaction @targetTransactionArguments
+$targetTransactionResult = Invoke-CvrIdlePreflightTargetAcceptance `
+    -CaptureReceiptPath $captureReceiptPath `
+    -PlanPath $planPath `
+    -PreflightReceiptPath $preflightReceiptPath `
+    -ExpectedPlanSha256 ([string]$publicCaptureResult.planSha256) `
+    -ExpectedStageRoot $script:idleStageRoot `
+    -ExpectedPackageManifestSha256 $script:idleStageManifestSha256 `
+    -ExpectedTargetIdentity $targetIdentity `
+    -ExpectedPins $script:idleExpectedPins `
+    -NativeFailures $script:nativeFailures `
+    -NativeIntervals $script:nativeIntervals `
+    -PhaseBoundaries $script:phaseBoundaries
 $transactionFailure = $null
 $idleRestoreFailure = $null
 if ($targetTransactionResult.actionErrorType) {

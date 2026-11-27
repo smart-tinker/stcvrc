@@ -10,16 +10,16 @@ $ProgressPreference = 'SilentlyContinue'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:GITHUB_REPOSITORY -ne 'smart-tinker/stcvrc') { throw 'Native acceptance is restricted to the disposable public STCVRC GitHub runner.' }
 if (-not $env:PR_SOURCE -or -not $env:CUSTOM_CORE -or -not $env:CVR_258_GUI_SHA256 -or -not $env:CVR_2510_GUI_SHA256) { throw 'The exact PR source, fresh custom core, or pinned CVR GUI SHA is missing.' }
 if (-not $env:STCVRC_NATIVE_PORT_PLAN) { throw 'The shared native DNS port plan is missing.' }
-$portPlanScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_port_plan.ps1'
+$portPlanScript = Join-Path $PSScriptRoot 'windows_native_port_plan.ps1'
 if (-not (Test-Path -LiteralPath $portPlanScript -PathType Leaf)) { throw 'The native DNS port-plan helper is missing.' }
 . $portPlanScript
-$udpFixturePortsScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_native_udp_ports.py'
+$udpFixturePortsScript = Join-Path $PSScriptRoot 'windows_native_udp_ports.py'
 if (-not (Test-Path -LiteralPath $udpFixturePortsScript -PathType Leaf)) { throw 'The native UDP fixture-port helper is missing.' }
 $env:STCVRC_NATIVE_UDP_PORTS_SCRIPT = $udpFixturePortsScript
-$corePreimageScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_core_preimage_paths.ps1'
+$corePreimageScript = Join-Path $PSScriptRoot 'windows_core_preimage_paths.ps1'
 if (-not (Test-Path -LiteralPath $corePreimageScript -PathType Leaf)) { throw 'The native core preimage helper is missing.' }
 . $corePreimageScript
-$sshCleanupScript = Join-Path $env:PR_SOURCE 'tools\network-lab\windows_ssh_fixture_cleanup.ps1'
+$sshCleanupScript = Join-Path $PSScriptRoot 'windows_ssh_fixture_cleanup.ps1'
 if (-not (Test-Path -LiteralPath $sshCleanupScript -PathType Leaf)) { throw 'The SSH fixture cleanup helper is missing.' }
 . $sshCleanupScript
 $nativePortPlan = Get-StcvrcNativePortPlan -Path $env:STCVRC_NATIVE_PORT_PLAN
