@@ -706,6 +706,33 @@ exit ([int]$operatorExitCode)
     }
     Assert-PreflightReceipt -Invocation $operatorPreflightInvocation -ExpectedResult 'PASS' -ExpectedExitCode 0 -ExpectedChildExitCode 0 -ExpectedTimedOut $false -StageRoot $stageRoot
 
+    $operatorPreflightReceiptPath = Join-Path (Join-Path $localRoot ('preflight-idle-' + [string]$validOperatorResult.receiptId)) 'result.json'
+    $preflightHandoffActionCalls = 0
+    $preflightHandoffError = $null
+    try {
+        $handoff = Invoke-CvrIdlePreflightTargetTransaction -CaptureReceiptPath $operatorCaptureReceiptPath -PlanPath $operatorPlanPath -PreflightReceiptPath $operatorPreflightReceiptPath -ExpectedPlanSha256 ([string]$validOperatorResult.planSha256) -ExpectedStageRoot $stageRoot -ExpectedPackageManifestSha256 $manifestSha256 -ExpectedTargetIdentity $targetIdentity -ExpectedPins $expectedPins -ActionScript {
+            $script:preflightHandoffActionCalls++
+            'synthetic-candidate-accepted'
+        } -RestoreScript {
+            'synthetic-idle-restored'
+        } -VerifyScript {
+            param($capture, $restored)
+            $restored -ceq 'synthetic-idle-restored'
+        }
+    } catch {
+        $preflightHandoffError = $_.Exception.Message
+    }
+    if ($preflightHandoffActionCalls -ne 1) {
+        Write-Output ('Observed Capture/Plan/Preflight PASS; candidate action calls={0}; handoff error={1}' -f $preflightHandoffActionCalls, $(if ($preflightHandoffError) { $preflightHandoffError } else { 'none' }))
+        throw 'Expected behavior RED: the valid idle Capture/Plan/Preflight chain has no guarded candidate-action handoff.'
+    }
+    Assert-PreflightTest (
+        $null -eq $preflightHandoffError -and
+        $handoff.ActionFailure -eq $null -and
+        $handoff.RestoreFailure -eq $null -and
+        $handoff.ActionResult -ceq 'synthetic-candidate-accepted'
+    ) 'The guarded candidate-action handoff did not complete after the verified PASS.'
+
     $wrongRootBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
     $wrongRoot = Invoke-CaptureOperatorTestCommand -BootstrapPath $bootstrapPath -OperatorPath $operatorPath -StageRoot $fixtureRoot -ManifestSha256 $manifestSha256 -RequestPath $seedPath -ScenarioPath (Save-CaptureOperatorScenario -Name 'wrong-stage-root' -Scenario (New-CaptureOperatorScenario)) -TimeoutSeconds 30
     $wrongRootAfter = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
