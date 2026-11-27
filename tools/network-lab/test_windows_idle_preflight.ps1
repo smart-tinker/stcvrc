@@ -200,13 +200,19 @@ function Assert-CaptureOperatorResponse(
     [string]$OwnerSid
 ) {
     $result = $Invocation.Document
+    $observedStatus = if ($result -and [string]$result.status -match '^(COMPLETE|REFUSED|INCOMPLETE)$') { [string]$result.status } else { 'missing' }
+    $observedReason = if ($result -and [string]$result.reason -match '^[a-z][a-z0-9-]{0,63}$') { [string]$result.reason } else { 'missing' }
+    $reportedExit = if ($result -and [string]$result.exitCode -match '^-?\d{1,3}$') { [string]$result.exitCode } else { 'missing' }
+    $processExit = if ($Invocation.ExitCode -is [int] -or $Invocation.ExitCode -is [long]) { [string]$Invocation.ExitCode } else { 'missing' }
     Assert-PreflightTest (
         $null -ne $result -and
         $Invocation.ExitCode -eq [int]$result.exitCode -and
         [int]$result.exitCode -eq 2 -and
         [string]$result.status -ceq $ExpectedStatus -and
         [string]$result.reason -ceq $ExpectedReason
-    ) ('Capture operator did not return the expected ' + $ExpectedStatus + '/' + $ExpectedReason + ' status.')
+    ) ('Capture operator did not return the expected ' + $ExpectedStatus + '/' + $ExpectedReason +
+        ' status. Observed status=' + $observedStatus + ' reason=' + $observedReason +
+        ' resultExit=' + $reportedExit + ' processExit=' + $processExit + '.')
     Assert-PreflightTest (
         -not $Invocation.StdOut.Contains($StageRoot) -and
         -not $Invocation.StdErr.Contains($StageRoot) -and
@@ -220,8 +226,14 @@ function Assert-CaptureOperatorResponse(
         -not $Invocation.StdErr.Contains($OwnerSid) -and
         -not $Invocation.StdOut.Contains('8101') -and
         -not $Invocation.StdOut.Contains('8102') -and
+        -not $Invocation.StdOut.Contains('8103') -and
+        -not $Invocation.StdOut.Contains('8111') -and
+        -not $Invocation.StdOut.Contains('8121') -and
         -not $Invocation.StdErr.Contains('8101') -and
-        -not $Invocation.StdErr.Contains('8102')
+        -not $Invocation.StdErr.Contains('8102') -and
+        -not $Invocation.StdErr.Contains('8103') -and
+        -not $Invocation.StdErr.Contains('8111') -and
+        -not $Invocation.StdErr.Contains('8121')
     ) 'Capture operator disclosed protected target data.'
 }
 
@@ -270,6 +282,7 @@ $toolsStageRoot = Join-Path $packageRoot 'tools'
 $networkLabStageRoot = Join-Path $toolsStageRoot 'network-lab'
 $localRoot = Join-Path $packageRoot 'local'
 $stageFilesRoot = Join-Path $packageRoot 'pins'
+$payloadRoot = Join-Path $packageRoot 'payload'
 $targetIdentity = 'stcvrc-ci-synthetic-preflight'
 try {
     New-PreflightTestDirectory $fixtureRoot
@@ -278,6 +291,7 @@ try {
     New-PreflightTestDirectory $networkLabStageRoot
     New-PreflightTestDirectory $localRoot
     New-PreflightTestDirectory $stageFilesRoot
+    New-PreflightTestDirectory $payloadRoot
 
     $pinBytes = [ordered]@{
         gui258 = [byte[]]@(2, 5, 8, 1)
@@ -294,13 +308,25 @@ try {
         gui258 = 'Clash Verge.exe'
         serviceExe258 = 'clash-verge-service.exe'
     }
+    $payloadFileNames = @{
+        candidateCore = 'verge-mihomo.exe'
+        updateInstaller = 'Clash.Verge_2.5.10_x64-setup.exe'
+        recoveryInstaller = 'Clash.Verge_2.5.8_x64-setup.exe'
+    }
     foreach ($name in $pinBytes.Keys) {
-        $fileName = if ($pinFileNames.ContainsKey($name)) { $pinFileNames[$name] } else { $name + '.bin' }
-        $path = Join-Path $stageFilesRoot $fileName
+        if ($payloadFileNames.ContainsKey($name)) {
+            $fileName = $payloadFileNames[$name]
+            $path = Join-Path $payloadRoot $fileName
+            $archivePath = 'payload/' + $fileName
+        } else {
+            $fileName = if ($pinFileNames.ContainsKey($name)) { $pinFileNames[$name] } else { $name + '.bin' }
+            $path = Join-Path $stageFilesRoot $fileName
+            $archivePath = 'pins/' + $fileName
+        }
         Write-PreflightTestFile -Path $path -Bytes $pinBytes[$name] -Protected
         $pinPaths[$name] = $path
         $manifestEntries += [ordered]@{
-            path = ('pins/' + $fileName)
+            path = $archivePath
             sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
         }
     }
@@ -504,7 +530,14 @@ function global:Get-NetUDPEndpoint {
     ) + @($pinPaths.Values) + @($operatorStageFiles | ForEach-Object { Join-Path $networkLabStageRoot $_ })
     $operatorInputSnapshot = Get-PreflightTestSnapshot -Paths $operatorTrackedPaths
 
-    function New-CaptureOperatorScenario([switch]$UnknownServiceOwner, [switch]$UnknownListener, [switch]$RunningCore) {
+    function New-CaptureOperatorScenario(
+        [switch]$UnknownServiceOwner,
+        [switch]$UnknownListener,
+        [switch]$RunningCore,
+        [switch]$RunningAlpha,
+        [switch]$OrphanService,
+        [switch]$DuplicateService
+    ) {
         $servicePid = 8101
         $service = [ordered]@{
             Name = 'clash_verge_service'
@@ -522,6 +555,18 @@ function global:Get-NetUDPEndpoint {
             SessionId = 0
             OwnerSid = 'S-1-5-18'
         })
+        if ($OrphanService) { $processes.Clear() }
+        if ($OrphanService -or $DuplicateService) {
+            $serviceImagePid = if ($OrphanService) { 8111 } else { 8121 }
+            $processes.Add([PSCustomObject]@{
+                Name = [IO.Path]::GetFileName($pinPaths.serviceExe258)
+                ExecutablePath = $pinPaths.serviceExe258
+                ProcessId = $serviceImagePid
+                ParentProcessId = 4
+                SessionId = 0
+                OwnerSid = 'S-1-5-18'
+            })
+        }
         $udpOwners = [int[]]@()
         if ($RunningCore) {
             $corePid = 8102
@@ -534,6 +579,18 @@ function global:Get-NetUDPEndpoint {
                 OwnerSid = 'S-1-5-18'
             })
             $udpOwners = [int[]]@($corePid)
+        }
+        if ($RunningAlpha) {
+            $alphaPid = 8103
+            $processes.Add([PSCustomObject]@{
+                Name = 'verge-mihomo-alpha.exe'
+                ExecutablePath = (Join-Path $programFilesDirectory 'verge-mihomo-alpha.exe')
+                ProcessId = $alphaPid
+                ParentProcessId = 8100
+                SessionId = [int][Diagnostics.Process]::GetCurrentProcess().SessionId
+                OwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            })
+            $udpOwners = [int[]]@($udpOwners + $alphaPid)
         }
         $unknownOwners = if ($UnknownServiceOwner) { [int[]]@($servicePid) } else { [int[]]@() }
         return [PSCustomObject]@{
@@ -565,8 +622,8 @@ function global:Get-NetUDPEndpoint {
         $before = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
         $invocation = Invoke-CaptureOperatorScenario -Name $Name -Scenario $Scenario
         $after = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
-        Assert-CaptureOperatorResponse -Invocation $invocation -ExpectedStatus $Status -ExpectedReason $Reason -StageRoot $stageRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
         Assert-CaptureOperatorNoOutput -Before $before -After $after -Reason $Reason
+        Assert-CaptureOperatorResponse -Invocation $invocation -ExpectedStatus $Status -ExpectedReason $Reason -StageRoot $stageRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
     }
 
     $operatorOutputsBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
@@ -649,18 +706,44 @@ function global:Get-NetUDPEndpoint {
     $wrongRootBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
     $wrongRoot = Invoke-CaptureOperatorTestCommand -BootstrapPath $bootstrapPath -OperatorPath $operatorPath -StageRoot $fixtureRoot -ManifestSha256 $manifestSha256 -RequestPath $seedPath -ScenarioPath (Save-CaptureOperatorScenario -Name 'wrong-stage-root' -Scenario (New-CaptureOperatorScenario)) -TimeoutSeconds 30
     $wrongRootAfter = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
-    Assert-CaptureOperatorResponse -Invocation $wrongRoot -ExpectedStatus 'INCOMPLETE' -ExpectedReason 'operator-error' -StageRoot $fixtureRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
     Assert-CaptureOperatorNoOutput -Before $wrongRootBefore -After $wrongRootAfter -Reason 'wrong-stage-root'
+    Assert-CaptureOperatorResponse -Invocation $wrongRoot -ExpectedStatus 'INCOMPLETE' -ExpectedReason 'stage-path' -StageRoot $fixtureRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
 
     $wrongDigestBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
     $wrongDigest = Invoke-CaptureOperatorTestCommand -BootstrapPath $bootstrapPath -OperatorPath $operatorPath -StageRoot $stageRoot -ManifestSha256 '0000000000000000000000000000000000000000000000000000000000000000' -RequestPath $seedPath -ScenarioPath (Save-CaptureOperatorScenario -Name 'wrong-stage-digest' -Scenario (New-CaptureOperatorScenario)) -TimeoutSeconds 30
     $wrongDigestAfter = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
-    Assert-CaptureOperatorResponse -Invocation $wrongDigest -ExpectedStatus 'INCOMPLETE' -ExpectedReason 'stage-pin' -StageRoot $stageRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
     Assert-CaptureOperatorNoOutput -Before $wrongDigestBefore -After $wrongDigestAfter -Reason 'wrong-stage-digest'
+    Assert-CaptureOperatorResponse -Invocation $wrongDigest -ExpectedStatus 'INCOMPLETE' -ExpectedReason 'stage-pin' -StageRoot $stageRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
 
     Assert-CaptureOperatorNegative -Name 'unknown-owner' -Scenario (New-CaptureOperatorScenario -UnknownServiceOwner) -Status 'INCOMPLETE' -Reason 'unknown-ownership'
     Assert-CaptureOperatorNegative -Name 'unknown-listener' -Scenario (New-CaptureOperatorScenario -UnknownListener) -Status 'INCOMPLETE' -Reason 'unknown-unavailable'
     Assert-CaptureOperatorNegative -Name 'running-core' -Scenario (New-CaptureOperatorScenario -RunningCore) -Status 'REFUSED' -Reason 'not-idle'
+    Assert-CaptureOperatorNegative -Name 'running-alpha-core' -Scenario (New-CaptureOperatorScenario -RunningAlpha) -Status 'REFUSED' -Reason 'not-idle'
+    Assert-CaptureOperatorNegative -Name 'orphan-service-process' -Scenario (New-CaptureOperatorScenario -OrphanService) -Status 'INCOMPLETE' -Reason 'unknown-service-pid'
+    Assert-CaptureOperatorNegative -Name 'duplicate-service-process' -Scenario (New-CaptureOperatorScenario -DuplicateService) -Status 'INCOMPLETE' -Reason 'unknown-service-pid'
+
+    foreach ($pinName in @('candidateCore','updateInstaller','recoveryInstaller')) {
+        $alternatePath = Join-Path $localRoot ($pinName + '-alternate.exe')
+        $alternateBytes = [byte[]]@(99, 88, 77)
+        Write-PreflightTestFile -Path $alternatePath -Bytes $alternateBytes -Protected
+        $alternateSeed = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($seedBytes)) -ErrorAction Stop
+        $alternateSha = (Get-FileHash -LiteralPath $alternatePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $alternateSeed.Capture.pinnedFiles.$pinName = $alternatePath
+        $alternateSeed.ExpectedPins.$pinName = $alternateSha
+        [IO.File]::WriteAllBytes($seedPath, [Text.UTF8Encoding]::new($false, $true).GetBytes((ConvertTo-Json -InputObject $alternateSeed -Depth 20 -Compress -ErrorAction Stop)))
+        try {
+            $alternateBefore = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
+            $alternate = Invoke-CaptureOperatorTestCommand -BootstrapPath $bootstrapPath -OperatorPath $operatorPath -StageRoot $stageRoot -ManifestSha256 $manifestSha256 -RequestPath $seedPath -ScenarioPath (Save-CaptureOperatorScenario -Name ($pinName + '-alternate-pin') -Scenario (New-CaptureOperatorScenario)) -TimeoutSeconds 30
+            $alternateAfter = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
+            Assert-CaptureOperatorNoOutput -Before $alternateBefore -After $alternateAfter -Reason 'alternate-stage-pin'
+            Assert-CaptureOperatorResponse -Invocation $alternate -ExpectedStatus 'INCOMPLETE' -ExpectedReason 'stage-pin' -StageRoot $stageRoot -RequestPath $seedPath -TargetIdentity $targetIdentity -ServiceImagePath $pinPaths.serviceExe258 -OwnerSid $seedRequest.Observer.ExpectedOwnerSid
+            Assert-PreflightTest (-not $alternate.StdOut.Contains($alternatePath) -and -not $alternate.StdErr.Contains($alternatePath)) 'Capture operator disclosed an alternate seed path.'
+        } finally {
+            [IO.File]::WriteAllBytes($seedPath, $seedBytes)
+            if (Test-Path -LiteralPath $alternatePath -PathType Leaf) { Remove-Item -LiteralPath $alternatePath -Force -ErrorAction Stop }
+        }
+        Assert-PreflightTest (-not (Test-Path -LiteralPath $alternatePath)) 'Alternate seed fixture cleanup failed.'
+    }
 
     $staleSeed = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($seedBytes)) -ErrorAction Stop
     $staleSeed.Capture | Add-Member -MemberType NoteProperty -Name capturedAtUtc -Value ([DateTime]::UtcNow.AddMinutes(-6).ToString('o'))
@@ -778,4 +861,4 @@ function global:Get-NetUDPEndpoint {
         Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction Stop
     }
 }
-Write-Output 'Windows public Capture/Plan/Preflight operator passed synthetic owner, idle, stale, drift, refusal, receipt, and cleanup checks.'
+Write-Output 'Windows public Capture/Plan/Preflight operator passed synthetic owner, service, alpha-core, stage-pin, idle, stale, drift, refusal, receipt, and cleanup checks.'

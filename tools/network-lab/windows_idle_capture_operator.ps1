@@ -52,12 +52,17 @@ function Get-CvrIdleOperatorWindowsSnapshot {
         $processRows = @(Get-CimInstance -ClassName Win32_Process -Property @('Name','ExecutablePath','ProcessId','ParentProcessId','SessionId') -ErrorAction Stop)
         $guiPath = [string]$Request.Capture.pinnedFiles.gui258
         $guiName = [IO.Path]::GetFileName($guiPath)
-        if ($guiName -notmatch '^[A-Za-z0-9_. -]{1,120}\.exe$') { throw 'CVR_CAPTURE_UNKNOWN:input' }
+        $serviceName = [IO.Path]::GetFileName([string]$Request.Capture.pinnedFiles.serviceExe258)
+        if ($guiName -notmatch '^[A-Za-z0-9_. -]{1,120}\.exe$' -or
+            $serviceName -notmatch '^[A-Za-z0-9_. -]{1,120}\.exe$') { throw 'CVR_CAPTURE_UNKNOWN:input' }
         $processes = @()
         foreach ($process in @($processRows | Where-Object {
             [int]$_.ProcessId -eq $servicePid -or
+            [string]$_.Name -ieq $serviceName -or
+            [string]$_.Name -ieq 'clash-verge-service.exe' -or
             [string]$_.Name -ieq $guiName -or
-            [string]$_.Name -ieq 'verge-mihomo.exe'
+            [string]$_.Name -ieq 'verge-mihomo.exe' -or
+            [string]$_.Name -ieq 'verge-mihomo-alpha.exe'
         })) {
             $processes += [PSCustomObject]@{
                 ProcessId = [int]$process.ProcessId
@@ -137,14 +142,24 @@ function ConvertTo-CvrIdleOperatorObservation {
         throw 'CVR_CAPTURE_UNKNOWN:service-image'
     }
 
-    $serviceProcesses = @($Snapshot.Processes | Where-Object { [int]$_.ProcessId -eq [int]$service.ProcessId })
-    if ($serviceProcesses.Count -ne 1) { throw 'CVR_CAPTURE_UNKNOWN:service-pid' }
-    $serviceProcess = $serviceProcesses[0]
-    if ([IO.Path]::GetFullPath([string]$serviceProcess.ImagePath) -ine $expectedServiceExe -or
-        [string]$serviceProcess.OwnerSid -cne $expectedServiceSid -or
-        [int]$serviceProcess.SessionId -ne 0) {
+    $expectedServiceName = [IO.Path]::GetFileName($expectedServiceExe)
+    if ($expectedServiceName -ine 'clash-verge-service.exe') { throw 'CVR_CAPTURE_UNKNOWN:service-image' }
+    $serviceProcesses = @($Snapshot.Processes | Where-Object {
+        [string]$_.Name -ieq $expectedServiceName -or [string]$_.Name -ieq 'clash-verge-service.exe'
+    })
+    if ($serviceProcesses.Count -eq 0) { throw 'CVR_CAPTURE_UNKNOWN:service-pid' }
+    foreach ($serviceProcess in $serviceProcesses) {
+        if ([string]::IsNullOrWhiteSpace([string]$serviceProcess.ImagePath) -or
+            [IO.Path]::GetFullPath([string]$serviceProcess.ImagePath) -ine $expectedServiceExe -or
+            [string]$serviceProcess.OwnerSid -cne $expectedServiceSid -or
+            [int]$serviceProcess.SessionId -ne 0) {
+            throw 'CVR_CAPTURE_UNKNOWN:service-pid'
+        }
+    }
+    if ($serviceProcesses.Count -ne 1 -or [int]$serviceProcesses[0].ProcessId -ne [int]$service.ProcessId) {
         throw 'CVR_CAPTURE_UNKNOWN:service-pid'
     }
+    $serviceProcess = $serviceProcesses[0]
 
     $expectedGui = [IO.Path]::GetFullPath([string]$capture.pinnedFiles.gui258)
     $expectedGuiName = [IO.Path]::GetFileName($expectedGui)
@@ -169,6 +184,19 @@ function ConvertTo-CvrIdleOperatorObservation {
             $serviceChild = [string]$process.OwnerSid -ceq $expectedServiceSid -and
                 [int]$process.SessionId -eq 0 -and [int]$process.ParentProcessId -eq [int]$service.ProcessId
             if (-not $imageMatches -or (-not $interactiveOwner -and -not $serviceChild)) {
+                throw 'CVR_CAPTURE_UNKNOWN:ownership'
+            }
+            $coreIds.Add([int]$process.ProcessId)
+        } elseif ([string]$process.Name -ieq 'verge-mihomo-alpha.exe') {
+            if ([string]::IsNullOrWhiteSpace([string]$process.ImagePath)) {
+                throw 'CVR_CAPTURE_UNKNOWN:ownership'
+            }
+            $alphaImagePath = [IO.Path]::GetFullPath([string]$process.ImagePath)
+            $interactiveOwner = [string]$process.OwnerSid -ceq $expectedOwnerSid -and [int]$process.SessionId -eq $expectedSession
+            $serviceChild = [string]$process.OwnerSid -ceq $expectedServiceSid -and
+                [int]$process.SessionId -eq 0 -and [int]$process.ParentProcessId -eq [int]$service.ProcessId
+            if ([IO.Path]::GetFileName($alphaImagePath) -ine 'verge-mihomo-alpha.exe' -or
+                (-not $interactiveOwner -and -not $serviceChild)) {
                 throw 'CVR_CAPTURE_UNKNOWN:ownership'
             }
             $coreIds.Add([int]$process.ProcessId)
@@ -378,10 +406,12 @@ function Invoke-CvrIdleCaptureOperator {
         }
         $root = [IO.Path]::GetFullPath($StageRoot)
         $operatorDirectory = [IO.Path]::GetFullPath((Join-Path $root 'tools\network-lab'))
+        if ([IO.Path]::GetFullPath($PSScriptRoot) -ine $operatorDirectory) {
+            return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stage-path') }
+        }
         $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
         $operatorDirectoryItem = Get-Item -LiteralPath $operatorDirectory -Force -ErrorAction Stop
-        if ([IO.Path]::GetFullPath($PSScriptRoot) -ine $operatorDirectory -or
-            -not $rootItem.PSIsContainer -or -not $operatorDirectoryItem.PSIsContainer -or
+        if (-not $rootItem.PSIsContainer -or -not $operatorDirectoryItem.PSIsContainer -or
             (([int]$rootItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
             (([int]$operatorDirectoryItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stage-path') }
@@ -462,6 +492,7 @@ function Invoke-CvrIdleCaptureOperator {
         $request = ConvertFrom-Json -InputObject $requestText -ErrorAction Stop
         if ($request -isnot [PSCustomObject] -or
             $request.Capture -isnot [PSCustomObject] -or
+            $request.Capture.pinnedFiles -isnot [PSCustomObject] -or
             $request.ExpectedPins -isnot [PSCustomObject] -or
             $request.Observer -isnot [PSCustomObject] -or
             [string]::IsNullOrWhiteSpace([string]$request.ExpectedTargetIdentity)) {
@@ -470,6 +501,33 @@ function Invoke-CvrIdleCaptureOperator {
         if ($request.Capture.PSObject.Properties['capturedAtUtc'] -or
             $request.Capture.PSObject.Properties['idleObservation']) {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stale-seed') }
+        }
+        $payloadPins = [ordered]@{
+            candidateCore = 'payload/verge-mihomo.exe'
+            updateInstaller = 'payload/Clash.Verge_2.5.10_x64-setup.exe'
+            recoveryInstaller = 'payload/Clash.Verge_2.5.8_x64-setup.exe'
+        }
+        foreach ($name in $payloadPins.Keys) {
+            $archivePath = [string]$payloadPins[$name]
+            $expectedSha = [string]$manifestIndex[$archivePath]
+            $shaProperty = $request.ExpectedPins.PSObject.Properties[$name]
+            $pathProperty = $request.Capture.pinnedFiles.PSObject.Properties[$name]
+            if (-not $manifestIndex.ContainsKey($archivePath) -or
+                $expectedSha -notmatch '^[0-9a-fA-F]{64}$' -or
+                $null -eq $shaProperty -or $null -eq $pathProperty -or
+                [string]$shaProperty.Value -notmatch '^[0-9a-fA-F]{64}$' -or
+                [string]$shaProperty.Value -ine $expectedSha) {
+                return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stage-pin') }
+            }
+            try {
+                $stagePayloadPath = [IO.Path]::GetFullPath((Join-Path $root ($archivePath.Replace('/', '\'))))
+                $seedPayloadPath = [IO.Path]::GetFullPath([string]$pathProperty.Value)
+            } catch {
+                return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stage-pin') }
+            }
+            if ($seedPayloadPath -ine $stagePayloadPath) {
+                return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stage-pin') }
+            }
         }
         if (@($request.Observer.PSObject.Properties).Count -ne 3 -or
             [string]$request.Observer.ExpectedOwnerSid -notmatch '^S-\d(-\d+)+$' -or
