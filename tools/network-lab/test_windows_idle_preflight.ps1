@@ -522,6 +522,9 @@ function global:Get-NetUDPEndpoint {
 }
 
 & $OperatorPath -StageRoot $StageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256 -RequestPath $RequestPath -TimeoutSeconds $TimeoutSeconds
+$operatorExitCode = $LASTEXITCODE
+if ($null -eq $operatorExitCode) { throw 'Operator exit code was unavailable.' }
+exit ([int]$operatorExitCode)
 '@
     Write-PreflightTestFile -Path $bootstrapPath -Bytes ([Text.UTF8Encoding]::new($false, $true).GetBytes($bootstrapSource)) -Protected
     $operatorTrackedPaths = @(
