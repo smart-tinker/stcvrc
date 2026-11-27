@@ -58,6 +58,18 @@ if ! grep -Fqx 'readonly core_features="management,proxy-smoltcp-stack,wasi-cryp
 fi
 grep -Fq -- '--no-default-features' "$easytier/script/build-wasi-core.sh"
 
+if [[ "$host" == windows ]]; then
+  binaryen_archive_url="https://github.com/WebAssembly/binaryen/releases/download/version_131/binaryen-version_131-x86_64-windows.tar.gz"
+  binaryen_archive_sha256="2f4edac1703a2f695254d6ff52ede03481e67db1f094915763d863158c17d9bc"
+  binaryen_archive="$root/binaryen.tar.gz"
+  bash "$recipe/tools/source-build/fetch-binaryen.sh" "$binaryen_archive_url" "$binaryen_archive_sha256" "$binaryen_archive"
+  mkdir "$root/binaryen"
+  tar -xzf "$binaryen_archive" -C "$root/binaryen"
+  WASM_OPT="$root/binaryen/binaryen-version_131/bin/wasm-opt.exe"
+  test -x "$WASM_OPT"
+  export WASM_OPT STCVRC_BINARYEN_ARCHIVE_SHA256="$binaryen_archive_sha256"
+fi
+
 curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 180 --silent --show-error \
   "$STCVRC_GO_ARCHIVE_URL" -o "$root/$go_archive"
 printf '%s  %s\n' "$go_archive_sha" "$root/$go_archive" | sha256sum --check --status
@@ -314,6 +326,7 @@ report = {
     "rust_version": "1.95.0",
     "protoc_version": "35.1",
     "protoc_gen_go_version": "1.36.11",
+    "binaryen_archive_sha256": os.environ.get("STCVRC_BINARYEN_ARCHIVE_SHA256"),
     "binaryen_version": "131",
     "version": "1.19.33-STCVRC-rc.11",
     "build_time": "2026-11-25T00:00:00Z",
