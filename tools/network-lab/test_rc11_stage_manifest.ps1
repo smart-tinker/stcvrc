@@ -198,6 +198,7 @@ try {
     Assert-StageTest ($record.cvrInstallers.'2.5.8'.sha256 -ceq $recoverySha -and $record.cvrInstallers.'2.5.10'.sha256 -ceq $updateSha) 'Staged installers are not bound to both CVR release pins.'
     Assert-StageTest ($record.inputManifestSha256 -ceq (Get-FileHash -LiteralPath $inputsPath -Algorithm SHA256).Hash.ToLowerInvariant()) 'External stage record does not bind the input manifest.'
     Assert-StageTest (@($record.sourceFiles).Count -eq $sourceNames.Count) 'External stage record omitted an allowlisted source file.'
+    Assert-StageTest (@($record.cvrServiceInstallHelpers).Count -eq 2) 'Stage record omitted provenance for both Service IPC helpers.'
 
     $archive = [IO.Compression.ZipFile]::OpenRead($goodOutput)
     try {
