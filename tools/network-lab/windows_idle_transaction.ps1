@@ -80,6 +80,48 @@ function Invoke-CvrIdleTransaction {
 }
 
 
+function ConvertTo-CvrIdleCaptureSeedJson {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object]$Seed)
+
+    $capture = $Seed.Capture
+    $corePair = [ordered]@{}
+    foreach ($role in @('programFiles', 'service')) {
+        $source = $capture.corePair.$role
+        $entry = [ordered]@{}
+        foreach ($name in @('path', 'pathPin', 'backup', 'backupPathPin', 'backupRoot', 'backupSddl', 'backupDirectorySddl', 'sha256', 'sddl')) {
+            $entry[$name] = $source.$name
+        }
+        $entry.acl = [ordered]@{ Sddl = [string]$source.sddl }
+        $corePair[$role] = $entry
+    }
+
+    $legacyState = [ordered]@{
+        files = @($capture.legacyState.files | ForEach-Object {
+            [ordered]@{ path = $_.path; present = $_.present; bytes = $_.bytes; sddl = $_.sddl }
+        })
+        registry = @($capture.legacyState.registry | ForEach-Object {
+            [ordered]@{ hive = $_.hive; name = $_.name; present = $_.present; kind = $_.kind; data = $_.data }
+        })
+    }
+    $serializableSeed = [ordered]@{
+        Capture = [ordered]@{
+            installDirectory = $capture.installDirectory
+            guiSha256 = $capture.guiSha256
+            targetIdentity = $capture.targetIdentity
+            coreShouldBeRunning = $capture.coreShouldBeRunning
+            corePair = $corePair
+            legacyState = $legacyState
+            pinnedFiles = $capture.pinnedFiles
+        }
+        ExpectedTargetIdentity = $Seed.ExpectedTargetIdentity
+        ExpectedPins = $Seed.ExpectedPins
+        Observer = $Seed.Observer
+    }
+    return ConvertTo-Json -InputObject $serializableSeed -Depth 16 -Compress -ErrorAction Stop -WarningAction Stop
+}
+
+
 function Assert-CvrIdleTargetCapture {
     [CmdletBinding()]
     param(

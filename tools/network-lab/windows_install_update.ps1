@@ -466,7 +466,7 @@ $seedPath = Join-Path $localRoot 'capture-seed.json'
 if (Test-Path -LiteralPath $seedPath) { throw 'Refusing a preexisting Capture seed.' }
 $null = [IO.File]::Open($seedPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None).Dispose()
 $null = Set-CvrIdleCaptureAcl -Path $seedPath
-$seedJson = ConvertTo-Json -InputObject $captureSeed -Depth 16 -Compress -ErrorAction Stop
+$seedJson = ConvertTo-CvrIdleCaptureSeedJson -Seed $captureSeed
 [IO.File]::WriteAllText($seedPath, $seedJson, [Text.UTF8Encoding]::new($false, $true))
 $captureOperatorPath = Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_capture_operator.ps1'
 $captureChild = Invoke-CvrIdleOperatorChild -ScriptPath $captureOperatorPath -Arguments @(

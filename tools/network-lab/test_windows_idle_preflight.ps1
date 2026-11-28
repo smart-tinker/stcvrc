@@ -579,9 +579,32 @@ try {
     }
     $seedJson = ConvertTo-CvrIdleCaptureSeedJson -Seed $seedInput
     $seedRoundTrip = ConvertFrom-Json -InputObject $seedJson -ErrorAction Stop
+    if ([string]$seedRoundTrip.Capture.installDirectory -cne [string]$seedInput.Capture.installDirectory -or
+        [string]$seedRoundTrip.Capture.guiSha256 -cne [string]$seedInput.Capture.guiSha256 -or
+        [string]$seedRoundTrip.Capture.targetIdentity -cne [string]$targetIdentity -or
+        [string]$seedRoundTrip.ExpectedTargetIdentity -cne [string]$targetIdentity -or
+        [string]$seedRoundTrip.Observer.ExpectedOwnerSid -cne [string]$seedInput.Observer.ExpectedOwnerSid -or
+        [int]$seedRoundTrip.Observer.ExpectedSessionId -ne [int]$seedInput.Observer.ExpectedSessionId -or
+        [string]$seedRoundTrip.Observer.ExpectedServiceAccountSid -cne [string]$seedInput.Observer.ExpectedServiceAccountSid) {
+        throw 'Capture seed serialization changed the target or observer identity.'
+    }
+    foreach ($pinName in $expectedPins.Keys) {
+        if ([string]$seedRoundTrip.ExpectedPins.$pinName -cne [string]$expectedPins[$pinName] -or
+            [string]$seedRoundTrip.Capture.pinnedFiles.$pinName -cne [string]$pinnedFiles[$pinName]) {
+            throw 'Capture seed serialization changed a pinned target file.'
+        }
+    }
     foreach ($role in @('programFiles', 'service')) {
         $source = $capture.corePair[$role]
+        if ($source.acl -isnot [Security.AccessControl.FileSecurity]) {
+            throw 'Capture seed serialization changed the in-memory core rollback ACL.'
+        }
         $serialized = $seedRoundTrip.Capture.corePair.$role
+        foreach ($field in @('path', 'pathPin', 'backup', 'backupPathPin', 'backupRoot', 'backupSddl', 'backupDirectorySddl', 'sha256', 'sddl')) {
+            if ([string]$serialized.$field -cne [string]$source.$field) {
+                throw 'Capture seed serialization changed the core rollback preimage.'
+            }
+        }
         $aclProperties = @($serialized.acl.PSObject.Properties | ForEach-Object { $_.Name })
         if ($aclProperties.Count -ne 1 -or $aclProperties[0] -cne 'Sddl' -or
             [string]$serialized.acl.Sddl -cne [string]$source.sddl) {
@@ -594,9 +617,38 @@ try {
         throw 'Capture seed serialization changed the legacy file preimage count.'
     }
     for ($index = 0; $index -lt $legacySourceFiles.Count; $index++) {
-        if ([string]$legacySerializedFiles[$index].path -cne [string]$legacySourceFiles[$index].path -or
-            [string]$legacySerializedFiles[$index].sddl -cne [string]$legacySourceFiles[$index].sddl) {
+        $sourceFile = $legacySourceFiles[$index]
+        $serializedFile = $legacySerializedFiles[$index]
+        $bytesChanged = (($null -eq $sourceFile.bytes) -ne ($null -eq $serializedFile.bytes))
+        if ($null -ne $sourceFile.bytes -and [string]$sourceFile.bytes -cne [string]$serializedFile.bytes) { $bytesChanged = $true }
+        if ($sourceFile.present -and $sourceFile.acl -isnot [Security.AccessControl.FileSecurity]) {
+            throw 'Capture seed serialization changed the in-memory legacy rollback ACL.'
+        }
+        if ($serializedFile.PSObject.Properties['acl'] -or
+            [string]$serializedFile.path -cne [string]$sourceFile.path -or
+            [bool]$serializedFile.present -ne [bool]$sourceFile.present -or
+            $bytesChanged -or
+            [string]$serializedFile.sddl -cne [string]$sourceFile.sddl) {
             throw 'Capture seed serialization changed the legacy file preimage.'
+        }
+    }
+    $legacySourceRegistry = @($legacyFixture.state.registry)
+    $legacySerializedRegistry = @($seedRoundTrip.Capture.legacyState.registry)
+    if ($legacySerializedRegistry.Count -ne $legacySourceRegistry.Count) {
+        throw 'Capture seed serialization changed the legacy registry preimage count.'
+    }
+    for ($index = 0; $index -lt $legacySourceRegistry.Count; $index++) {
+        $sourceValue = $legacySourceRegistry[$index]
+        $serializedValue = $legacySerializedRegistry[$index]
+        $kindChanged = (($null -eq $sourceValue.kind) -ne ($null -eq $serializedValue.kind))
+        if ($null -ne $sourceValue.kind -and [string]$sourceValue.kind -cne [string]$serializedValue.kind) { $kindChanged = $true }
+        $dataChanged = (($null -eq $sourceValue.data) -ne ($null -eq $serializedValue.data))
+        if ($null -ne $sourceValue.data -and [string]$sourceValue.data -cne [string]$serializedValue.data) { $dataChanged = $true }
+        if ([string]$serializedValue.hive -cne [string]$sourceValue.hive -or
+            [string]$serializedValue.name -cne [string]$sourceValue.name -or
+            [bool]$serializedValue.present -ne [bool]$sourceValue.present -or
+            $kindChanged -or $dataChanged) {
+            throw 'Capture seed serialization changed the legacy registry preimage.'
         }
     }
     $seedWarningCheck = ConvertTo-Json -InputObject $seedRoundTrip -Depth 16 -Compress -ErrorAction Stop -WarningAction Stop
