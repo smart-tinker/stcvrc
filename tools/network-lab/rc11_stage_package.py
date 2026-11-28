@@ -38,9 +38,14 @@ SOURCE_FILES = (
 CORE_PATH = "payload/verge-mihomo.exe"
 SERVICE_IPC_REPOSITORY = "clash-verge-rev/clash-verge-service-ipc"
 SERVICE_HELPER_NAME = "clash-verge-service-install.exe"
+SERVICE_BINARY_NAME = "clash-verge-service.exe"
 SERVICE_HELPER_PATHS = {
     "2.5.8": "payload/cvr-2.5.8/clash-verge-service-install.exe",
     "2.5.10": "payload/cvr-2.5.10/clash-verge-service-install.exe",
+}
+SERVICE_BINARY_PATHS = {
+    "2.5.8": "payload/cvr-2.5.8/clash-verge-service.exe",
+    "2.5.10": "payload/cvr-2.5.10/clash-verge-service.exe",
 }
 SERVICE_IPC_LICENSE_PATH = "licenses/clash-verge-service-ipc/LICENSE"
 SERVICE_IPC_PROVENANCE_PATH = "provenance/cvr-service-install-helpers.json"
@@ -166,18 +171,24 @@ def read_service_ipc_archive(path, pin, provenance):
     try:
         with zipfile.ZipFile(path) as archive:
             helper_entries = [item for item in archive.infolist() if not item.is_dir() and PurePosixPath(item.filename).name == SERVICE_HELPER_NAME]
+            service_entries = [item for item in archive.infolist() if not item.is_dir() and PurePosixPath(item.filename).name == SERVICE_BINARY_NAME]
             license_entries = [item for item in archive.infolist() if not item.is_dir() and PurePosixPath(item.filename).name == "LICENSE"]
-            require(len(helper_entries) == 1 and len(license_entries) == 1, "Service IPC archive helper or LICENSE entry is ambiguous")
-            for item in helper_entries + license_entries:
+            require(
+                len(helper_entries) == 1 and len(service_entries) == 1 and len(license_entries) == 1,
+                "Service IPC archive helper, companion service binary or LICENSE entry is ambiguous",
+            )
+            for item in helper_entries + service_entries + license_entries:
                 require(not stat.S_ISLNK(item.external_attr >> 16), "Service IPC archive contains a symlink input")
             helper_bytes = archive.read(helper_entries[0])
+            service_binary_bytes = archive.read(service_entries[0])
             license_bytes = archive.read(license_entries[0])
     except (OSError, zipfile.BadZipFile, RuntimeError):
         raise ValueError("Service IPC release archive is unreadable") from None
     helper = provenance["helper"]
     require(len(helper_bytes) == helper["size"] and hashlib.sha256(helper_bytes).hexdigest() == helper["sha256"], "Service IPC archive helper bytes do not match the pin")
+    require(len(service_binary_bytes) > 0, "Service IPC archive companion service binary is empty")
     require(hashlib.sha256(license_bytes).hexdigest() == provenance["licenseSha256"], "Service IPC archive LICENSE bytes do not match the pin")
-    return helper_bytes, license_bytes
+    return helper_bytes, service_binary_bytes, license_bytes
 
 
 def read_installer_helper(path, pin):
@@ -232,7 +243,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
         installer_record = file_record(installer_paths[version], f"payload/{pin['name']}")
         require(installer_record["sha256"] == pin["sha256"] and installer_record["size"] == pin["size"], f"CVR {version} installer bytes do not match the release pin")
         provenance = pin["serviceInstallHelperProvenance"]
-        ipc_helper_bytes, current_license = read_service_ipc_archive(ipc_paths[version], provenance["asset"], provenance)
+        ipc_helper_bytes, ipc_service_binary_bytes, current_license = read_service_ipc_archive(ipc_paths[version], provenance["asset"], provenance)
         installer_helper_bytes = read_installer_helper(installer_paths[version], provenance["helper"])
         require(installer_helper_bytes == ipc_helper_bytes, f"CVR {version} installer helper differs from its pinned Service IPC release")
         if license_bytes is None:
@@ -243,6 +254,10 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
         service_helpers[version] = {
             "bytes": installer_helper_bytes,
             "record": bytes_record(installer_helper_bytes, SERVICE_HELPER_PATHS[version]),
+            "serviceBinary": {
+                "bytes": ipc_service_binary_bytes,
+                "record": bytes_record(ipc_service_binary_bytes, SERVICE_BINARY_PATHS[version]),
+            },
             "installer": installer_record,
             "provenance": provenance,
         }
@@ -260,6 +275,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
         helper_records.append({
             "version": version,
             **item["record"],
+            "serviceBinary": item["serviceBinary"]["record"],
             "installer": {
                 "path": item["installer"]["path"], "size": item["installer"]["size"],
                 "sha256": item["installer"]["sha256"], "tag": installers[version]["tag"],
@@ -287,6 +303,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
     file_records = sorted(
         source_records + [core_record, installer_records["2.5.8"], installer_records["2.5.10"]] +
         [service_helpers[v]["record"] for v in ("2.5.8", "2.5.10")] +
+        [service_helpers[v]["serviceBinary"]["record"] for v in ("2.5.8", "2.5.10")] +
         [license_record, provenance_record],
         key=lambda item: item["path"],
     )
@@ -301,7 +318,12 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
     require(output.name == "RC11-WINDOWS-STAGE.zip", "unexpected RC11 stage asset name")
     require(not output.exists() and not record_output.exists(), "refusing to overwrite RC11 stage output")
     output.parent.mkdir(parents=True, exist_ok=True)
-    file_payloads = {service_helpers[v]["record"]["path"]: service_helpers[v]["bytes"] for v in ("2.5.8", "2.5.10")}
+    file_payloads = {}
+    for version in ("2.5.8", "2.5.10"):
+        item = service_helpers[version]
+        file_payloads[item["record"]["path"]] = item["bytes"]
+        service_binary = item["serviceBinary"]
+        file_payloads[service_binary["record"]["path"]] = service_binary["bytes"]
     file_payloads[SERVICE_IPC_LICENSE_PATH] = license_bytes
     file_payloads[SERVICE_IPC_PROVENANCE_PATH] = provenance_bytes
     source_paths = {name: root / name for name in SOURCE_FILES}
