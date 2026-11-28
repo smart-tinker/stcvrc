@@ -40,7 +40,25 @@
           "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/latest.json"
         }
       },
-      "serviceInstallHelperSha256": "fa3a36b13d75e775162e29d307b94efcba78f814ba766d755699ee5821189b77"
+      "serviceInstallHelperSha256": "fa3a36b13d75e775162e29d307b94efcba78f814ba766d755699ee5821189b77",
+      "serviceInstallHelperProvenance": {
+        "repository": "clash-verge-rev/clash-verge-service-ipc",
+        "tag": "v2.7.6",
+        "sourceCommit": "b2a7427d6681c8d3780ab83a73f4dc21da2f22d6",
+        "asset": {
+          "id": 605785483,
+          "name": "clash-verge-service-ipc-v2.7.6-x86_64-pc-windows-msvc.zip",
+          "size": 2359566,
+          "sha256": "187683b89e777cd150aa2d600684a15cbae665e0a6804399366837d5c73ac06f",
+          "url": "https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/download/v2.7.6/clash-verge-service-ipc-v2.7.6-x86_64-pc-windows-msvc.zip"
+        },
+        "helper": {
+          "file": "clash-verge-service-install.exe",
+          "size": 1121792,
+          "sha256": "fa3a36b13d75e775162e29d307b94efcba78f814ba766d755699ee5821189b77"
+        },
+        "licenseSha256": "81cbae84a29ce7e770bf2bc7b178e50bda0ce8de6067aba661b0bc7b05b562f8"
+      }
     },
     {
       "version": "2.5.10",
@@ -79,7 +97,25 @@
           "url": "https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/latest.json"
         }
       },
-      "serviceInstallHelperSha256": "432a81a6fcd636b0ed2472f224d178fe02f0b3422fff51e3f76e625e44bc1574"
+      "serviceInstallHelperSha256": "432a81a6fcd636b0ed2472f224d178fe02f0b3422fff51e3f76e625e44bc1574",
+      "serviceInstallHelperProvenance": {
+        "repository": "clash-verge-rev/clash-verge-service-ipc",
+        "tag": "v2.7.7",
+        "sourceCommit": "3ed29700b093190b5e7addcaa892e77f172af544",
+        "asset": {
+          "id": 695838224,
+          "name": "clash-verge-service-ipc-v2.7.7-x86_64-pc-windows-msvc.zip",
+          "size": 2382888,
+          "sha256": "91316df6662b0962d13dcf18f71d0182a62dc5a1a68769a3adc34cda07538bdf",
+          "url": "https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/download/v2.7.7/clash-verge-service-ipc-v2.7.7-x86_64-pc-windows-msvc.zip"
+        },
+        "helper": {
+          "file": "clash-verge-service-install.exe",
+          "size": 1133056,
+          "sha256": "432a81a6fcd636b0ed2472f224d178fe02f0b3422fff51e3f76e625e44bc1574"
+        },
+        "licenseSha256": "81cbae84a29ce7e770bf2bc7b178e50bda0ce8de6067aba661b0bc7b05b562f8"
+      }
     }
   ],
   "core": {
@@ -103,5 +139,13 @@
     "assetName": "verge-mihomo.exe",
     "assetSize": 60833280,
     "sha256": "1e8648cf8a53a96697bfda5a53bbf3393a042430f5ec4e963c8f19dc83a5523e"
+  },
+  "serviceIpcLicense": {
+    "repository": "clash-verge-rev/clash-verge-service-ipc",
+    "path": "licenses/clash-verge-service-ipc/LICENSE",
+    "sourcePath": "LICENSE",
+    "sourceCommit": "3ed29700b093190b5e7addcaa892e77f172af544",
+    "sourceSha256": "8b1ba204bb69a0ade2bfcf65ef294a920f6bb361b317dba43c7ef29d96332b9b",
+    "archiveSha256": "81cbae84a29ce7e770bf2bc7b178e50bda0ce8de6067aba661b0bc7b05b562f8"
   }
 }

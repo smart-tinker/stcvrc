@@ -248,6 +248,37 @@ function ConvertTo-CvrIdleOperatorObservation {
     }
 }
 
+function Get-CvrIdleOperatorFreshObservation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Capture,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$ExpectedPins
+    )
+
+    $observer = $Capture.rollbackState.observer
+    $request = [PSCustomObject]@{
+        Capture = $Capture
+        ExpectedPins = $ExpectedPins
+        Observer = [PSCustomObject]@{
+            ExpectedOwnerSid = [string]$observer.ownerSid
+            ExpectedSessionId = [int]$observer.sessionId
+            ExpectedServiceAccountSid = [string]$observer.serviceAccountSid
+        }
+    }
+    $snapshot = Get-CvrIdleOperatorWindowsSnapshot -Request $request
+    $observation = ConvertTo-CvrIdleOperatorObservation -Snapshot $snapshot -Request $request
+    return [PSCustomObject]@{
+        SampledAtUtc = $snapshot.SampledAtUtc
+        Observation = $observation
+        Observer = [PSCustomObject]@{
+            ownerSid = [string]$snapshot.CurrentOwnerSid
+            sessionId = [int]$snapshot.CurrentSessionId
+            serviceAccountSid = [string]$snapshot.Service.AccountSid
+            serviceProcessId = [int]$snapshot.Service.ProcessId
+        }
+    }
+}
+
 function Quote-CvrIdleOperatorArgument([string]$Value) {
     if ($Value.Contains('"')) { throw 'CVR_CAPTURE_UNKNOWN:argument' }
     return '"' + $Value + '"'
@@ -441,6 +472,7 @@ function Invoke-CvrIdleCaptureOperator {
             'tools/network-lab/windows_core_preimage_paths.ps1',
             'tools/network-lab/windows_idle_baseline_guard.ps1',
             'tools/network-lab/windows_idle_transaction.ps1',
+            'tools/network-lab/windows_legacy_state_transaction.ps1',
             'tools/network-lab/windows_idle_preflight_package_writer.ps1',
             'tools/network-lab/windows_idle_preflight.ps1'
         )
@@ -465,6 +497,7 @@ function Invoke-CvrIdleCaptureOperator {
         }
         . (Join-Path $root 'tools\network-lab\windows_core_preimage_paths.ps1')
         . (Join-Path $root 'tools\network-lab\windows_idle_baseline_guard.ps1')
+        . (Join-Path $root 'tools\network-lab\windows_legacy_state_transaction.ps1')
         . (Join-Path $root 'tools\network-lab\windows_idle_transaction.ps1')
         $null = Assert-CvrIdleCaptureAcl -Path $root -Directory
         $stage = 'binding'
@@ -499,13 +532,16 @@ function Invoke-CvrIdleCaptureOperator {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'seed-shape') }
         }
         if ($request.Capture.PSObject.Properties['capturedAtUtc'] -or
-            $request.Capture.PSObject.Properties['idleObservation']) {
+            $request.Capture.PSObject.Properties['idleObservation'] -or
+            $request.Capture.PSObject.Properties['rollbackState']) {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'stale-seed') }
         }
         $payloadPins = [ordered]@{
             candidateCore = 'payload/verge-mihomo.exe'
             updateInstaller = 'payload/Clash.Verge_2.5.10_x64-setup.exe'
+            updateHelper = 'payload/cvr-2.5.10/clash-verge-service-install.exe'
             recoveryInstaller = 'payload/Clash.Verge_2.5.8_x64-setup.exe'
+            recoveryHelper = 'payload/cvr-2.5.8/clash-verge-service-install.exe'
         }
         foreach ($name in $payloadPins.Keys) {
             $archivePath = [string]$payloadPins[$name]
@@ -562,10 +598,48 @@ function Invoke-CvrIdleCaptureOperator {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'REFUSED' -Reason 'not-idle') }
         }
         try {
+            $installDirectory = [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName([string]$capture.pinnedFiles.gui258))
+            $programData = [IO.Path]::GetFullPath([string]$env:ProgramData)
+            $serviceDataDirectory = [IO.Path]::GetFullPath((Join-Path $programData 'clash-verge-service'))
+            $ExpectedServiceExecutableDirectory = [IO.Path]::GetFullPath((Join-Path $serviceDataDirectory 'bin'))
+            if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath([string]$capture.pinnedFiles.serviceExe258)) -ine $ExpectedServiceExecutableDirectory) {
+                throw 'rollback service executable directory'
+            }
+            foreach ($directory in @($programData,$serviceDataDirectory,$ExpectedServiceExecutableDirectory)) {
+                $directoryItem = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+                if (-not $directoryItem.PSIsContainer -or
+                    (([int]$directoryItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+                    throw 'rollback service executable reparse path'
+                }
+            }
+            $legacySnapshot = Get-CvrLegacyState
+            $legacyState = [ordered]@{
+                files = @($legacySnapshot.files | ForEach-Object {
+                    [ordered]@{ path=[string]$_.path; present=[bool]$_.present; bytes=$_.bytes; sddl=$_.sddl }
+                })
+                registry = @($legacySnapshot.registry | ForEach-Object {
+                    [ordered]@{ hive=[string]$_.hive; name=[string]$_.name; present=[bool]$_.present; kind=$_.kind; data=$_.data }
+                })
+            }
+            $rollbackState = [ordered]@{
+                schemaVersion = 1
+                installDirectory = $installDirectory
+                gui = Save-CvrIdleFilePreimageBackup -Root $local -Role 'gui' -SourcePath ([string]$capture.pinnedFiles.gui258) -ExpectedDirectory $installDirectory -ExpectedSha256 ([string]$pins.gui258)
+                serviceExe = Save-CvrIdleFilePreimageBackup -Root $local -Role 'service-exe' -SourcePath ([string]$capture.pinnedFiles.serviceExe258) -ExpectedDirectory $ExpectedServiceExecutableDirectory -ExpectedSha256 ([string]$pins.serviceExe258)
+                legacyState = $legacyState
+                observer = [ordered]@{
+                    ownerSid = [string]$request.Observer.ExpectedOwnerSid
+                    sessionId = [int]$request.Observer.ExpectedSessionId
+                    serviceAccountSid = [string]$request.Observer.ExpectedServiceAccountSid
+                    serviceProcessId = [int]$snapshot.Service.ProcessId
+                }
+            }
+            $null = $capture | Add-Member -MemberType NoteProperty -Name 'rollbackState' -Value $rollbackState
             $null = Assert-CvrIdleTargetCapture -Capture $capture -ExpectedTargetIdentity ([string]$request.ExpectedTargetIdentity) -ExpectedPins $pins
+            $null = Assert-CvrIdleRollbackState -Capture $capture -ExpectedPins $pins -ExpectedLocalRoot $local
         } catch {
-            $reason = if ($_.Exception.Message -match 'pin|pinned input') { 'pin-drift' } else { 'capture-guard' }
-            return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'REFUSED' -Reason $reason) }
+            $reason = if ($_.Exception.Message -match 'pin|pinned input') { 'pin-drift' } else { 'rollback-state' }
+            return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason $reason) }
         }
         $capture.capturedAtUtc = $capture.capturedAtUtc.ToString('o')
         $writerRequest = [ordered]@{
@@ -656,6 +730,9 @@ function Invoke-CvrIdleCaptureOperator {
             [string]$stored.sourceManifestSha256 -ine $ExpectedPackageManifestSha256) {
             return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason 'preflight-receipt') }
         }
+        $stage = 'post-preflight-observation'
+        $freshObservation = Get-CvrIdleOperatorFreshObservation -Capture $capture -ExpectedPins $pins
+        $null = Assert-CvrIdleFreshObservation -Capture $capture -Fresh $freshObservation -RequireSameServicePid
         $public = New-CvrIdleOperatorOutcome -Status 'COMPLETE' -Reason 'preflight-complete' -Result ([string]$preflight.result) -ExitCode ([int]$preflight.exitCode) -TimedOut ([bool]$preflight.timedOut) -ChildStopped ([bool]$preflight.childStopped) -ChildExitCode $preflight.childExitCode -ReceiptId ([string]$preflight.receiptId) -PlanSha256 $planSha -SourceManifestSha256 ([string]$preflight.sourceManifestSha256)
         return [PSCustomObject]@{
             Public = $public
@@ -673,6 +750,7 @@ function Invoke-CvrIdleCaptureOperator {
         elseif ($stage -eq 'capture') { $reason = 'capture-failed' }
         elseif ($stage -eq 'plan') { $reason = 'plan-failed' }
         elseif ($stage -eq 'preflight') { $reason = 'preflight-unknown' }
+        elseif ($stage -eq 'post-preflight-observation') { $reason = 'fresh-observation' }
         return [PSCustomObject]@{ Public = (New-CvrIdleOperatorOutcome -Status 'INCOMPLETE' -Reason $reason) }
     } finally {
         if ($binding -and $binding.OpenFiles) {
@@ -682,6 +760,71 @@ function Invoke-CvrIdleCaptureOperator {
         if ($seedHandle) { try { $seedHandle.Dispose() } catch {} }
         if ($manifestHandle) { try { $manifestHandle.Dispose() } catch {} }
     }
+}
+
+function Get-CvrIdleOperatorFailureSummary {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object]$Child)
+
+    $summary = [ordered]@{
+        status = 'unknown'
+        reason = 'unknown'
+        result = 'unknown'
+        resultExit = 'unknown'
+        timedOut = 'unknown'
+        childStopped = 'unknown'
+        childExit = 'unknown'
+        processExit = 'unknown'
+        stderrPresent = 'unknown'
+    }
+    $processExit = $Child.PSObject.Properties['ExitCode']
+    if ($processExit -and
+        ($processExit.Value -is [int] -or $processExit.Value -is [long]) -and
+        [long]$processExit.Value -ge -999 -and [long]$processExit.Value -le 999) {
+        $summary.processExit = [string]$processExit.Value
+    }
+    $stderr = $Child.PSObject.Properties['StdErr']
+    if ($stderr -and $stderr.Value -is [string]) {
+        $summary.stderrPresent = [string](-not [string]::IsNullOrEmpty([string]$stderr.Value)).ToLowerInvariant()
+    }
+
+    $stdout = $Child.PSObject.Properties['StdOut']
+    if ($stdout -and $stdout.Value -is [string] -and $stdout.Value.Length -le 4096) {
+        $public = $null
+        try { $public = ConvertFrom-Json -InputObject $stdout.Value -ErrorAction Stop } catch {}
+        if ($public -is [PSCustomObject]) {
+            $property = $public.PSObject.Properties['status']
+            if ($property -and $property.Value -is [string] -and $property.Value -cin @('COMPLETE', 'INCOMPLETE', 'REFUSED')) {
+                $summary.status = [string]$property.Value
+            }
+            $property = $public.PSObject.Properties['reason']
+            if ($property -and $property.Value -is [string] -and $property.Value -match '^[a-z][a-z0-9-]{0,63}$') {
+                $summary.reason = [string]$property.Value
+            }
+            $property = $public.PSObject.Properties['result']
+            if ($property -and $property.Value -is [string] -and $property.Value -cin @('PASS', 'FAIL', 'TIMEOUT', 'UNKNOWN')) {
+                $summary.result = [string]$property.Value
+            }
+            foreach ($field in @('exitCode', 'childExitCode')) {
+                $property = $public.PSObject.Properties[$field]
+                if ($property -and
+                    ($property.Value -is [int] -or $property.Value -is [long]) -and
+                    [long]$property.Value -ge -999 -and [long]$property.Value -le 999) {
+                    if ($field -ceq 'exitCode') { $summary.resultExit = [string]$property.Value }
+                    else { $summary.childExit = [string]$property.Value }
+                }
+            }
+            foreach ($field in @('timedOut', 'childStopped')) {
+                $property = $public.PSObject.Properties[$field]
+                if ($property -and $property.Value -is [bool]) {
+                    $summary[$field] = ([string]$property.Value).ToLowerInvariant()
+                }
+            }
+        }
+    }
+
+    $parts = foreach ($key in $summary.Keys) { "$key=$($summary[$key])" }
+    return ($parts -join ' ')
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

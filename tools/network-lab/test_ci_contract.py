@@ -327,13 +327,16 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("windows_install_update.ps1", job,
                       "pinned Windows install/update smoke is not wired into the existing job")
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
-        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "Invoke-NativePhase"):
+        operator = (HERE / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        for required in ("GITHUB_ACTIONS", "2.5.8", "2.5.10", "'/UPDATE'", "clash_verge_service", "Invoke-NativePhase", "Invoke-CvrIdlePreflightTargetAcceptance"):
             with self.subTest(required=required):
                 self.assertIn(required, script)
-        self.assertLess(script.index("Invoke-NativePhase -Phase seed"), script.index("Invoke-NativePhase -Phase exercise"))
-        self.assertLess(script.index("Invoke-NativePhase -Phase exercise"), script.index("Invoke-NativePhase -Phase recovery"))
-
-
+        self.assertLess(script.index("Invoke-NativePhase -Phase seed"), script.index("$candidateTrafficScript = {"))
+        self.assertLess(script.index("$candidateTrafficScript = {"), script.index("Invoke-NativePhase -Phase exercise"))
+        self.assertLess(script.index("Invoke-NativePhase -Phase exercise"), script.index("$recoveryVerificationScript = {"))
+        self.assertLess(script.index("$recoveryVerificationScript = {"), script.index("Invoke-NativePhase -Phase recovery"))
+        self.assertLess(operator.index("Invoke-CvrInstaller -Version '2.5.10'"), operator.index("& $candidateTrafficScript"))
+        self.assertLess(operator.index("& $candidateTrafficScript"), operator.index("Invoke-CvrInstaller -Version '2.5.8'"))
     def test_source_job_parses_native_windows_powershell_before_build(self):
         workflow = WORKFLOWS["test.yml"]
         job = workflow.split("\n  source:\n", 1)[1].split("\n  profile-contract:\n", 1)[0]
@@ -345,6 +348,7 @@ class CIContractTests(unittest.TestCase):
         self.assertIn("$parseErrors.Count -gt 0", parse_step)
         self.assertIn("windows_native_acceptance.ps1", parse_step)
         self.assertIn("windows_install_update.ps1", parse_step)
+        self.assertIn("windows_idle_target_runtime.ps1", parse_step)
         self.assertLess(job.index("Read the source revision being checked"), job.index(step_name))
         self.assertLess(job.index(step_name), job.index("Install checksum-pinned Go and workflow linter"))
 
@@ -388,6 +392,7 @@ class CIContractTests(unittest.TestCase):
     def test_installed_gui_matches_exact_extracted_release_payload(self):
         workflow = WORKFLOWS["test.yml"]
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        runtime = (HERE / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
         for required in (
             "CVR_258_GUI_SHA256",
             "CVR_2510_GUI_SHA256",
@@ -396,7 +401,7 @@ class CIContractTests(unittest.TestCase):
             "Installed CVR GUI SHA256 mismatch",
         ):
             with self.subTest(required=required):
-                self.assertIn(required, workflow + script)
+                self.assertIn(required, workflow + script + runtime)
 
 
     def test_rc_manifest_is_read_back_as_exact_bytes(self):
@@ -741,18 +746,30 @@ class CIContractTests(unittest.TestCase):
 
     def test_smoke_runs_functional_recovery_after_candidate_exercise(self):
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        operator = (HERE / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
         native = (HERE / "windows_native_acceptance.ps1").read_text(encoding="utf-8")
-        exercise = script.index("Invoke-NativePhase -Phase exercise")
-        recovery_install = script.index("$installRecovered = Invoke-CvrInstaller -Version '2.5.8'")
-        recovery_phase = script.index("Invoke-NativePhase -Phase recovery", recovery_install)
-        self.assertLess(exercise, recovery_install)
-        self.assertLess(recovery_install, recovery_phase)
+        exercise_callback = script.index("$candidateTrafficScript = {")
+        exercise = script.index("Invoke-NativePhase -Phase exercise", exercise_callback)
+        recovery_callback = script.index("$recoveryVerificationScript = {", exercise)
+        recovery_phase = script.index("Invoke-NativePhase -Phase recovery", recovery_callback)
+        transaction_call = script.index("Invoke-CvrIdlePreflightTargetAcceptance", recovery_phase)
+        self.assertLess(exercise_callback, exercise)
+        self.assertLess(exercise, recovery_callback)
+        self.assertLess(recovery_callback, recovery_phase)
+        self.assertLess(recovery_phase, transaction_call)
+        action = operator.index("ActionScript = {")
+        candidate_traffic = operator.index("& $candidateTrafficScript", action)
+        restore = operator.index("RestoreScript = {", candidate_traffic)
+        rollback_installer = operator.index("Invoke-CvrInstaller -Version '2.5.8'", restore)
+        recovery_callback_call = operator.index("& $recoveryVerificationScript", rollback_installer)
+        self.assertLess(action, candidate_traffic)
+        self.assertLess(candidate_traffic, restore)
+        self.assertLess(restore, rollback_installer)
+        self.assertLess(rollback_installer, recovery_callback_call)
         self.assertIn("get_profiles", native)
         self.assertIn("read_profile_file", native)
         self.assertIn("Assert-FixtureNodeSelection", native)
         self.assertIn("Get-RuntimeYaml", native)
-
-
     def test_rc11_stage_manifest_is_exact_sha_gated_and_read_back(self):
         workflow = WORKFLOWS["test.yml"]
         stage_job = workflow.split("\n  rc11-stage-contract:\n", 1)[1].split(

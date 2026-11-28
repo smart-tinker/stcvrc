@@ -317,12 +317,12 @@ class WindowsPayloadWorkflowContractTests(unittest.TestCase):
 
     def test_extracted_service_helpers_are_version_pinned_before_core_staging(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')
-        smoke = (SCRIPT.parents[2] / 'tools' / 'network-lab' / 'windows_install_update.ps1').read_text(encoding='utf-8')
+        runtime = (SCRIPT.parents[2] / 'tools' / 'network-lab' / 'windows_idle_target_runtime.ps1').read_text(encoding='utf-8')
         self.assertIn('$helperHash -cne [string]$release.serviceInstallHelperSha256', workflow)
         self.assertIn('CVR_258_SERVICE_INSTALL_HELPER_PATH=', workflow)
         self.assertIn('CVR_2510_SERVICE_INSTALL_HELPER_PATH=', workflow)
-        self.assertIn('Get-CvrServiceInstallHelper -Version $HelperVersion', smoke)
-        self.assertIn('Installed CVR $HelperVersion service helper does not match', smoke)
+        self.assertIn('Get-CvrServiceInstallHelper -Version $HelperVersion', runtime)
+        self.assertIn('Installed CVR $HelperVersion service helper does not match', runtime)
 
     def test_windows_job_executes_and_identifies_only_the_fresh_custom_core(self):
         workflow = (SCRIPT.parents[2] / '.github' / 'workflows' / 'test.yml').read_text(encoding='utf-8')

@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Assert-StageTest([bool]$Condition, [string]$Message) {
@@ -30,7 +31,10 @@ function Invoke-StagePack(
         'pack', '--source-root', $SyntheticSource, '--source-sha', $SourceSha,
         '--build-report', $BuildPath, '--inputs', $InputsPath, '--core', $CorePath,
         '--native-core-sha256', $CoreSha, '--recovery-installer', $RecoveryPath,
-        '--update-installer', $UpdatePath, '--output', $OutputPath, '--record', $RecordPath
+        '--update-installer', $UpdatePath,
+        '--recovery-ipc-archive', $script:recoveryIpcArchivePath,
+        '--update-ipc-archive', $script:updateIpcArchivePath,
+        '--output', $OutputPath, '--record', $RecordPath
     )
     $arguments = @($Packager) + $packArgs
     foreach ($argument in $arguments) {
@@ -72,6 +76,24 @@ function Invoke-StagePack(
         $process.Dispose()
     }
 }
+function Write-TestZip([string]$Path, [Collections.IDictionary]$Entries) {
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    $archive = $null
+    try {
+        $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create, $true)
+        foreach ($name in $Entries.Keys) {
+            $entry = $archive.CreateEntry([string]$name, [IO.Compression.CompressionLevel]::NoCompression)
+            $target = $entry.Open()
+            try {
+                [byte[]]$bytes = $Entries[$name]
+                $target.Write($bytes, 0, $bytes.Length)
+            } finally { $target.Dispose() }
+        }
+    } finally {
+        if ($archive) { $archive.Dispose() }
+        $stream.Dispose()
+    }
+}
 function Assert-PackageRejected(
     [string]$Packager, [string]$SyntheticSource, [string]$SourceSha,
     [string]$BuildPath, [string]$InputsPath, [string]$CorePath, [string]$CoreSha,
@@ -96,8 +118,16 @@ try {
         'tools/network-lab/windows_core_preimage_paths.ps1',
         'tools/network-lab/windows_idle_baseline_guard.ps1',
         'tools/network-lab/windows_idle_transaction.ps1',
+        'tools/network-lab/windows_legacy_state_transaction.ps1',
         'tools/network-lab/windows_idle_preflight_package_writer.ps1',
-        'tools/network-lab/windows_idle_preflight.ps1'
+        'tools/network-lab/windows_idle_preflight.ps1',
+        'tools/network-lab/windows_idle_preflight_target_operator.ps1',
+        'tools/network-lab/windows_idle_target_runtime.ps1',
+        'tools/network-lab/idle-target-candidate-traffic.md',
+        'tools/network-lab/windows_native_acceptance.ps1',
+        'tools/network-lab/windows_native_port_plan.ps1',
+        'tools/network-lab/windows_native_udp_ports.py',
+        'tools/network-lab/windows_ssh_fixture_cleanup.ps1'
     )
     foreach ($name in $sourceNames) {
         $path = Join-Path $syntheticSource ($name -replace '/', '\')
@@ -122,15 +152,45 @@ try {
     $corePath = Join-Path $tempRoot 'verge-mihomo.exe'
     $recoveryPath = Join-Path $tempRoot 'Clash.Verge_2.5.8_x64-setup.exe'
     $updatePath = Join-Path $tempRoot 'Clash.Verge_2.5.10_x64-setup.exe'
+    $script:recoveryIpcArchivePath = Join-Path $tempRoot 'clash-verge-service-ipc-v2.7.6.zip'
+    $script:updateIpcArchivePath = Join-Path $tempRoot 'clash-verge-service-ipc-v2.7.7.zip'
+    $licenseBytes = [Text.Encoding]::UTF8.GetBytes("Synthetic Service IPC license`r`n")
+    $sourceLicenseBytes = [Text.Encoding]::UTF8.GetBytes("Synthetic Service IPC license`n")
+    $recoveryHelperBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.6-helper')
+    $updateHelperBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.7-helper')
+    $recoveryServiceBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.6-service')
+    $updateServiceBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.7-service')
+    Write-TestZip $script:recoveryIpcArchivePath @{
+        'bin/clash-verge-service-install.exe' = $recoveryHelperBytes
+        'bin/clash-verge-service.exe' = $recoveryServiceBytes
+        'LICENSE' = $licenseBytes
+    }
+    Write-TestZip $script:updateIpcArchivePath @{
+        'bin/clash-verge-service-install.exe' = $updateHelperBytes
+        'bin/clash-verge-service.exe' = $updateServiceBytes
+        'LICENSE' = $licenseBytes
+    }
+    $recoveryInstallerEntries = Join-Path $tempRoot 'recovery-installer-entries.zip'
+    $updateInstallerEntries = Join-Path $tempRoot 'update-installer-entries.zip'
+    Write-TestZip $recoveryInstallerEntries @{ 'resources/clash-verge-service-install.exe' = $recoveryHelperBytes }
+    Write-TestZip $updateInstallerEntries @{ 'resources/clash-verge-service-install.exe' = $updateHelperBytes }
+    Copy-Item -LiteralPath $recoveryInstallerEntries -Destination $recoveryPath
+    Copy-Item -LiteralPath $updateInstallerEntries -Destination $updatePath
     $coreBytes = [byte[]]@(0x4D, 0x5A, 0x52, 0x43, 0x31, 0x31)
-    $recoveryBytes = [byte[]]@(0x52, 0x45, 0x43, 0x4F, 0x56, 0x45, 0x52)
-    $updateBytes = [byte[]]@(0x55, 0x50, 0x44, 0x41, 0x54, 0x45)
     [IO.File]::WriteAllBytes($corePath, $coreBytes)
-    [IO.File]::WriteAllBytes($recoveryPath, $recoveryBytes)
-    [IO.File]::WriteAllBytes($updatePath, $updateBytes)
+    $recoveryBytes = [IO.File]::ReadAllBytes($recoveryPath)
+    $updateBytes = [IO.File]::ReadAllBytes($updatePath)
+    $recoveryIpcBytes = [IO.File]::ReadAllBytes($script:recoveryIpcArchivePath)
+    $updateIpcBytes = [IO.File]::ReadAllBytes($script:updateIpcArchivePath)
     $coreSha = (Get-FileHash -LiteralPath $corePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $recoverySha = (Get-FileHash -LiteralPath $recoveryPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $updateSha = (Get-FileHash -LiteralPath $updatePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $recoveryIpcSha = Get-StageBytesSha256 $recoveryIpcBytes
+    $updateIpcSha = Get-StageBytesSha256 $updateIpcBytes
+    $recoveryHelperSha = Get-StageBytesSha256 $recoveryHelperBytes
+    $updateHelperSha = Get-StageBytesSha256 $updateHelperBytes
+    $licenseSha = Get-StageBytesSha256 $licenseBytes
+    $sourceLicenseSha = Get-StageBytesSha256 $sourceLicenseBytes
     $buildPath = Join-Path $tempRoot 'build.json'
     $inputsPath = Join-Path $tempRoot 'inputs.json'
     $build = [ordered]@{
@@ -154,34 +214,32 @@ try {
     [IO.File]::WriteAllText($buildPath, (ConvertTo-Json -InputObject $build -Depth 8), [Text.UTF8Encoding]::new($false))
     $inputs = [ordered]@{
         repository = 'clash-verge-rev/clash-verge-rev'
+        serviceIpcLicense = @{
+            repository = 'clash-verge-rev/clash-verge-service-ipc'
+            path = 'licenses/clash-verge-service-ipc/LICENSE'
+            sourcePath = 'LICENSE'
+            sourceCommit = ('3' * 40)
+            sourceSha256 = $sourceLicenseSha
+            archiveSha256 = $licenseSha
+        }
         releases = @(
             @{
-                version = '2.5.8'
-                tag = 'v2.5.8'
-                releaseId = 258
-                serviceInstallHelperSha256 = ('1' * 64)
-                assets = @{ installer = @{
-                    file = 'Clash.Verge_2.5.8_x64-setup.exe'
-                    name = 'Clash.Verge_2.5.8_x64-setup.exe'
-                    id = 2580
-                    size = $recoveryBytes.Length
-                    sha256 = $recoverySha
-                    url = 'https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/Clash.Verge_2.5.8_x64-setup.exe'
-                } }
+                version = '2.5.8'; tag = 'v2.5.8'; releaseId = 258; serviceInstallHelperSha256 = $recoveryHelperSha
+                serviceInstallHelperProvenance = @{
+                    repository='clash-verge-rev/clash-verge-service-ipc'; tag='v2.7.6'; sourceCommit=('1' * 40)
+                    asset=@{ id=276; name='clash-verge-service-ipc-v2.7.6-x86_64-pc-windows-msvc.zip'; size=$recoveryIpcBytes.Length; sha256=$recoveryIpcSha; url='https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/download/v2.7.6/clash-verge-service-ipc-v2.7.6-x86_64-pc-windows-msvc.zip' }
+                    helper=@{ file='clash-verge-service-install.exe'; size=$recoveryHelperBytes.Length; sha256=$recoveryHelperSha }; licenseSha256=$licenseSha
+                }
+                assets=@{ installer=@{ file='Clash.Verge_2.5.8_x64-setup.exe'; name='Clash.Verge_2.5.8_x64-setup.exe'; id=2580; size=$recoveryBytes.Length; sha256=$recoverySha; url='https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.8/Clash.Verge_2.5.8_x64-setup.exe' } }
             },
             @{
-                version = '2.5.10'
-                tag = 'v2.5.10'
-                releaseId = 2510
-                serviceInstallHelperSha256 = ('2' * 64)
-                assets = @{ installer = @{
-                    file = 'Clash.Verge_2.5.10_x64-setup.exe'
-                    name = 'Clash.Verge_2.5.10_x64-setup.exe'
-                    id = 25100
-                    size = $updateBytes.Length
-                    sha256 = $updateSha
-                    url = 'https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/Clash.Verge_2.5.10_x64-setup.exe'
-                } }
+                version = '2.5.10'; tag = 'v2.5.10'; releaseId = 2510; serviceInstallHelperSha256 = $updateHelperSha
+                serviceInstallHelperProvenance = @{
+                    repository='clash-verge-rev/clash-verge-service-ipc'; tag='v2.7.7'; sourceCommit=('3' * 40)
+                    asset=@{ id=277; name='clash-verge-service-ipc-v2.7.7-x86_64-pc-windows-msvc.zip'; size=$updateIpcBytes.Length; sha256=$updateIpcSha; url='https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/download/v2.7.7/clash-verge-service-ipc-v2.7.7-x86_64-pc-windows-msvc.zip' }
+                    helper=@{ file='clash-verge-service-install.exe'; size=$updateHelperBytes.Length; sha256=$updateHelperSha }; licenseSha256=$licenseSha
+                }
+                assets=@{ installer=@{ file='Clash.Verge_2.5.10_x64-setup.exe'; name='Clash.Verge_2.5.10_x64-setup.exe'; id=25100; size=$updateBytes.Length; sha256=$updateSha; url='https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.10/Clash.Verge_2.5.10_x64-setup.exe' } }
             }
         )
     }
@@ -198,6 +256,15 @@ try {
     Assert-StageTest ($record.cvrInstallers.'2.5.8'.sha256 -ceq $recoverySha -and $record.cvrInstallers.'2.5.10'.sha256 -ceq $updateSha) 'Staged installers are not bound to both CVR release pins.'
     Assert-StageTest ($record.inputManifestSha256 -ceq (Get-FileHash -LiteralPath $inputsPath -Algorithm SHA256).Hash.ToLowerInvariant()) 'External stage record does not bind the input manifest.'
     Assert-StageTest (@($record.sourceFiles).Count -eq $sourceNames.Count) 'External stage record omitted an allowlisted source file.'
+    Assert-StageTest (@($record.cvrServiceInstallHelpers).Count -eq 2) 'External stage record omitted provenance for both Service IPC helpers.'
+    Assert-StageTest ($record.cvrServiceInstallHelpers[0].serviceIpc.sourceCommit -ceq ('1' * 40) -and $record.cvrServiceInstallHelpers[0].installer.sha256 -ceq $recoverySha) 'Recovery helper source and installer pins do not agree.'
+    Assert-StageTest ($record.cvrServiceInstallHelpers[1].sha256 -ceq $updateHelperSha -and $record.cvrServiceInstallHelpers[1].serviceIpc.asset.sha256 -ceq $updateIpcSha) 'Update helper is not tied to its pinned Service IPC asset.'
+    $recoveryServiceSha = Get-StageBytesSha256 $recoveryServiceBytes
+    $updateServiceSha = Get-StageBytesSha256 $updateServiceBytes
+    Assert-StageTest ($record.cvrServiceInstallHelpers[0].serviceBinary.path -ceq 'payload/cvr-2.5.8/clash-verge-service.exe' -and $record.cvrServiceInstallHelpers[0].serviceBinary.sha256 -ceq $recoveryServiceSha -and $record.cvrServiceInstallHelpers[0].serviceBinary.size -eq $recoveryServiceBytes.Length) 'Recovery service binary is not staged beside its pinned helper.'
+    Assert-StageTest ($record.cvrServiceInstallHelpers[1].serviceBinary.path -ceq 'payload/cvr-2.5.10/clash-verge-service.exe' -and $record.cvrServiceInstallHelpers[1].serviceBinary.sha256 -ceq $updateServiceSha -and $record.cvrServiceInstallHelpers[1].serviceBinary.size -eq $updateServiceBytes.Length) 'Update service binary is not staged beside its pinned helper.'
+    Assert-StageTest ($record.serviceIpcLicense.sha256 -ceq $licenseSha -and $record.serviceIpcLicense.sourceSha256 -ceq $sourceLicenseSha -and $record.provenanceFile.path -ceq 'provenance/cvr-service-install-helpers.json') 'Service IPC license or provenance document is not externally bound.'
+    Assert-StageTest (@($record.cvrServiceInstallHelpers).Count -eq 2) 'Stage record omitted provenance for both Service IPC helpers.'
 
     $archive = [IO.Compression.ZipFile]::OpenRead($goodOutput)
     try {
@@ -207,12 +274,74 @@ try {
         $manifestSha = Get-StageBytesSha256 $manifestBytes
         Assert-StageTest ($manifestSha -ceq $record.sourceManifest.sha256) 'External manifest digest does not pin archive bytes.'
         $manifest = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($manifestBytes)) -ErrorAction Stop
-        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 9) 'Source manifest schema or file count is wrong.'
+        $provenanceEntry = $archive.GetEntry('provenance/cvr-service-install-helpers.json')
+        Assert-StageTest ($null -ne $provenanceEntry) 'Stage archive has no helper provenance JSON.'
+        $provenanceBytes = Read-ZipEntryBytes $provenanceEntry
+        Assert-StageTest ((Get-StageBytesSha256 $provenanceBytes) -ceq $record.provenanceFile.sha256) 'Inner provenance bytes do not match the external stage record.'
+        $provenance = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($provenanceBytes)) -ErrorAction Stop
+        $innerHelpers = @($provenance.cvrServiceInstallHelpers)
+        $externalHelpers = @($record.cvrServiceInstallHelpers)
+        Assert-StageTest ($provenance.schemaVersion -eq 1 -and $innerHelpers.Count -eq 2 -and $externalHelpers.Count -eq 2) 'Inner or external helper provenance schema/count is wrong.'
+        foreach ($version in @('2.5.8', '2.5.10')) {
+            $innerMatches = @($innerHelpers | Where-Object { $_.version -ceq $version })
+            $externalMatches = @($externalHelpers | Where-Object { $_.version -ceq $version })
+            Assert-StageTest ($innerMatches.Count -eq 1 -and $externalMatches.Count -eq 1) ('Helper provenance omitted or duplicated CVR ' + $version)
+            $innerHelper = $innerMatches[0]
+            $externalHelper = $externalMatches[0]
+            Assert-StageTest (
+                $innerHelper.version -ceq $externalHelper.version -and
+                $innerHelper.path -ceq $externalHelper.path -and
+                $innerHelper.sha256 -ceq $externalHelper.sha256 -and
+                $innerHelper.size -eq $externalHelper.size -and
+                $innerHelper.serviceBinary.path -ceq $externalHelper.serviceBinary.path -and
+                $innerHelper.serviceBinary.sha256 -ceq $externalHelper.serviceBinary.sha256 -and
+                $innerHelper.serviceBinary.size -eq $externalHelper.serviceBinary.size -and
+                $innerHelper.installer.path -ceq $externalHelper.installer.path -and
+                $innerHelper.installer.sha256 -ceq $externalHelper.installer.sha256 -and
+                $innerHelper.installer.size -eq $externalHelper.installer.size -and
+                $innerHelper.installer.tag -ceq $externalHelper.installer.tag -and
+                $innerHelper.installer.releaseId -eq $externalHelper.installer.releaseId -and
+                $innerHelper.installer.assetId -eq $externalHelper.installer.assetId -and
+                $innerHelper.serviceIpc.repository -ceq $externalHelper.serviceIpc.repository -and
+                $innerHelper.serviceIpc.tag -ceq $externalHelper.serviceIpc.tag -and
+                $innerHelper.serviceIpc.sourceCommit -ceq $externalHelper.serviceIpc.sourceCommit -and
+                $innerHelper.serviceIpc.asset.id -eq $externalHelper.serviceIpc.asset.id -and
+                $innerHelper.serviceIpc.asset.name -ceq $externalHelper.serviceIpc.asset.name -and
+                $innerHelper.serviceIpc.asset.size -eq $externalHelper.serviceIpc.asset.size -and
+                $innerHelper.serviceIpc.asset.sha256 -ceq $externalHelper.serviceIpc.asset.sha256 -and
+                $innerHelper.serviceIpc.asset.url -ceq $externalHelper.serviceIpc.asset.url -and
+                $innerHelper.serviceIpc.helper.file -ceq $externalHelper.serviceIpc.helper.file -and
+                $innerHelper.serviceIpc.helper.size -eq $externalHelper.serviceIpc.helper.size -and
+                $innerHelper.serviceIpc.helper.sha256 -ceq $externalHelper.serviceIpc.helper.sha256
+            ) ('Inner and external provenance differ for CVR ' + $version)
+        }
+        Assert-StageTest (
+            $provenance.serviceIpcLicense.path -ceq $record.serviceIpcLicense.path -and
+            $provenance.serviceIpcLicense.sha256 -ceq $record.serviceIpcLicense.sha256 -and
+            $provenance.serviceIpcLicense.size -eq $record.serviceIpcLicense.size -and
+            $provenance.serviceIpcLicense.repository -ceq $record.serviceIpcLicense.repository -and
+            $provenance.serviceIpcLicense.sourcePath -ceq $record.serviceIpcLicense.sourcePath -and
+            $provenance.serviceIpcLicense.sourceCommit -ceq $record.serviceIpcLicense.sourceCommit -and
+            $provenance.serviceIpcLicense.sourceSha256 -ceq $record.serviceIpcLicense.sourceSha256 -and
+            $provenance.serviceIpcLicense.archive.id -eq $record.serviceIpcLicense.archive.id -and
+            $provenance.serviceIpcLicense.archive.name -ceq $record.serviceIpcLicense.archive.name -and
+            $provenance.serviceIpcLicense.archive.size -eq $record.serviceIpcLicense.archive.size -and
+            $provenance.serviceIpcLicense.archive.sha256 -ceq $record.serviceIpcLicense.archive.sha256 -and
+            $provenance.serviceIpcLicense.archive.url -ceq $record.serviceIpcLicense.archive.url
+        ) 'Inner and external Service IPC license records differ.'
+
+        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 23) 'Source manifest schema or file count is wrong.'
         $expectedFiles = @($sourceNames)
         $expectedFiles += @(
             'payload/verge-mihomo.exe',
             'payload/Clash.Verge_2.5.8_x64-setup.exe',
-            'payload/Clash.Verge_2.5.10_x64-setup.exe'
+            'payload/Clash.Verge_2.5.10_x64-setup.exe',
+            'payload/cvr-2.5.8/clash-verge-service-install.exe',
+            'payload/cvr-2.5.10/clash-verge-service-install.exe',
+            'payload/cvr-2.5.8/clash-verge-service.exe',
+            'payload/cvr-2.5.10/clash-verge-service.exe',
+            'licenses/clash-verge-service-ipc/LICENSE',
+            'provenance/cvr-service-install-helpers.json'
         )
         $expectedFiles = @($expectedFiles | Sort-Object)
         $actualFiles = @($manifest.files | ForEach-Object { [string]$_.path } | Sort-Object)
@@ -222,6 +351,8 @@ try {
             Assert-StageTest ($entry.path -notmatch '(^/|\\|:|(^|/)\.\.?(/|$))') 'Source manifest contains an unsafe path.'
             $zipEntry = $archive.GetEntry([string]$entry.path)
             Assert-StageTest ($null -ne $zipEntry) 'A source manifest file is missing from the package.'
+            $sizeProperty = $entry.PSObject.Properties['size']
+            Assert-StageTest ($null -ne $sizeProperty -and [long]$sizeProperty.Value -eq [long]$zipEntry.Length) 'A packaged stage file size does not match its manifest.'
             Assert-StageTest ((Get-StageBytesSha256 (Read-ZipEntryBytes $zipEntry)) -ceq [string]$entry.sha256) 'A packaged stage file does not match its manifest.'
         }
         $archiveNames = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
@@ -266,7 +397,7 @@ try {
         } catch { $wrongDigestRejected = $true }
         Assert-StageTest $wrongDigestRejected 'Wrong external source-manifest SHA256 reached stage handoff.'
         $binding = Get-CvrIdlePackageStageBinding -StageRoot $expectedRoot -ExpectedStageRoot $expectedRoot -ExpectedPackageManifestSha256 $manifestSha
-        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 10) 'Verified package did not bind all listed files.'
+        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 24) 'Verified package did not bind all listed files.'
         foreach ($handle in $binding.OpenFiles) { $handle.Dispose() }
 
         $tamperPath = Join-Path $stageRoot 'payload\verge-mihomo.exe'
@@ -306,6 +437,46 @@ try {
     $wrongSourceZip = Join-Path $tempRoot 'wrong-source.zip'
     $wrongSourceRecord = Join-Path $tempRoot 'wrong-source.json'
     Assert-PackageRejected $packager $syntheticSource $wrongSourceSha $buildPath $inputsPath $corePath $coreSha $recoveryPath $updatePath $wrongSourceZip $wrongSourceRecord 'source SHA mismatch'
+
+    $swappedIpcZip = Join-Path $tempRoot 'swapped-ipc.zip'
+    $swappedIpcRecord = Join-Path $tempRoot 'swapped-ipc.json'
+    $originalRecoveryIpcArchivePath = $script:recoveryIpcArchivePath
+    $originalUpdateIpcArchivePath = $script:updateIpcArchivePath
+    try {
+        $script:recoveryIpcArchivePath = $originalUpdateIpcArchivePath
+        $script:updateIpcArchivePath = $originalRecoveryIpcArchivePath
+        Assert-PackageRejected $packager $syntheticSource $sourceSha $buildPath $inputsPath $corePath $coreSha $recoveryPath $updatePath $swappedIpcZip $swappedIpcRecord 'swapped Service IPC archives'
+    } finally {
+        $script:recoveryIpcArchivePath = $originalRecoveryIpcArchivePath
+        $script:updateIpcArchivePath = $originalUpdateIpcArchivePath
+    }
+
+    $missingBinaryArchivePath = Join-Path $tempRoot 'missing-service-binary-ipc.zip'
+    Write-TestZip $missingBinaryArchivePath @{
+        'bin/clash-verge-service-install.exe' = $recoveryHelperBytes
+        'LICENSE' = $licenseBytes
+    }
+    $missingBinaryInputsPath = Join-Path $tempRoot 'missing-service-binary-inputs.json'
+    $missingBinaryInputs = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($inputsPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $missingRecoveryPin = @($missingBinaryInputs.releases | Where-Object { $_.version -ceq '2.5.8' })[0].serviceInstallHelperProvenance.asset
+    $missingRecoveryPin.size = (Get-Item -LiteralPath $missingBinaryArchivePath).Length
+    $missingRecoveryPin.sha256 = (Get-FileHash -LiteralPath $missingBinaryArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText($missingBinaryInputsPath, (ConvertTo-Json -InputObject $missingBinaryInputs -Depth 10), [Text.UTF8Encoding]::new($false))
+    $missingBinaryOutput = Join-Path $tempRoot 'missing-service-binary.zip'
+    $missingBinaryRecord = Join-Path $tempRoot 'missing-service-binary.json'
+    $savedRecoveryIpcArchivePath = $script:recoveryIpcArchivePath
+    try {
+        $script:recoveryIpcArchivePath = $missingBinaryArchivePath
+        Assert-PackageRejected $packager $syntheticSource $sourceSha $buildPath $missingBinaryInputsPath $corePath $coreSha $recoveryPath $updatePath $missingBinaryOutput $missingBinaryRecord 'missing Service IPC companion service binary'
+    } finally { $script:recoveryIpcArchivePath = $savedRecoveryIpcArchivePath }
+
+    $badLicenseInputsPath = Join-Path $tempRoot 'wrong-service-ipc-source-license.json'
+    $badLicenseInputs = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($inputsPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $badLicenseInputs.serviceIpcLicense.sourceSha256 = if ($sourceLicenseSha[0] -ceq '0') { '1' + $sourceLicenseSha.Substring(1) } else { '0' + $sourceLicenseSha.Substring(1) }
+    [IO.File]::WriteAllText($badLicenseInputsPath, (ConvertTo-Json -InputObject $badLicenseInputs -Depth 10), [Text.UTF8Encoding]::new($false))
+    $wrongLicenseZip = Join-Path $tempRoot 'wrong-service-ipc-source-license.zip'
+    $wrongLicenseRecord = Join-Path $tempRoot 'wrong-service-ipc-source-license.record.json'
+    Assert-PackageRejected $packager $syntheticSource $sourceSha $buildPath $badLicenseInputsPath $corePath $coreSha $recoveryPath $updatePath $wrongLicenseZip $wrongLicenseRecord 'wrong Service IPC source LICENSE digest'
 
     $sourceTamperPath = Join-Path $syntheticSource 'tools\network-lab\windows_idle_preflight.ps1'
     [IO.File]::AppendAllText($sourceTamperPath, 'uncommitted source bytes', [Text.UTF8Encoding]::new($false))

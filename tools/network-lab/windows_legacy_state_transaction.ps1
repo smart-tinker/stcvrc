@@ -43,22 +43,61 @@ function Remove-CvrLegacyRunValue {
     } finally { $base.Dispose() }
 }
 
+function Assert-CvrLegacyStatePath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        $currentPath = $fullPath
+        while (-not [string]::IsNullOrEmpty($currentPath)) {
+            $item = $null
+            try {
+                $item = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+            } catch {
+                if ($_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound) { throw }
+            }
+            if ($item) {
+                $isLeaf = $currentPath -ieq $fullPath
+                if ((([int]$item.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) -or
+                    ($isLeaf -and $item.PSIsContainer) -or (-not $isLeaf -and -not $item.PSIsContainer)) {
+                    throw 'unsafe path'
+                }
+            }
+            $parentPath = [IO.Path]::GetDirectoryName($currentPath)
+            if ([string]::IsNullOrEmpty($parentPath) -or $parentPath -ceq $currentPath) { break }
+            $currentPath = $parentPath
+        }
+        return $fullPath
+    } catch {
+        throw 'CVR window-state path validation failed.'
+    }
+}
+
 function Get-CvrLegacyState {
-    $windowStateRoot = Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'
+    $windowStateRoot = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'))
     $filePaths = @(
         (Join-Path $windowStateRoot 'window-state.json'),
         (Join-Path $windowStateRoot '.window-state.json')
     )
     $files = foreach ($path in $filePaths) {
-        if (Test-Path -LiteralPath $path -PathType Leaf) {
-            $acl = Get-Acl -LiteralPath $path
+        $path = [IO.Path]::GetFullPath($path)
+        $null = Assert-CvrLegacyStatePath -Path $path
+        if (Test-Path -LiteralPath $path -PathType Leaf -ErrorAction Stop) {
+            $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if ($item.Length -gt 262144) { throw 'CVR window-state preimage exceeds the bounded receipt size.' }
+            $acl = Get-Acl -LiteralPath $path -ErrorAction Stop
+            $null = Assert-CvrLegacyStatePath -Path $path
+            $bytes = [IO.File]::ReadAllBytes($path)
             [PSCustomObject]@{
                 path = $path
                 present = $true
-                bytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
+                bytes = [Convert]::ToBase64String($bytes)
                 sddl = $acl.Sddl
                 acl = $acl
             }
+        } elseif (Test-Path -LiteralPath $path -ErrorAction Stop) {
+            throw 'CVR window-state target is not a regular file.'
         } else {
             [PSCustomObject]@{ path = $path; present = $false; bytes = $null; sddl = $null; acl = $null }
         }
@@ -71,6 +110,9 @@ function Get-CvrLegacyState {
     )
     $registry = foreach ($target in $registryTargets) {
         $value = Get-CvrLegacyRunValue -Hive $target.hive -Name $target.name
+        if ($value -and ($value.kind -notin @('String','ExpandString') -or $value.data -isnot [string] -or $value.data.Length -gt 4096)) {
+            throw 'CVR Run-value preimage is outside the bounded rollback contract.'
+        }
         [PSCustomObject]@{
             hive = $target.hive
             name = $target.name
@@ -144,20 +186,43 @@ function Assert-CvrInstallerChangedLegacyPreimage {
 
 function Restore-CvrLegacyState {
     param($State)
+    $windowStateRoot = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'io.github.clash-verge-rev.clash-verge-rev'))
+    $expectedPaths = @(
+        (Join-Path $windowStateRoot 'window-state.json'),
+        (Join-Path $windowStateRoot '.window-state.json')
+    )
+    if (-not $State -or @($State.files).Count -ne $expectedPaths.Count) {
+        throw 'CVR window-state rollback paths are invalid.'
+    }
+    for ($index = 0; $index -lt $expectedPaths.Count; $index++) {
+        $path = [IO.Path]::GetFullPath([string]$State.files[$index].path)
+        if ($path -ine $expectedPaths[$index]) { throw 'CVR window-state rollback paths are invalid.' }
+        $null = Assert-CvrLegacyStatePath -Path $path
+    }
+
     $failures = [Collections.Generic.List[string]]::new()
     foreach ($entry in $State.files) {
         try {
+            $path = [IO.Path]::GetFullPath([string]$entry.path)
+            $null = Assert-CvrLegacyStatePath -Path $path
             if (-not $entry.present) {
-                if (Test-Path -LiteralPath $entry.path) {
-                    if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf)) { throw 'target is not a file' }
-                    Remove-Item -LiteralPath $entry.path -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath $path -ErrorAction Stop) {
+                    $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+                    if ($item.PSIsContainer) { throw 'target is not a file' }
+                    $null = Assert-CvrLegacyStatePath -Path $path
+                    Remove-Item -LiteralPath $path -Force -ErrorAction Stop
                 }
                 continue
             }
-            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $entry.path) | Out-Null
-            [IO.File]::WriteAllBytes($entry.path, [Convert]::FromBase64String($entry.bytes))
-            if ((Get-Acl -LiteralPath $entry.path).Sddl -cne $entry.sddl) {
-                Set-Acl -LiteralPath $entry.path -AclObject $entry.acl
+            $bytes = [Convert]::FromBase64String([string]$entry.bytes)
+            if ($bytes.Length -gt 262144) { throw 'preimage too large' }
+            $acl = [Security.AccessControl.FileSecurity]::new()
+            $acl.SetSecurityDescriptorSddlForm([string]$entry.sddl)
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+            $null = Assert-CvrLegacyStatePath -Path $path
+            [IO.File]::WriteAllBytes($path, $bytes)
+            if ((Get-Acl -LiteralPath $path -ErrorAction Stop).Sddl -cne [string]$entry.sddl) {
+                Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
             }
         } catch {
             $failures.Add('window-state preimage restore failed')
