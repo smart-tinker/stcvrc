@@ -309,6 +309,8 @@ try {
     New-PreflightTestDirectory $localRoot
     New-PreflightTestDirectory $stageFilesRoot
     New-PreflightTestDirectory $payloadRoot
+    New-PreflightTestDirectory (Join-Path $payloadRoot 'cvr-2.5.10')
+    New-PreflightTestDirectory (Join-Path $payloadRoot 'cvr-2.5.8')
 
     $pinBytes = [ordered]@{
         gui258 = [byte[]]@(2, 5, 8, 1)
@@ -328,14 +330,16 @@ try {
     $payloadFileNames = @{
         candidateCore = 'verge-mihomo.exe'
         updateInstaller = 'Clash.Verge_2.5.10_x64-setup.exe'
+        updateHelper = 'cvr-2.5.10\clash-verge-service-install.exe'
         recoveryInstaller = 'Clash.Verge_2.5.8_x64-setup.exe'
+        recoveryHelper = 'cvr-2.5.8\clash-verge-service-install.exe'
     }
     foreach ($name in $pinBytes.Keys) {
         if ($name -in @('gui258','serviceExe258')) { continue }
         if ($payloadFileNames.ContainsKey($name)) {
             $fileName = $payloadFileNames[$name]
             $path = Join-Path $payloadRoot $fileName
-            $archivePath = 'payload/' + $fileName
+            $archivePath = 'payload/' + $fileName.Replace('\','/')
         } else {
             $fileName = if ($pinFileNames.ContainsKey($name)) { $pinFileNames[$name] } else { $name + '.bin' }
             $path = Join-Path $stageFilesRoot $fileName
