@@ -927,5 +927,10 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("ActionFailure = $actionFailure", adapter)
         self.assertIn("RestoreFailure = $restoreFailure", adapter)
 
+    def test_packaged_target_requires_candidate_traffic_evidence(self):
+        operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        self.assertIn("[Parameter(Mandatory)][scriptblock]$CandidateTrafficScript", operator)
+        self.assertIn("Assert-CvrIdleCandidateTrafficVerification", operator)
+
 if __name__ == "__main__":
     unittest.main()
