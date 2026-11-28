@@ -291,7 +291,7 @@ def build_stage(source_root, source_sha, build_path, inputs_path, core_path,
         key=lambda item: item["path"],
     )
     manifest_bytes = (
-        json.dumps({"schemaVersion": 1, "files": [{"path": item["path"], "sha256": item["sha256"]} for item in file_records]},
+        json.dumps({"schemaVersion": 1, "files": [{"path": item["path"], "sha256": item["sha256"], "size": item["size"]} for item in file_records]},
                    ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode("utf-8")
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
