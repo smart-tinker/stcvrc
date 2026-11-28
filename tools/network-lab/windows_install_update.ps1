@@ -476,7 +476,8 @@ $captureChild = Invoke-CvrIdleOperatorChild -ScriptPath $captureOperatorPath -Ar
     '-TimeoutSeconds','90'
 ) -TimeoutSeconds 180 -WorkingDirectory $script:idleStageRoot
 if ($captureChild.ExitCode -ne 0 -or -not [string]::IsNullOrEmpty($captureChild.StdErr)) {
-    throw "Packaged Capture/Plan/Preflight child failed (exit=$($captureChild.ExitCode))."
+    $failureSummary = Get-CvrIdleOperatorFailureSummary -Child $captureChild
+    throw "Packaged Capture/Plan/Preflight child failed ($failureSummary)."
 }
 $publicCaptureResult = ConvertFrom-Json -InputObject $captureChild.StdOut -ErrorAction Stop
 if ([string]$publicCaptureResult.status -cne 'COMPLETE' -or

@@ -762,6 +762,76 @@ function Invoke-CvrIdleCaptureOperator {
     }
 }
 
+function Get-CvrIdleOperatorFailureSummary {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object]$Child)
+
+    $summary = [ordered]@{
+        status = 'unknown'
+        reason = 'unknown'
+        result = 'unknown'
+        resultExit = 'unknown'
+        timedOut = 'unknown'
+        childStopped = 'unknown'
+        childExit = 'unknown'
+        processExit = 'unknown'
+        stderrPresent = 'unknown'
+    }
+    $processExit = $Child.PSObject.Properties['ExitCode']
+    if ($processExit -and
+        ($processExit.Value -is [int] -or $processExit.Value -is [long]) -and
+        [long]$processExit.Value -ge -999 -and [long]$processExit.Value -le 999) {
+        $summary.processExit = [string]$processExit.Value
+    }
+    $stderr = $Child.PSObject.Properties['StdErr']
+    if ($stderr -and $stderr.Value -is [string]) {
+        $summary.stderrPresent = [string](-not [string]::IsNullOrEmpty([string]$stderr.Value)).ToLowerInvariant()
+    }
+
+    $stdout = $Child.PSObject.Properties['StdOut']
+    if ($stdout -and $stdout.Value -is [string] -and $stdout.Value.Length -le 4096) {
+        $public = $null
+        try { $public = ConvertFrom-Json -InputObject $stdout.Value -ErrorAction Stop } catch {}
+        if ($public -is [PSCustomObject]) {
+            $property = $public.PSObject.Properties['status']
+            if ($property -and $property.Value -is [string] -and $property.Value -cin @('COMPLETE', 'INCOMPLETE', 'REFUSED')) {
+                $summary.status = [string]$property.Value
+            }
+            $property = $public.PSObject.Properties['reason']
+            if ($property -and $property.Value -is [string] -and $property.Value -match '^[a-z][a-z0-9-]{0,63} -StageRoot $StageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256 -RequestPath $RequestPath -TimeoutSeconds $TimeoutSeconds
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    [Console]::Out.WriteLine((ConvertTo-Json -InputObject $result.Public -Depth 4 -Compress -ErrorAction Stop))
+    exit ([int]$result.Public.exitCode)
+}
+) {
+                $summary.reason = [string]$property.Value
+            }
+            $property = $public.PSObject.Properties['result']
+            if ($property -and $property.Value -is [string] -and $property.Value -cin @('PASS', 'FAIL', 'TIMEOUT', 'UNKNOWN')) {
+                $summary.result = [string]$property.Value
+            }
+            foreach ($field in @('exitCode', 'childExitCode')) {
+                $property = $public.PSObject.Properties[$field]
+                if ($property -and
+                    ($property.Value -is [int] -or $property.Value -is [long]) -and
+                    [long]$property.Value -ge -999 -and [long]$property.Value -le 999) {
+                    if ($field -ceq 'exitCode') { $summary.resultExit = [string]$property.Value }
+                    else { $summary.childExit = [string]$property.Value }
+                }
+            }
+            foreach ($field in @('timedOut', 'childStopped')) {
+                $property = $public.PSObject.Properties[$field]
+                if ($property -and $property.Value -is [bool]) {
+                    $summary[$field] = ([string]$property.Value).ToLowerInvariant()
+                }
+            }
+        }
+    }
+
+    $parts = foreach ($key in $summary.Keys) { "$key=$($summary[$key])" }
+    return ($parts -join ' ')
+}
+
 if ($MyInvocation.InvocationName -ne '.') {
     $result = Invoke-CvrIdleCaptureOperator -StageRoot $StageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256 -RequestPath $RequestPath -TimeoutSeconds $TimeoutSeconds
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
