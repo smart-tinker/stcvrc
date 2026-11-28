@@ -798,12 +798,7 @@ function Get-CvrIdleOperatorFailureSummary {
                 $summary.status = [string]$property.Value
             }
             $property = $public.PSObject.Properties['reason']
-            if ($property -and $property.Value -is [string] -and $property.Value -match '^[a-z][a-z0-9-]{0,63} -StageRoot $StageRoot -ExpectedPackageManifestSha256 $ExpectedPackageManifestSha256 -RequestPath $RequestPath -TimeoutSeconds $TimeoutSeconds
-    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-    [Console]::Out.WriteLine((ConvertTo-Json -InputObject $result.Public -Depth 4 -Compress -ErrorAction Stop))
-    exit ([int]$result.Public.exitCode)
-}
-) {
+            if ($property -and $property.Value -is [string] -and $property.Value -match '^[a-z][a-z0-9-]{0,63}$') {
                 $summary.reason = [string]$property.Value
             }
             $property = $public.PSObject.Properties['result']
