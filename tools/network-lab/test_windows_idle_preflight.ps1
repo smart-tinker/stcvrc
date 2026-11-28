@@ -386,6 +386,7 @@ try {
     [IO.File]::WriteAllText($manifestPath, (ConvertTo-Json -InputObject $manifest -Depth 5 -Compress), [Text.UTF8Encoding]::new($false))
     $manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $stageRoot = [IO.Path]::GetFullPath($packageRoot)
+    . (Join-Path $networkLabStageRoot 'windows_idle_target_runtime.ps1')
     . (Join-Path $networkLabStageRoot 'windows_idle_preflight_target_operator.ps1')
 
 
