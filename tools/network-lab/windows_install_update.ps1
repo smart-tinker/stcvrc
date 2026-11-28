@@ -409,12 +409,22 @@ $installerPaths = @{
 $script:installerPaths = $installerPaths
 $env:CVR_258_SERVICE_INSTALL_HELPER_PATH = [string]$script:idlePinnedFiles.recoveryHelper
 $env:CVR_2510_SERVICE_INSTALL_HELPER_PATH = [string]$script:idlePinnedFiles.updateHelper
+$setupStage = 'idle-service-install'
 try {
     $idleSetupObservation = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $install258 -ProgramFilesEntry $script:idleCorePair.programFiles -CoreEntry $script:idleCorePair.service -CoreShouldBeRunning $script:idleCoreShouldBeRunning
+    $setupStage = 'idle-baseline-observation'
     $null = Assert-CvrIdleBaseline @idleSetupObservation
-    Assert-CvrCorePairPreimage -Preimage $script:idleCorePair -Phase 'idle transaction setup'
-    Assert-CvrLegacyState -Expected $script:idleLegacyState -Phase 'idle transaction setup'
+    $setupStage = 'core-pair-preimage-check'
+    $null = Assert-CvrCorePairPreimage -Preimage $script:idleCorePair -Phase 'idle transaction setup'
+    $setupStage = 'legacy-state-check'
+    $null = Assert-CvrLegacyState -Expected $script:idleLegacyState -Phase 'idle transaction setup'
 } catch {
+    $setupError = $_
+    $setupCommand = [string]$setupError.InvocationInfo.MyCommand.Name
+    if ($setupCommand -notmatch '^[A-Za-z0-9_.-]{1,80}$') { $setupCommand = 'unknown' }
+    $setupLine = [int]$setupError.InvocationInfo.ScriptLineNumber
+    $setupType = $setupError.Exception.GetBaseException().GetType().Name
+    Write-Host "Idle setup failure stage=$setupStage command=$setupCommand line=$setupLine type=$setupType" -ForegroundColor Red
     try {
         Stop-CvrRunnerRuntime
         Restore-CvrCorePairPreimage -Preimage $script:idleCorePair -HelperVersion '2.5.8'
