@@ -392,6 +392,7 @@ class CIContractTests(unittest.TestCase):
     def test_installed_gui_matches_exact_extracted_release_payload(self):
         workflow = WORKFLOWS["test.yml"]
         script = (HERE / "windows_install_update.ps1").read_text(encoding="utf-8")
+        runtime = (HERE / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
         for required in (
             "CVR_258_GUI_SHA256",
             "CVR_2510_GUI_SHA256",
@@ -400,7 +401,7 @@ class CIContractTests(unittest.TestCase):
             "Installed CVR GUI SHA256 mismatch",
         ):
             with self.subTest(required=required):
-                self.assertIn(required, workflow + script)
+                self.assertIn(required, workflow + script + runtime)
 
 
     def test_rc_manifest_is_read_back_as_exact_bytes(self):

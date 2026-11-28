@@ -76,11 +76,17 @@ if ($Phase -eq 'recovery') {
     }
     $recoverySource = [IO.Path]::GetFullPath($RecoveryServiceCorePreimagePath)
     $recoveryDirectory = [IO.Path]::GetDirectoryName($recoverySource)
-    $recoveryRoot = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+    if (-not $env:STCVRC_STAGE_ROOT) { throw 'Protected recovery stage root is missing.' }
+    $recoveryRoot = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetFullPath($env:STCVRC_STAGE_ROOT)) 'local'))
     if ([IO.Path]::GetFileName($recoverySource) -cne 'verge-mihomo.exe' -or
         -not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetDirectoryName($recoveryDirectory), $recoveryRoot) -or
         [IO.Path]::GetFileName($recoveryDirectory) -notmatch '^stcvrc-core-preimage-service-[0-9a-f]{32}$') {
-        throw 'Recovery service-core preimage path is outside its unique pinned backup directory.'
+        throw 'Recovery service-core preimage path is outside its unique protected-stage backup directory.'
+    }
+    $recoveryRootItem = Get-Item -LiteralPath $recoveryRoot -Force -ErrorAction Stop
+    if (-not $recoveryRootItem.PSIsContainer -or
+        (($recoveryRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw 'Protected recovery backup root is not a regular directory.'
     }
     if (-not (Test-Path -LiteralPath $recoverySource -PathType Leaf)) {
         throw "Recovery service-core preimage is missing (stage=verify preimage; expected_sha=$($script:expectedServiceCoreSha))."

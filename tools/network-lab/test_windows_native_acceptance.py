@@ -55,16 +55,17 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
     def test_core_preimage_backups_require_pinned_path_hash_and_acl(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        runtime = (INSTALLER_SMOKE.parent / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
         path_helper = (INSTALLER_SMOKE.parent / "windows_core_preimage_paths.ps1").read_text(encoding="utf-8")
         idle_transaction = (INSTALLER_SMOKE.parent / "windows_idle_transaction.ps1").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
 
-        self.assertIn("-Label $target.backupLabel", source)
+        self.assertIn("-Label $target.backupLabel", runtime)
         self.assertIn("-Label '258-stock'", source)
-        self.assertIn("Save-CvrCorePreimageBackup", source)
-        self.assertIn("Get-CvrCorePreimageBackupBytes", source)
-        self.assertIn("backupPathPin = $backup.backupPathPin", source)
-        self.assertIn("backupDirectorySddl = $backup.backupDirectorySddl", source)
+        self.assertIn("Save-CvrCorePreimageBackup", source + runtime)
+        self.assertIn("Get-CvrCorePreimageBackupBytes", source + runtime)
+        self.assertIn("backupPathPin = $backup.backupPathPin", source + runtime)
+        self.assertIn("backupDirectorySddl = $backup.backupDirectorySddl", source + runtime)
         self.assertIn("[IO.Path]::GetFileName($backupPath) -cne 'verge-mihomo.exe'", path_helper)
         self.assertIn("$backupPath -ine $backupPathPin", path_helper)
         self.assertIn("backup SHA256 mismatch", path_helper)
@@ -75,8 +76,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("[IO.Path]::GetFullPath([string]$pinnedFiles[$entryInfo.pin])", idle_transaction)
         self.assertIn("Get-CvrCorePreimageBackupBytes -Entry $entry", idle_transaction)
 
-        restore = source.split("function Restore-CvrCorePairPreimage", 1)[1].split(
-            "function Save-CvrSyntheticStockCore", 1
+        restore = runtime.split("function Restore-CvrCorePairPreimage", 1)[1].split(
+            "function Invoke-CvrOverlayReinstall", 1
         )[0]
         pf_validation = restore.index("Get-CvrCorePreimageBackupBytes -Entry $Preimage.programFiles")
         service_validation = restore.index("Get-CvrCorePreimageBackupBytes -Entry $Preimage.service")
@@ -128,6 +129,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Restore-CvrCorePairPreimage", runtime)
         self.assertIn("Install-CvrIdleService -Version '2.5.8'", operator)
         self.assertIn("recoveryServiceCorePreimagePath = [string]$capture.corePair.service.backup", operator)
+        self.assertIn("Join-Path ([IO.Path]::GetFullPath($env:STCVRC_STAGE_ROOT)) 'local'", native)
         self.assertIn("-ExpectedProgramFilesCoreSha $request.expectedProgramFilesCoreSha256", smoke)
         self.assertIn("-ExpectedServiceCoreSha $request.expectedServiceCoreSha256", smoke)
         self.assertIn("--install-service --install-core $preimagePath --sha256 $script:expectedServiceCoreSha", native)
@@ -272,7 +274,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         traffic = operator.index("& $candidateTrafficScript $callbackRequest", action)
         candidate = operator.index("CandidateCheckScript = {", traffic)
         restore = operator.index("RestoreScript = {", candidate)
-        recovery_check = operator.index("& $recoveryVerificationScript $context $recoveryRequest", restore)
+        recovery_check = operator.index("& $recoveryVerificationScript $recoveryRequest", restore)
         verify = operator.index("VerifyScript = {", recovery_check)
         self.assertLess(action, traffic)
         self.assertLess(traffic, candidate)
@@ -820,8 +822,8 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         for assertion in (
             "CandidateTrafficScript",
             "Assert-CvrIdleCandidateTrafficVerification",
-            "programFilesCore.sha256 -cne [string]$context.ExpectedPins.programFilesCore",
-            "service.sha256 -cne [string]$context.ExpectedPins.serviceCore",
+            "capture.corePair.programFiles.sha256 -cne [string]$context.ExpectedPins.programFilesCore",
+            "capture.corePair.service.sha256 -cne [string]$context.ExpectedPins.serviceCore",
             "Invoke-CvrInstaller -Version '2.5.10'",
             "Invoke-CvrOverlayReinstall -InstallDirectory $install2510",
             "Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.gui",
@@ -882,7 +884,7 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("-RecoveryVerificationScript $recoveryVerificationScript", smoke)
         self.assertIn("candidateServiceExeSha256 -cne [string]$nativeCallbackContext.CandidateServiceExeSha256", smoke)
         self.assertIn("-NativeFailures $nativeCallbackContext.NativeFailures", smoke)
-        self.assertIn("candidateGuiSha256 = $nativeCallbackContext.CandidateGuiSha256", smoke)
+        self.assertIn("candidateGuiSha256 -cne [string]$nativeCallbackContext.CandidateGuiSha256", smoke)
         self.assertIn("candidateGuiSha256 = $expectedGuiSha", native)
         self.assertIn("candidateServiceExeSha256 = $script:expectedServiceSha", native)
         self.assertIn("candidateGuiSha256", operator)
