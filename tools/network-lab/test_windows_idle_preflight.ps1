@@ -3,10 +3,28 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows_idle_baseline_guard.ps1')
 . (Join-Path $PSScriptRoot 'windows_legacy_state_transaction.ps1')
 . (Join-Path $PSScriptRoot 'windows_idle_transaction.ps1')
+. (Join-Path $PSScriptRoot 'windows_idle_capture_operator.ps1')
 
 function Assert-PreflightTest([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
+
+$diagnosticChild = [PSCustomObject]@{
+    ExitCode = 2
+    StdOut = '{"status":"INCOMPLETE","reason":"fresh-observation","result":"UNKNOWN","exitCode":2,"timedOut":false,"childStopped":true,"childExitCode":0,"path":"SYNTHETIC_PRIVATE_PATH"}'
+    StdErr = 'SYNTHETIC_PRIVATE_STDERR'
+}
+$diagnostic = Get-CvrIdleOperatorFailureSummary -Child $diagnosticChild
+Assert-PreflightTest ($diagnostic -ceq 'status=INCOMPLETE reason=fresh-observation result=UNKNOWN resultExit=2 timedOut=false childStopped=true childExit=0 processExit=2 stderrPresent=true') 'Idle operator failure summary must expose only the bounded public result fields.'
+Assert-PreflightTest ($diagnostic -notmatch 'SYNTHETIC_PRIVATE') 'Idle operator failure summary must not expose raw output.'
+
+$invalidDiagnostic = Get-CvrIdleOperatorFailureSummary -Child ([PSCustomObject]@{
+    ExitCode = 2
+    StdOut = 'SYNTHETIC_PRIVATE_PATH'
+    StdErr = ''
+})
+Assert-PreflightTest ($invalidDiagnostic -ceq 'status=unknown reason=unknown result=unknown resultExit=unknown timedOut=unknown childStopped=unknown childExit=unknown processExit=2 stderrPresent=false') 'Invalid child output must have a fixed, redacted diagnostic.'
+
 
 function New-PreflightTestDirectory([string]$Path) {
     $null = New-Item -ItemType Directory -Path $Path -ErrorAction Stop
