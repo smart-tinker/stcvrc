@@ -338,6 +338,8 @@ try {
             Assert-StageTest ($entry.path -notmatch '(^/|\\|:|(^|/)\.\.?(/|$))') 'Source manifest contains an unsafe path.'
             $zipEntry = $archive.GetEntry([string]$entry.path)
             Assert-StageTest ($null -ne $zipEntry) 'A source manifest file is missing from the package.'
+            $sizeProperty = $entry.PSObject.Properties['size']
+            Assert-StageTest ($null -ne $sizeProperty -and [long]$sizeProperty.Value -eq [long]$zipEntry.Length) 'A packaged stage file size does not match its manifest.'
             Assert-StageTest ((Get-StageBytesSha256 (Read-ZipEntryBytes $zipEntry)) -ceq [string]$entry.sha256) 'A packaged stage file does not match its manifest.'
         }
         $archiveNames = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
