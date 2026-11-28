@@ -424,7 +424,12 @@ try {
     if ($setupCommand -notmatch '^[A-Za-z0-9_.-]{1,80}$') { $setupCommand = 'unknown' }
     $setupLine = [int]$setupError.InvocationInfo.ScriptLineNumber
     $setupType = $setupError.Exception.GetBaseException().GetType().Name
-    Write-Host "Idle setup failure stage=$setupStage command=$setupCommand line=$setupLine type=$setupType" -ForegroundColor Red
+    if ([string]$setupError.Exception.Message -match '^Pinned CVR 2\.5\.8 idle-service helper exited (-?[0-9]+)\.$') {
+        $setupExitCode = [long]$Matches[1]
+        Write-Host "Idle setup failure reason=service-helper-exit exitCode=$setupExitCode stage=$setupStage command=$setupCommand line=$setupLine type=$setupType" -ForegroundColor Red
+    } else {
+        Write-Host "Idle setup failure reason=other stage=$setupStage command=$setupCommand line=$setupLine type=$setupType" -ForegroundColor Red
+    }
     try {
         Stop-CvrRunnerRuntime
         Restore-CvrCorePairPreimage -Preimage $script:idleCorePair -HelperVersion '2.5.8'
