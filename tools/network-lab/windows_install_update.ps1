@@ -289,9 +289,363 @@ function Invoke-NativePhase {
         if ($Phase -eq 'recovery') {
             $null = & $nativeScript -Phase $Phase -ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha -ExpectedServiceCoreSha256 $ExpectedServiceCoreSha -RecoveryServiceCorePreimagePath $RecoveryServiceCorePreimagePath
         } elseif ($TrafficChallenge -or $TrafficReceiptPath -or @($TrafficRequiredProbes).Count) {
-            if ($Phase -cne 'exercise' -or $TrafficChallenge -notmatch '^[0-9a-f]{32}$' -or
-                -not $TrafficReceiptPath -or @($TrafficRequiredProbes).Count -ne 2) {
-                throw 'Candidate traffic receipt request is invalid.'
+            $challengeValid = $TrafficChallenge -match '^[0-9a-f]{32}
+            $null = & $nativeScript -Phase $Phase -ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha -ExpectedServiceCoreSha256 $ExpectedServiceCoreSha -TrafficChallenge $TrafficChallenge -TrafficReceiptPath $TrafficReceiptPath -TrafficRequiredProbes $TrafficRequiredProbes
+        } else {
+            $null = & $nativeScript -Phase $Phase -ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha -ExpectedServiceCoreSha256 $ExpectedServiceCoreSha
+        }
+    } catch {
+        $failure = $_.Exception.Message
+        $NativeFailures.Add("$Phase`: $failure")
+        Write-Host "Native $Phase phase failed; continuing the bounded recovery sequence: $failure" -ForegroundColor Red
+    } finally {
+        $ended = [DateTime]::UtcNow
+        $NativeIntervals.Add([PSCustomObject]@{ phase=$Phase; startUtc=$started; endUtc=$ended })
+        $PhaseBoundaries.Add([PSCustomObject]@{ phase="native-$Phase"; startUtc=$started; endUtc=$ended })
+    }
+}
+function Get-CoreStartDecision {
+    param([string]$ProcessName, [DateTime]$CreatedUtc, [object[]]$Intervals)
+    if ($ProcessName -ieq 'verge-mihomo-alpha.exe') {
+        return [PSCustomObject]@{ allowed=$false; phase=$null; reason='alpha-forbidden' }
+    }
+    foreach ($interval in $Intervals) {
+        if ($CreatedUtc -ge $interval.startUtc -and $CreatedUtc -le $interval.endUtc) {
+            return [PSCustomObject]@{ allowed=$true; phase=$interval.phase; reason='native-interval' }
+        }
+    }
+    return [PSCustomObject]@{ allowed=$false; phase=$null; reason='outside-native-interval' }
+}
+function Assert-CoreStartDecisionVectors {
+    $now = [DateTime]::UtcNow
+    $inside = @([PSCustomObject]@{ phase='fixture'; startUtc=$now.AddSeconds(-1); endUtc=$now.AddSeconds(1) })
+    $outside = @([PSCustomObject]@{ phase='fixture'; startUtc=$now.AddSeconds(-3); endUtc=$now.AddSeconds(-2) })
+    $vectors = @(
+        [PSCustomObject]@{ processName='verge-mihomo.exe'; createdUtc=$now; intervals=$inside; expected=$true; reason='native core inside interval' },
+        [PSCustomObject]@{ processName='verge-mihomo.exe'; createdUtc=$now; intervals=$outside; expected=$false; reason='core outside interval' },
+        [PSCustomObject]@{ processName='verge-mihomo-alpha.exe'; createdUtc=$now; intervals=$inside; expected=$false; reason='Alpha inside interval' }
+    )
+    foreach ($vector in $vectors) {
+        $decision = Get-CoreStartDecision -ProcessName $vector.processName -CreatedUtc $vector.createdUtc -Intervals $vector.intervals
+        if ([bool]$decision.allowed -ne [bool]$vector.expected) {
+            throw "Core-start policy self-check failed: $($vector.reason)."
+        }
+    }
+}
+Assert-CoreStartDecisionVectors
+
+$processStartSource = 'STCVRC.CvrInstallSmoke.ProcessStart'
+Register-CimIndicationEvent -Namespace 'root/cimv2' -Query 'SELECT * FROM Win32_ProcessStartTrace' -SourceIdentifier $processStartSource | Out-Null
+$script:legacyStateFixture = New-CvrSyntheticLegacyPreimage
+$install258 = Invoke-CvrInstaller -Version '2.5.8' -Arguments @('/S', '/P', '/NS')
+$script:installDirectory = $install258
+$stockProgramFilesCore = Save-CvrSyntheticStockCore -InstallDirectory $install258
+$script:stockProgramFilesCore = $stockProgramFilesCore
+$stockHelper = Get-CvrServiceInstallHelper -Version '2.5.8'
+if ([IO.Path]::GetFileName([string]$env:CUSTOM_CORE) -cne 'verge-mihomo.exe') { throw 'Fresh source-built core basename does not match the service helper contract.' }
+$baselineServiceStageOutput = & $stockHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha 2>&1
+$baselineServiceStageExit = $LASTEXITCODE
+if ($baselineServiceStageExit -ne 0) { throw "Pinned 2.5.8 helper could not stage the source-built baseline service core ($baselineServiceStageExit)." }
+Install-CandidateCore -InstallDirectory $install258 -Phase '2.5.8 baseline' -HelperVersion '2.5.8'
+Invoke-NativePhase -Phase seed -InstallDirectory $install258 -ExpectedProgramFilesCoreSha $coreSha -ExpectedServiceCoreSha $coreSha -NativeFailures $script:nativeFailures -NativeIntervals $script:nativeIntervals -PhaseBoundaries $script:phaseBoundaries
+Set-CvrSyntheticSplitCorePreimage -InstallDirectory $install258 -StockCore $stockProgramFilesCore
+Stop-CvrRunnerRuntime
+Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture
+$script:legacyStateFixture = $null
+
+$script:idleCoreShouldBeRunning = [bool]$false
+$script:idleTargetIdentity = [Guid]::NewGuid().ToString('N')
+$script:idleLegacyState = Get-CvrLegacyState
+$script:idleCorePair = Get-CvrCorePairPreimage -InstallDirectory $install258
+$helper258 = Get-CvrServiceInstallHelper -Version '2.5.8'
+$helper2510 = Get-CvrServiceInstallHelper -Version '2.5.10'
+$release258 = @($manifest.releases | Where-Object { [string]$_.version -ceq '2.5.8' })
+$release2510 = @($manifest.releases | Where-Object { [string]$_.version -ceq '2.5.10' })
+if ($release258.Count -ne 1 -or $release2510.Count -ne 1) { throw 'Idle target capture release pins are ambiguous.' }
+$script:idleExpectedPins = @{
+    gui258 = [string]$env:CVR_258_GUI_SHA256
+    serviceExe258 = [string]$env:CVR_258_SERVICE_SHA256
+    programFilesCore = [string]$script:idleCorePair.programFiles.sha256
+    serviceCore = [string]$script:idleCorePair.service.sha256
+    candidateCore = [string]$coreSha
+    updateInstaller = [string]$release2510[0].assets.installer.sha256
+    updateHelper = [string]$helper2510.sha256
+    recoveryInstaller = [string]$release258[0].assets.installer.sha256
+    recoveryHelper = [string]$helper258.sha256
+}
+if (-not $env:STCVRC_STAGE_ROOT -or $env:STCVRC_STAGE_MANIFEST_SHA256 -notmatch '^[0-9a-f]{64}$') {
+    throw 'Pinned public RC11 stage inputs are missing.'
+}
+$script:idleStageRoot = [IO.Path]::GetFullPath($env:STCVRC_STAGE_ROOT)
+$script:idleStageManifestSha256 = $env:STCVRC_STAGE_MANIFEST_SHA256.ToLowerInvariant()
+$stageBinding = Get-CvrIdlePackageStageBinding -StageRoot $script:idleStageRoot -ExpectedStageRoot $script:idleStageRoot -ExpectedPackageManifestSha256 $script:idleStageManifestSha256
+try {
+    if ($stageBinding.SourceManifestSha256 -cne $script:idleStageManifestSha256) { throw 'Pinned public RC11 stage binding changed.' }
+} finally { foreach ($handle in @($stageBinding.OpenFiles)) { if ($handle) { $handle.Dispose() } } }
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_core_preimage_paths.ps1')
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_baseline_guard.ps1')
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_legacy_state_transaction.ps1')
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_transaction.ps1')
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_capture_operator.ps1')
+. (Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_preflight_target_operator.ps1')
+$script:idlePinnedFiles = @{
+    gui258 = (Join-Path $install258 'clash-verge.exe')
+    serviceExe258 = (Join-Path $serviceData 'bin\clash-verge-service.exe')
+    programFilesCore = [string]$script:idleCorePair.programFiles.path
+    serviceCore = [string]$script:idleCorePair.service.path
+    candidateCore = (Join-Path $script:idleStageRoot 'payload\verge-mihomo.exe')
+    updateInstaller = (Join-Path $script:idleStageRoot 'payload\Clash.Verge_2.5.10_x64-setup.exe')
+    updateHelper = (Join-Path $script:idleStageRoot 'payload\cvr-2.5.10\clash-verge-service-install.exe')
+    recoveryInstaller = (Join-Path $script:idleStageRoot 'payload\Clash.Verge_2.5.8_x64-setup.exe')
+    recoveryHelper = (Join-Path $script:idleStageRoot 'payload\cvr-2.5.8\clash-verge-service-install.exe')
+}
+$installerPaths = @{
+    '2.5.8' = [string]$script:idlePinnedFiles.recoveryInstaller
+    '2.5.10' = [string]$script:idlePinnedFiles.updateInstaller
+}
+$script:installerPaths = $installerPaths
+$env:CVR_258_SERVICE_INSTALL_HELPER_PATH = [string]$script:idlePinnedFiles.recoveryHelper
+$env:CVR_2510_SERVICE_INSTALL_HELPER_PATH = [string]$script:idlePinnedFiles.updateHelper
+try {
+    $idleSetupObservation = Install-CvrIdleService -Version '2.5.8' -InstallDirectory $install258 -ProgramFilesEntry $script:idleCorePair.programFiles -CoreEntry $script:idleCorePair.service -CoreShouldBeRunning $script:idleCoreShouldBeRunning
+    $null = Assert-CvrIdleBaseline @idleSetupObservation
+    Assert-CvrCorePairPreimage -Preimage $script:idleCorePair -Phase 'idle transaction setup'
+    Assert-CvrLegacyState -Expected $script:idleLegacyState -Phase 'idle transaction setup'
+} catch {
+    try {
+        Stop-CvrRunnerRuntime
+        Restore-CvrCorePairPreimage -Preimage $script:idleCorePair -HelperVersion '2.5.8'
+        Restore-CvrLegacyState -State $script:idleLegacyState
+        Assert-CvrCorePairPreimage -Preimage $script:idleCorePair -Phase 'idle transaction setup recovery'
+        Assert-CvrLegacyState -Expected $script:idleLegacyState -Phase 'idle transaction setup recovery'
+    } catch {
+        throw 'Idle transaction setup failed and its runner preimages did not verify.'
+    }
+    throw 'Idle transaction setup failed after restoring its runner preimages.'
+}
+
+$targetIdentity = [string]$script:idleTargetIdentity
+$captureSeed = [ordered]@{
+    Capture = [ordered]@{
+        installDirectory = [IO.Path]::GetFullPath($install258)
+        guiSha256 = [string]$script:idleExpectedPins.gui258
+        targetIdentity = $targetIdentity
+        coreShouldBeRunning = [bool]$false
+        corePair = $script:idleCorePair
+        legacyState = $script:idleLegacyState
+        pinnedFiles = $script:idlePinnedFiles
+    }
+    ExpectedTargetIdentity = $targetIdentity
+    ExpectedPins = $script:idleExpectedPins
+    Observer = [ordered]@{
+        ExpectedOwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ExpectedSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+        ExpectedServiceAccountSid = Get-CvrIdleOperatorAccountSid ([string](Get-CimInstance Win32_Service -Filter "Name='clash_verge_service'" -ErrorAction Stop).StartName)
+    }
+}
+$localRoot = Join-Path $script:idleStageRoot 'local'
+$seedPath = Join-Path $localRoot 'capture-seed.json'
+if (Test-Path -LiteralPath $seedPath) { throw 'Refusing a preexisting Capture seed.' }
+$null = [IO.File]::Open($seedPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None).Dispose()
+$null = Set-CvrIdleCaptureAcl -Path $seedPath
+$seedJson = ConvertTo-Json -InputObject $captureSeed -Depth 16 -Compress -ErrorAction Stop
+[IO.File]::WriteAllText($seedPath, $seedJson, [Text.UTF8Encoding]::new($false, $true))
+$captureOperatorPath = Join-Path $script:idleStageRoot 'tools\network-lab\windows_idle_capture_operator.ps1'
+$captureChild = Invoke-CvrIdleOperatorChild -ScriptPath $captureOperatorPath -Arguments @(
+    '-StageRoot',$script:idleStageRoot,
+    '-ExpectedPackageManifestSha256',$script:idleStageManifestSha256,
+    '-RequestPath',$seedPath,
+    '-TimeoutSeconds','90'
+) -TimeoutSeconds 180 -WorkingDirectory $script:idleStageRoot
+if ($captureChild.ExitCode -ne 0 -or -not [string]::IsNullOrEmpty($captureChild.StdErr)) {
+    throw "Packaged Capture/Plan/Preflight child failed (exit=$($captureChild.ExitCode))."
+}
+$publicCaptureResult = ConvertFrom-Json -InputObject $captureChild.StdOut -ErrorAction Stop
+if ([string]$publicCaptureResult.status -cne 'COMPLETE' -or
+    [string]$publicCaptureResult.reason -cne 'preflight-complete' -or
+    [string]$publicCaptureResult.result -cne 'PASS' -or
+    $publicCaptureResult.exitCode -ne 0 -or
+    $publicCaptureResult.timedOut -isnot [bool] -or $publicCaptureResult.timedOut -or
+    $publicCaptureResult.childStopped -isnot [bool] -or -not $publicCaptureResult.childStopped -or
+    $publicCaptureResult.childExitCode -ne 0 -or
+    [string]$publicCaptureResult.sourceManifestSha256 -ine $script:idleStageManifestSha256 -or
+    [string]$publicCaptureResult.planSha256 -notmatch '^[0-9a-f]{64}$' -or
+    [string]$publicCaptureResult.receiptId -notmatch '^[0-9a-f]{32}$') {
+    throw 'Packaged Capture/Plan/Preflight returned an incomplete or unbound public result.'
+}
+Write-Host 'Invoke-CvrIdleCaptureOperator packaged entry passed bounded Capture, Plan, and Preflight.'
+$captureDirectories = @(Get-ChildItem -LiteralPath $localRoot -Directory -ErrorAction Stop | Where-Object { $_.Name -match '^capture-idle-[0-9a-f]{32}$' })
+$planDirectories = @(Get-ChildItem -LiteralPath $localRoot -Directory -ErrorAction Stop | Where-Object { $_.Name -match '^prepared-idle-[0-9a-f]{32}$' })
+if ($captureDirectories.Count -ne 1 -or $planDirectories.Count -ne 1) { throw 'Packaged Capture/Plan output directories are ambiguous.' }
+$captureReceiptPath = Join-Path $captureDirectories[0].FullName 'capture.json'
+$planPath = Join-Path $planDirectories[0].FullName 'plan.json'
+$preflightReceiptPath = Join-Path $localRoot ("preflight-idle-" + [string]$publicCaptureResult.receiptId + '\result.json')
+
+$nativeCallbackContext = [PSCustomObject]@{
+    NativeIntervals = $script:nativeIntervals
+    PhaseBoundaries = $script:phaseBoundaries
+    NativeFailures = $script:nativeFailures
+    InstallDirectory = [IO.Path]::GetFullPath([string]$script:installDirectory)
+    ServiceData = [IO.Path]::GetFullPath([string]$script:serviceData)
+    CandidateGuiSha256 = ([string]$env:CVR_2510_GUI_SHA256).ToLowerInvariant()
+    CandidateServiceExeSha256 = ([string]$env:CVR_2510_SERVICE_SHA256).ToLowerInvariant()
+}
+$candidateTrafficScript = {
+    param($request)
+    if ($request.challenge -notmatch '^[0-9a-f]{32}$') { throw 'Candidate traffic challenge is invalid.' }
+    $expectedInstall = [IO.Path]::GetFullPath([string]$nativeCallbackContext.InstallDirectory)
+    $expectedProgramFilesCore = [IO.Path]::GetFullPath((Join-Path $expectedInstall 'verge-mihomo.exe'))
+    $expectedServiceCore = [IO.Path]::GetFullPath((Join-Path $nativeCallbackContext.ServiceData 'cores\verge-mihomo.exe'))
+    $expectedServiceExe = [IO.Path]::GetFullPath((Join-Path $nativeCallbackContext.ServiceData 'bin\clash-verge-service.exe'))
+    if ([IO.Path]::GetFullPath([string]$request.installDirectory) -ine $expectedInstall -or
+        [IO.Path]::GetFullPath([string]$request.programFilesCorePath) -ine $expectedProgramFilesCore -or
+        [IO.Path]::GetFullPath([string]$request.serviceCorePath) -ine $expectedServiceCore -or
+        [string]$request.candidateGuiSha256 -cne [string]$nativeCallbackContext.CandidateGuiSha256 -or
+        [string]$request.candidateServiceExeSha256 -cne [string]$nativeCallbackContext.CandidateServiceExeSha256) {
+        throw 'Candidate traffic request differs from the pinned native install.'
+    }
+    foreach ($path in @($expectedProgramFilesCore,$expectedServiceCore)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$request.candidateCoreSha256) {
+            throw 'Candidate traffic request core bytes differ from the pinned native install.'
+        }
+    }
+    if (-not (Test-Path -LiteralPath $expectedServiceExe -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $expectedServiceExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$request.candidateServiceExeSha256) {
+        throw 'Candidate traffic request service executable differs from its pin.'
+    }
+    $receiptPath = Join-Path $env:RUNNER_TEMP ('stcvrc-candidate-traffic-' + [string]$request.challenge + '.json')
+    if (Test-Path -LiteralPath $receiptPath) { throw 'Refusing a preexisting candidate traffic receipt.' }
+    $stream = [IO.File]::Open($receiptPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $stream.Dispose()
+    $null = Set-CvrIdleCaptureAcl -Path $receiptPath
+    try {
+        $failureCount = $nativeCallbackContext.NativeFailures.Count
+        Invoke-NativePhase -Phase exercise -InstallDirectory $request.installDirectory -ExpectedProgramFilesCoreSha $request.candidateCoreSha256 -ExpectedServiceCoreSha $request.candidateCoreSha256 -TrafficChallenge $request.challenge -TrafficReceiptPath $receiptPath -TrafficRequiredProbes $request.requiredProbes -NativeFailures $nativeCallbackContext.NativeFailures -NativeIntervals $nativeCallbackContext.NativeIntervals -PhaseBoundaries $nativeCallbackContext.PhaseBoundaries
+        if ($nativeCallbackContext.NativeFailures.Count -gt $failureCount) { throw 'Candidate native traffic acceptance failed.' }
+        if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) { throw 'Candidate native traffic receipt was not produced.' }
+        return ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($receiptPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    } finally {
+        if (Test-Path -LiteralPath $receiptPath) { Remove-Item -LiteralPath $receiptPath -Force -ErrorAction Stop }
+        if (Test-Path -LiteralPath $receiptPath) { throw 'Candidate native traffic receipt cleanup failed.' }
+    }
+}.GetNewClosure()
+
+$recoveryVerificationScript = {
+    param($request)
+    $failureCount = $nativeCallbackContext.NativeFailures.Count
+    Invoke-NativePhase -Phase recovery -InstallDirectory $request.installDirectory -ExpectedProgramFilesCoreSha $request.expectedProgramFilesCoreSha256 -ExpectedServiceCoreSha $request.expectedServiceCoreSha256 -RecoveryServiceCorePreimagePath $request.recoveryServiceCorePreimagePath -NativeFailures $nativeCallbackContext.NativeFailures -NativeIntervals $nativeCallbackContext.NativeIntervals -PhaseBoundaries $nativeCallbackContext.PhaseBoundaries
+    return [bool]($nativeCallbackContext.NativeFailures.Count -eq $failureCount)
+}.GetNewClosure()
+
+$targetTransactionResult = Invoke-CvrIdlePreflightTargetAcceptance `
+    -CaptureReceiptPath $captureReceiptPath `
+    -PlanPath $planPath `
+    -PreflightReceiptPath $preflightReceiptPath `
+    -ExpectedPlanSha256 ([string]$publicCaptureResult.planSha256) `
+    -ExpectedStageRoot $script:idleStageRoot `
+    -ExpectedPackageManifestSha256 $script:idleStageManifestSha256 `
+    -ExpectedTargetIdentity $targetIdentity `
+    -ExpectedPins $script:idleExpectedPins `
+    -ExpectedCandidateGuiSha256 $env:CVR_2510_GUI_SHA256 `
+    -ExpectedCandidateServiceExeSha256 $env:CVR_2510_SERVICE_SHA256 `
+    -RequiredCandidateProbes @('dns','http') `
+    -CandidateTrafficScript $candidateTrafficScript `
+    -RecoveryVerificationScript $recoveryVerificationScript `
+    -NativeFailures $script:nativeFailures `
+    -NativeIntervals $script:nativeIntervals `
+    -PhaseBoundaries $script:phaseBoundaries
+$transactionFailure = $null
+$idleRestoreFailure = $null
+if ($targetTransactionResult.status -ceq 'PASS' -and $targetTransactionResult.candidateTrafficVerification.status -cne 'PASS') {
+    $transactionFailure = 'MissingCandidateTrafficVerification'
+} else {
+    Write-Host 'Candidate traffic receipt passed identity and probe checks before verified rollback.'
+}
+if ($targetTransactionResult.actionErrorType) {
+    $transactionFailure = [string]$targetTransactionResult.actionErrorType
+}
+if ($targetTransactionResult.status -eq 'ACTION_FAILED_RESTORED' -and -not $transactionFailure) {
+    $transactionFailure = 'MissingActionErrorType'
+}
+if ($targetTransactionResult.status -eq 'RESTORE_FAILED') {
+    $idleRestoreFailure = if ($targetTransactionResult.restoreErrorType) { [string]$targetTransactionResult.restoreErrorType } else { 'MissingRestoreErrorType' }
+} elseif ($targetTransactionResult.status -cne 'PASS' -and $targetTransactionResult.status -cne 'ACTION_FAILED_RESTORED') {
+    $transactionFailure = [string]$targetTransactionResult.status
+}
+if ($transactionFailure) { Write-Host "Candidate update/acceptance Action failed: $transactionFailure" -ForegroundColor Red }
+if ($idleRestoreFailure) { Write-Host "Captured idle Restore failed: $idleRestoreFailure" -ForegroundColor Red }
+# WMI indication delivery is asynchronous; drain until stable, with a hard bound.
+$drainDeadline = [DateTime]::UtcNow.AddSeconds(8)
+$stableSince = [DateTime]::UtcNow
+$lastEventCount = -1
+while ([DateTime]::UtcNow -lt $drainDeadline) {
+    $currentCount = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue).Count
+    if ($currentCount -ne $lastEventCount) { $lastEventCount=$currentCount; $stableSince=[DateTime]::UtcNow }
+    elseif (([DateTime]::UtcNow - $stableSince).TotalSeconds -ge 2) { break }
+    Start-Sleep -Milliseconds 100
+}
+$processEvents = @(Get-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue)
+Unregister-Event -SourceIdentifier $processStartSource -ErrorAction SilentlyContinue
+$processEvents | Remove-Event -ErrorAction SilentlyContinue
+$coreEvents = [Collections.Generic.List[object]]::new()
+$coreStartIntervals = $script:nativeIntervals.ToArray() + $script:overlayIntervals.ToArray()
+foreach ($event in $processEvents) {
+    $newEvent = $event.SourceEventArgs.NewEvent
+    $processName = [string]$newEvent.ProcessName
+    if ($processName -notmatch '^(?i:verge-mihomo|verge-mihomo-alpha)\.exe$') { continue }
+    $rawTime = $newEvent.TIME_CREATED
+    if ($null -eq $rawTime) {
+        $script:nativeFailures.Add("Core process start event for $processName had no WMI TIME_CREATED value.")
+        continue
+    }
+    try { $created = [DateTime]::FromFileTimeUtc([Int64]$rawTime) }
+    catch { $script:nativeFailures.Add("Could not decode process start time for ${processName}: ${rawTime}"); continue }
+    $decision = Get-CoreStartDecision -ProcessName $processName -CreatedUtc $created -Intervals $coreStartIntervals
+    $coreEvents.Add([PSCustomObject]@{ name=$processName; pid=$newEvent.ProcessID; timeUtc=$created; allowedPhase=$decision.phase; decision=$decision.reason })
+    if (-not $decision.allowed) {
+        $script:nativeFailures.Add("Rejected core process start ($($decision.reason)): $processName pid=$($newEvent.ProcessID) at $($created.ToString('o')).")
+    }
+}
+foreach ($interval in $script:nativeIntervals) {
+    $phaseStarts = @($coreEvents | Where-Object { $_.allowedPhase -eq $interval.phase -and $_.name -ieq 'verge-mihomo.exe' })
+    if (-not $phaseStarts.Count) { $script:nativeFailures.Add("No core process-start event was observed inside native phase $($interval.phase); process-start monitoring did not establish coverage.") }
+}
+
+$summary = @(
+    '## Bounded CVR install/update/native acceptance/recovery',
+    '- Exercised valid synthetic profiles, DNS override confirmation/on/off, GLOBAL selector persistence, explicit synthetic TUN traffic, and 2.5.8 recovery on the disposable windows-2022 runner.',
+    '- Native core starts were allowed only within phase intervals after the installed and service-staged executable hashes matched the fresh source-built core; every Alpha start is forbidden.',
+    '- Default routes and physical DNS are compared before and after; the synthetic route is limited to 198.18.0.0/16.',
+    '- Synthetic NSIS side-effect check ran against the isolated initial preimage; update/recovery transactions captured and restored their actual window-state files, ACLs, and autorun values.',
+    '- Public packaged Capture/Plan/Preflight bound owner/session/service identity, idle intent, separate Program Files/service core SHA+ACL preimages, GUI/service executable backups, and legacy files/Run state before Action.',
+    '- Candidate acceptance checked the installed Program Files core and the independently pinned service core path/SHA before recovery.',
+    '- The shared idle transaction helper restores and verifies captured preimages after the update/recovery action, including when that action fails.',
+    '- Updated and exercised the fresh source-built candidate through pinned 2.5.10; verified its post-exercise idle service state before recovery.',
+    '- The final recovery restores the captured 2.5.8 GUI, both exact core preimages/ACLs, captured legacy state, and verified idle service state even when update/recovery throws.',
+    '- The public runner uses only synthetic acceptance inputs; no private pins/data, production profiles, external VPN endpoints, secrets, paid runners, Actions cache or artifacts.'
+)
+foreach ($boundary in $script:phaseBoundaries) { $summary += "- Phase $($boundary.phase): $($boundary.startUtc.ToString('o')) .. $($boundary.endUtc.ToString('o'))." }
+foreach ($interval in $coreStartIntervals) { $summary += "- Allowed core-start interval $($interval.phase): $($interval.startUtc.ToString('o')) .. $($interval.endUtc.ToString('o'))." }
+foreach ($event in $coreEvents) {
+    $eventPhase = if ($event.allowedPhase) { $event.allowedPhase } else { 'none' }
+    $summary += "- Core process event $($event.name) pid=$($event.pid) at $($event.timeUtc.ToString('o')); native phase=$eventPhase."
+}
+if ($script:nativeFailures.Count) { $summary += '- Native/process-start acceptance: FAIL.'; $summary += $script:nativeFailures | ForEach-Object { "- Failure: $_" } }
+else { $summary += '- Native/process-start acceptance: PASS.' }
+if ($script:legacyStateFixture) { Remove-CvrSyntheticLegacyPreimage -Fixture $script:legacyStateFixture }
+if ($transactionFailure) { $summary += "- Candidate update/recovery transaction: FAIL — $transactionFailure" } else { $summary += '- Candidate update/recovery transaction: PASS.' }
+if ($idleRestoreFailure) { $summary += "- Captured idle baseline restore: FAIL — $idleRestoreFailure" } else { $summary += '- Captured idle baseline restore: PASS.' }
+Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
+if ($script:nativeFailures.Count -or $transactionFailure -or $idleRestoreFailure) {
+    throw "Native/transaction acceptance failed. Native: $($script:nativeFailures -join ' | '); transaction: $transactionFailure; idle restore: $idleRestoreFailure"
+}
+
+            $receiptPathPresent = -not [string]::IsNullOrWhiteSpace($TrafficReceiptPath)
+            $requiredProbeCount = @($TrafficRequiredProbes).Count
+            if ($Phase -cne 'exercise' -or -not $challengeValid -or
+                -not $receiptPathPresent -or $requiredProbeCount -ne 2) {
+                throw "Candidate traffic receipt request is invalid (phase=$Phase; challengeValid=$challengeValid; receiptPathPresent=$receiptPathPresent; requiredProbeCount=$requiredProbeCount)."
             }
             $null = & $nativeScript -Phase $Phase -ExpectedProgramFilesCoreSha256 $ExpectedProgramFilesCoreSha -ExpectedServiceCoreSha256 $ExpectedServiceCoreSha -TrafficChallenge $TrafficChallenge -TrafficReceiptPath $TrafficReceiptPath -TrafficRequiredProbes $TrafficRequiredProbes
         } else {
