@@ -556,6 +556,54 @@ try {
             }
         }
     }
+    $seedInput = [ordered]@{
+        Capture = [ordered]@{
+            installDirectory = [IO.Path]::GetFullPath($programFilesDirectory)
+            guiSha256 = [string]$expectedPins.gui258
+            targetIdentity = $targetIdentity
+            coreShouldBeRunning = [bool]$false
+            corePair = $capture.corePair
+            legacyState = $legacyFixture.state
+            pinnedFiles = $pinnedFiles
+        }
+        ExpectedTargetIdentity = $targetIdentity
+        ExpectedPins = $expectedPins
+        Observer = [ordered]@{
+            ExpectedOwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            ExpectedSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+            ExpectedServiceAccountSid = 'S-1-5-18'
+        }
+    }
+    if (-not (Get-Command ConvertTo-CvrIdleCaptureSeedJson -CommandType Function -ErrorAction SilentlyContinue)) {
+        throw 'Capture seed must project ACL objects to the bounded SDDL representation.'
+    }
+    $seedJson = ConvertTo-CvrIdleCaptureSeedJson -Seed $seedInput
+    $seedRoundTrip = ConvertFrom-Json -InputObject $seedJson -ErrorAction Stop
+    foreach ($role in @('programFiles', 'service')) {
+        $source = $capture.corePair[$role]
+        $serialized = $seedRoundTrip.Capture.corePair.$role
+        $aclProperties = @($serialized.acl.PSObject.Properties | ForEach-Object { $_.Name })
+        if ($aclProperties.Count -ne 1 -or $aclProperties[0] -cne 'Sddl' -or
+            [string]$serialized.acl.Sddl -cne [string]$source.sddl) {
+            throw 'Capture seed serialization did not preserve the bounded core ACL representation.'
+        }
+    }
+    $legacySourceFiles = @($legacyFixture.state.files)
+    $legacySerializedFiles = @($seedRoundTrip.Capture.legacyState.files)
+    if ($legacySerializedFiles.Count -ne $legacySourceFiles.Count) {
+        throw 'Capture seed serialization changed the legacy file preimage count.'
+    }
+    for ($index = 0; $index -lt $legacySourceFiles.Count; $index++) {
+        if ([string]$legacySerializedFiles[$index].path -cne [string]$legacySourceFiles[$index].path -or
+            [string]$legacySerializedFiles[$index].sddl -cne [string]$legacySourceFiles[$index].sddl) {
+            throw 'Capture seed serialization changed the legacy file preimage.'
+        }
+    }
+    $seedWarningCheck = ConvertTo-Json -InputObject $seedRoundTrip -Depth 16 -Compress -ErrorAction Stop -WarningAction Stop
+    if ([string]::IsNullOrWhiteSpace($seedWarningCheck)) {
+        throw 'Capture seed serialization returned an empty JSON document.'
+    }
+
     foreach ($role in @('programFiles', 'service')) {
         $entry = $capture.corePair[$role]
         $entry.acl = [ordered]@{ Sddl = [string]$entry.sddl }
