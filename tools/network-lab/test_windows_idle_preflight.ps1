@@ -561,8 +561,8 @@ try {
     $capture | Add-Member -MemberType NoteProperty -Name 'rollbackState' -Value ([ordered]@{
         schemaVersion = 1
         installDirectory = $programFilesDirectory
-        gui = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'gui' -SourcePath $guiPath -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.gui258
-        serviceExe = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'service-exe' -SourcePath $serviceExePath -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.serviceExe258
+        gui = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'gui' -SourcePath $guiPath -ExpectedDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.gui258
+        serviceExe = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'service-exe' -SourcePath $serviceExePath -ExpectedDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.serviceExe258
         legacyState = $legacyForCapture
         observer = [ordered]@{
             ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
