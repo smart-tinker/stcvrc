@@ -158,12 +158,16 @@ try {
     $sourceLicenseBytes = [Text.Encoding]::UTF8.GetBytes("Synthetic Service IPC license`n")
     $recoveryHelperBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.6-helper')
     $updateHelperBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.7-helper')
+    $recoveryServiceBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.6-service')
+    $updateServiceBytes = [Text.Encoding]::UTF8.GetBytes('synthetic-v2.7.7-service')
     Write-TestZip $script:recoveryIpcArchivePath @{
         'bin/clash-verge-service-install.exe' = $recoveryHelperBytes
+        'bin/clash-verge-service.exe' = $recoveryServiceBytes
         'LICENSE' = $licenseBytes
     }
     Write-TestZip $script:updateIpcArchivePath @{
         'bin/clash-verge-service-install.exe' = $updateHelperBytes
+        'bin/clash-verge-service.exe' = $updateServiceBytes
         'LICENSE' = $licenseBytes
     }
     $recoveryInstallerEntries = Join-Path $tempRoot 'recovery-installer-entries.zip'
@@ -255,6 +259,10 @@ try {
     Assert-StageTest (@($record.cvrServiceInstallHelpers).Count -eq 2) 'External stage record omitted provenance for both Service IPC helpers.'
     Assert-StageTest ($record.cvrServiceInstallHelpers[0].serviceIpc.sourceCommit -ceq ('1' * 40) -and $record.cvrServiceInstallHelpers[0].installer.sha256 -ceq $recoverySha) 'Recovery helper source and installer pins do not agree.'
     Assert-StageTest ($record.cvrServiceInstallHelpers[1].sha256 -ceq $updateHelperSha -and $record.cvrServiceInstallHelpers[1].serviceIpc.asset.sha256 -ceq $updateIpcSha) 'Update helper is not tied to its pinned Service IPC asset.'
+    $recoveryServiceSha = Get-StageBytesSha256 $recoveryServiceBytes
+    $updateServiceSha = Get-StageBytesSha256 $updateServiceBytes
+    Assert-StageTest ($record.cvrServiceInstallHelpers[0].serviceBinary.path -ceq 'payload/cvr-2.5.8/clash-verge-service.exe' -and $record.cvrServiceInstallHelpers[0].serviceBinary.sha256 -ceq $recoveryServiceSha -and $record.cvrServiceInstallHelpers[0].serviceBinary.size -eq $recoveryServiceBytes.Length) 'Recovery service binary is not staged beside its pinned helper.'
+    Assert-StageTest ($record.cvrServiceInstallHelpers[1].serviceBinary.path -ceq 'payload/cvr-2.5.10/clash-verge-service.exe' -and $record.cvrServiceInstallHelpers[1].serviceBinary.sha256 -ceq $updateServiceSha -and $record.cvrServiceInstallHelpers[1].serviceBinary.size -eq $updateServiceBytes.Length) 'Update service binary is not staged beside its pinned helper.'
     Assert-StageTest ($record.serviceIpcLicense.sha256 -ceq $licenseSha -and $record.serviceIpcLicense.sourceSha256 -ceq $sourceLicenseSha -and $record.provenanceFile.path -ceq 'provenance/cvr-service-install-helpers.json') 'Service IPC license or provenance document is not externally bound.'
     Assert-StageTest (@($record.cvrServiceInstallHelpers).Count -eq 2) 'Stage record omitted provenance for both Service IPC helpers.'
 
@@ -285,6 +293,9 @@ try {
                 $innerHelper.path -ceq $externalHelper.path -and
                 $innerHelper.sha256 -ceq $externalHelper.sha256 -and
                 $innerHelper.size -eq $externalHelper.size -and
+                $innerHelper.serviceBinary.path -ceq $externalHelper.serviceBinary.path -and
+                $innerHelper.serviceBinary.sha256 -ceq $externalHelper.serviceBinary.sha256 -and
+                $innerHelper.serviceBinary.size -eq $externalHelper.serviceBinary.size -and
                 $innerHelper.installer.path -ceq $externalHelper.installer.path -and
                 $innerHelper.installer.sha256 -ceq $externalHelper.installer.sha256 -and
                 $innerHelper.installer.size -eq $externalHelper.installer.size -and
@@ -319,7 +330,7 @@ try {
             $provenance.serviceIpcLicense.archive.url -ceq $record.serviceIpcLicense.archive.url
         ) 'Inner and external Service IPC license records differ.'
 
-        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 21) 'Source manifest schema or file count is wrong.'
+        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 23) 'Source manifest schema or file count is wrong.'
         $expectedFiles = @($sourceNames)
         $expectedFiles += @(
             'payload/verge-mihomo.exe',
@@ -327,6 +338,8 @@ try {
             'payload/Clash.Verge_2.5.10_x64-setup.exe',
             'payload/cvr-2.5.8/clash-verge-service-install.exe',
             'payload/cvr-2.5.10/clash-verge-service-install.exe',
+            'payload/cvr-2.5.8/clash-verge-service.exe',
+            'payload/cvr-2.5.10/clash-verge-service.exe',
             'licenses/clash-verge-service-ipc/LICENSE',
             'provenance/cvr-service-install-helpers.json'
         )
@@ -384,7 +397,7 @@ try {
         } catch { $wrongDigestRejected = $true }
         Assert-StageTest $wrongDigestRejected 'Wrong external source-manifest SHA256 reached stage handoff.'
         $binding = Get-CvrIdlePackageStageBinding -StageRoot $expectedRoot -ExpectedStageRoot $expectedRoot -ExpectedPackageManifestSha256 $manifestSha
-        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 22) 'Verified package did not bind all listed files.'
+        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 24) 'Verified package did not bind all listed files.'
         foreach ($handle in $binding.OpenFiles) { $handle.Dispose() }
 
         $tamperPath = Join-Path $stageRoot 'payload\verge-mihomo.exe'
@@ -437,6 +450,25 @@ try {
         $script:recoveryIpcArchivePath = $originalRecoveryIpcArchivePath
         $script:updateIpcArchivePath = $originalUpdateIpcArchivePath
     }
+
+    $missingBinaryArchivePath = Join-Path $tempRoot 'missing-service-binary-ipc.zip'
+    Write-TestZip $missingBinaryArchivePath @{
+        'bin/clash-verge-service-install.exe' = $recoveryHelperBytes
+        'LICENSE' = $licenseBytes
+    }
+    $missingBinaryInputsPath = Join-Path $tempRoot 'missing-service-binary-inputs.json'
+    $missingBinaryInputs = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($inputsPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
+    $missingRecoveryPin = @($missingBinaryInputs.releases | Where-Object { $_.version -ceq '2.5.8' })[0].serviceInstallHelperProvenance.asset
+    $missingRecoveryPin.size = (Get-Item -LiteralPath $missingBinaryArchivePath).Length
+    $missingRecoveryPin.sha256 = (Get-FileHash -LiteralPath $missingBinaryArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText($missingBinaryInputsPath, (ConvertTo-Json -InputObject $missingBinaryInputs -Depth 10), [Text.UTF8Encoding]::new($false))
+    $missingBinaryOutput = Join-Path $tempRoot 'missing-service-binary.zip'
+    $missingBinaryRecord = Join-Path $tempRoot 'missing-service-binary.json'
+    $savedRecoveryIpcArchivePath = $script:recoveryIpcArchivePath
+    try {
+        $script:recoveryIpcArchivePath = $missingBinaryArchivePath
+        Assert-PackageRejected $packager $syntheticSource $sourceSha $buildPath $missingBinaryInputsPath $corePath $coreSha $recoveryPath $updatePath $missingBinaryOutput $missingBinaryRecord 'missing Service IPC companion service binary'
+    } finally { $script:recoveryIpcArchivePath = $savedRecoveryIpcArchivePath }
 
     $badLicenseInputsPath = Join-Path $tempRoot 'wrong-service-ipc-source-license.json'
     $badLicenseInputs = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($inputsPath, [Text.UTF8Encoding]::new($false, $true))) -ErrorAction Stop
