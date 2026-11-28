@@ -297,11 +297,17 @@ $stageFilesRoot = Join-Path $packageRoot 'pins'
 $payloadRoot = Join-Path $packageRoot 'payload'
 $targetIdentity = 'stcvrc-ci-synthetic-preflight'
 $originalAppData = $env:APPDATA
+$originalProgramData = $env:ProgramData
 $legacyFixture = $null
 try {
     New-PreflightTestDirectory $fixtureRoot
     $env:APPDATA = Join-Path $fixtureRoot 'appdata'
     New-PreflightTestDirectory $env:APPDATA
+    $env:ProgramData = Join-Path $fixtureRoot 'program-data'
+    $serviceExeDirectory = Join-Path (Join-Path $env:ProgramData 'clash-verge-service') 'bin'
+    New-PreflightTestDirectory $env:ProgramData
+    New-PreflightTestDirectory (Join-Path $env:ProgramData 'clash-verge-service')
+    New-PreflightTestDirectory $serviceExeDirectory
     $legacyFixture = New-CvrSyntheticLegacyPreimage
     New-PreflightTestDirectory $packageRoot
     New-PreflightTestDirectory $toolsStageRoot
@@ -477,7 +483,7 @@ try {
     $programFilesPath = Join-Path $programFilesDirectory 'verge-mihomo.exe'
     $serviceCorePath = Join-Path $serviceDirectory 'verge-mihomo.exe'
     $guiPath = Join-Path $programFilesDirectory 'Clash Verge.exe'
-    $serviceExePath = Join-Path $programFilesDirectory 'clash-verge-service.exe'
+    $serviceExePath = Join-Path $serviceExeDirectory 'clash-verge-service.exe'
     Write-PreflightTestFile -Path $guiPath -Bytes $pinBytes.gui258 -Protected
     Write-PreflightTestFile -Path $serviceExePath -Bytes $pinBytes.serviceExe258 -Protected
     $pinPaths.gui258 = $guiPath
@@ -566,7 +572,7 @@ try {
         schemaVersion = 1
         installDirectory = $programFilesDirectory
         gui = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'gui' -SourcePath $guiPath -ExpectedDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.gui258
-        serviceExe = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'service-exe' -SourcePath $serviceExePath -ExpectedDirectory $programFilesDirectory -ExpectedSha256 $expectedPins.serviceExe258
+        serviceExe = Save-CvrIdleFilePreimageBackup -Root $localRoot -Role 'service-exe' -SourcePath $serviceExePath -ExpectedDirectory $serviceExeDirectory -ExpectedSha256 $expectedPins.serviceExe258
         legacyState = $legacyForCapture
         observer = [ordered]@{
             ownerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -987,8 +993,8 @@ exit ([int]$operatorExitCode)
         try {
             Restore-CvrCoreFilePreimage -Entry $context.Capture.corePair.programFiles -Role 'Program Files'
             Restore-CvrCoreFilePreimage -Entry $context.Capture.corePair.service -Role 'service'
-            $null = Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.gui -Role 'gui' -ExpectedPath $guiPath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
-            $null = Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath $serviceExePath -ExpectedLocalRoot $localRoot -ExpectedInstallDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
+            $null = Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.gui -Role 'gui' -ExpectedPath $guiPath -ExpectedLocalRoot $localRoot -ExpectedDirectory $programFilesDirectory -ExpectedSha256 ([string]$context.ExpectedPins.gui258)
+            $null = Restore-CvrIdleFilePreimage -Entry $context.Capture.rollbackState.serviceExe -Role 'service-exe' -ExpectedPath $serviceExePath -ExpectedLocalRoot $localRoot -ExpectedDirectory $serviceExeDirectory -ExpectedSha256 ([string]$context.ExpectedPins.serviceExe258)
             Restore-CvrLegacyState -State $context.Capture.rollbackState.legacyState
             return 'synthetic-idle-restored'
         } finally {
@@ -1562,6 +1568,7 @@ exit ([int]$operatorExitCode)
             }
         } finally {
             $env:APPDATA = $originalAppData
+            $env:ProgramData = $originalProgramData
         }
     }
 }
