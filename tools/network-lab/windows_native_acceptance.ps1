@@ -34,7 +34,7 @@ if ($script:expectedServiceSha -notmatch '^[0-9a-f]{64}$') { throw "The pinned C
 $script:candidateTrafficReceiptPath = $null
 $script:candidateTrafficProbes = @{}
 $script:candidateTrafficCorePid = 0
-$trafficRequested = [bool]($TrafficChallenge -or $TrafficReceiptPath -or @($TrafficRequiredProbes).Count)
+$trafficRequested = [bool]($TrafficChallenge -or $TrafficReceiptPath -or ($TrafficRequiredProbes.Count -gt 0))
 if ($trafficRequested) {
     if ($Phase -cne 'exercise' -or
         $ExpectedProgramFilesCoreSha256 -cne $ExpectedServiceCoreSha256 -or
