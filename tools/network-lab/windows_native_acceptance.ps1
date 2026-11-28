@@ -2,7 +2,10 @@ param(
     [ValidateSet('seed','exercise','recovery')][string]$Phase = 'exercise',
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedProgramFilesCoreSha256,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedServiceCoreSha256,
-    [string]$RecoveryServiceCorePreimagePath
+    [string]$RecoveryServiceCorePreimagePath,
+    [ValidatePattern('^[0-9a-f]{32}$')][string]$TrafficChallenge,
+    [string]$TrafficReceiptPath,
+    [ValidateSet('dns','http')][string[]]$TrafficRequiredProbes
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -28,6 +31,34 @@ $script:nativePhase = $Phase
 $expectedGuiSha = if ($expectedVersion -eq '2.5.8') { [string]$env:CVR_258_GUI_SHA256 } else { [string]$env:CVR_2510_GUI_SHA256 }
 $script:expectedServiceSha = if ($expectedVersion -eq '2.5.8') { [string]$env:CVR_258_SERVICE_SHA256 } else { [string]$env:CVR_2510_SERVICE_SHA256 }
 if ($script:expectedServiceSha -notmatch '^[0-9a-f]{64}$') { throw "The pinned CVR $expectedVersion service SHA is missing or malformed." }
+$script:candidateTrafficReceiptPath = $null
+$script:candidateTrafficProbes = @{}
+$script:candidateTrafficCorePid = 0
+$trafficRequested = [bool]($TrafficChallenge -or $TrafficReceiptPath -or @($TrafficRequiredProbes).Count)
+if ($trafficRequested) {
+    if ($Phase -cne 'exercise' -or
+        $ExpectedProgramFilesCoreSha256 -cne $ExpectedServiceCoreSha256 -or
+        $TrafficChallenge -notmatch '^[0-9a-f]{32}$' -or
+        -not $TrafficReceiptPath -or
+        @($TrafficRequiredProbes).Count -ne 2 -or
+        @($TrafficRequiredProbes | Select-Object -Unique).Count -ne 2 -or
+        @($TrafficRequiredProbes | Where-Object { $_ -cnotin @('dns','http') }).Count) {
+        throw 'Candidate traffic receipt request is incomplete or unsupported.'
+    }
+    if (-not $env:RUNNER_TEMP) { throw 'The candidate traffic receipt has no runner-local parent.' }
+    $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([char]92)
+    $expectedReceiptPath = [IO.Path]::GetFullPath((Join-Path $runnerTemp ('stcvrc-candidate-traffic-' + $TrafficChallenge + '.json')))
+    if ([IO.Path]::GetFullPath($TrafficReceiptPath) -ine $expectedReceiptPath) {
+        throw 'Candidate traffic receipt path is outside its exact runner-local file.'
+    }
+    $receiptItem = Get-Item -LiteralPath $expectedReceiptPath -Force -ErrorAction Stop
+    if ($receiptItem.PSIsContainer -or
+        (([int]$receiptItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw 'Candidate traffic receipt path is outside its exact runner-local file.'
+    }
+    $script:candidateTrafficReceiptPath = $expectedReceiptPath
+}
+
 if (-not $env:STCVRC_BUILD_JSON -or -not (Test-Path -LiteralPath $env:STCVRC_BUILD_JSON -PathType Leaf)) { throw 'Fresh build identity report is missing.' }
 $build = Get-Content -LiteralPath $env:STCVRC_BUILD_JSON -Raw | ConvertFrom-Json
 $recipeSha = (& git -C $env:PR_SOURCE rev-parse HEAD).Trim()
@@ -1077,10 +1108,30 @@ function Assert-SelectedSidecarProfileReady {
     Assert-FixtureRoute
     Assert-SystemRoutesRemainScoped -OriginalDefaults $OriginalDefaults -OriginalDns $OriginalDns -Phase $Phase
 }
+function Add-CandidateTrafficProbeEvidence {
+    param([ValidateSet('dns','http')][string]$Protocol,[int]$ProcessId)
+    if (-not $script:candidateTrafficReceiptPath -or $script:candidateTrafficProbes.ContainsKey($Protocol)) { return }
+    Assert-LiveCoreIdentity
+    $verifiedPid = [int]$script:verifiedCorePid
+    if ($verifiedPid -le 0 -or $ProcessId -ne $verifiedPid -or
+        ($script:candidateTrafficCorePid -and $script:candidateTrafficCorePid -ne $verifiedPid)) {
+        throw 'Candidate traffic probe was not served by one stable verified core process.'
+    }
+    $script:candidateTrafficCorePid = $verifiedPid
+    $script:candidateTrafficProbes[$Protocol] = [PSCustomObject]@{
+        protocol = $Protocol
+        passed = [bool]$true
+        observedAtUtcMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        processId = [int]$verifiedPid
+        coreSha256 = [string]$ExpectedServiceCoreSha256
+    }
+}
 function Test-FixtureTraffic {
     param([string]$FixtureName,[int]$DnsPort,[int]$HttpPort,[ValidateSet('profile','app','subscription')][string]$ExpectedResolver,[switch]$SkipResolverLogAssertion)
     $dnsEndpoint = Get-VerifiedRuntimeDnsEndpoint -FixtureExpectedPort $DnsPort -FixtureName $FixtureName -ExpectedResolver $ExpectedResolver
+    $corePid = if ($script:candidateTrafficReceiptPath) { [int]$script:verifiedCorePid } else { 0 }
     $fake=Invoke-DnsQuery -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -ExpectedResolver $ExpectedResolver
+    Add-CandidateTrafficProbeEvidence -Protocol dns -ProcessId $corePid
     try {
         [void](Invoke-TunHttp -FakeAddress $fake -FixtureName $FixtureName -Port $HttpPort)
     } catch {
@@ -1090,6 +1141,7 @@ function Test-FixtureTraffic {
         $dnsEndpointText = '{0}:{1}' -f $dnsEndpoint.address, $dnsEndpoint.port
         throw "$failure; expectedResolver=$ExpectedResolver; dnsEndpoint=$dnsEndpointText; fakeAddress=$fake; httpEndpoint=127.0.0.1:$HttpPort; resolverLog=$($resolverLog -join ' | '); snapshot=$snapshot"
     }
+    Add-CandidateTrafficProbeEvidence -Protocol http -ProcessId $corePid
     # Fake-IP A answers are allocated locally before any upstream resolver lookup.
     if ($ExpectedResolver -and -not $SkipResolverLogAssertion) {
         Assert-DnsResolver -Name $FixtureName -Address $dnsEndpoint.address -Port $dnsEndpoint.port -Resolver $ExpectedResolver
@@ -1969,6 +2021,29 @@ try {
     foreach ($name in @('clash-verge','clash-verge-service','verge-mihomo','verge-mihomo-alpha')) { if (Get-Process -Name $name -ErrorAction SilentlyContinue) { Add-Failure "Temporary process remained: $name" } }
     foreach ($route in @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '198.18.0.0/16' -ErrorAction SilentlyContinue)) { try { $route | Remove-NetRoute -Confirm:$false -ErrorAction Stop } catch { Add-Failure "Could not remove exact synthetic route: $($_.Exception.Message)" } }
     try { Assert-SystemRoutesRemainScoped -OriginalDefaults $baselineDefaults -OriginalDns $baselineDns -Phase 'native cleanup' } catch { Add-Failure $_.Exception.Message }
+}
+if ($script:candidateTrafficReceiptPath -and -not $failures.Count) {
+    $missingProbes = @($TrafficRequiredProbes | Where-Object { -not $script:candidateTrafficProbes.ContainsKey([string]$_) })
+    if ($missingProbes.Count -or $script:candidateTrafficProbes.Count -ne @($TrafficRequiredProbes).Count) {
+        Add-Failure 'Candidate traffic receipt did not cover exactly the approved probes.'
+    } else {
+        $receipt = [ordered]@{
+            schemaVersion = 1
+            status = 'PASS'
+            challenge = $TrafficChallenge
+            candidateCoreSha256 = $ExpectedServiceCoreSha256
+            candidateGuiSha256 = $expectedGuiSha
+            candidateServiceExeSha256 = $script:expectedServiceSha
+            probes = @($TrafficRequiredProbes | ForEach-Object { $script:candidateTrafficProbes[[string]$_] })
+        }
+        $receiptJson = ConvertTo-Json -InputObject $receipt -Compress -Depth 5 -ErrorAction Stop
+        $receiptBytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($receiptJson)
+        $receiptStream = [IO.File]::Open($script:candidateTrafficReceiptPath, [IO.FileMode]::Truncate, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $receiptStream.Write($receiptBytes, 0, $receiptBytes.Length)
+            $receiptStream.Flush($true)
+        } finally { $receiptStream.Dispose() }
+    }
 }
 $summary=@(
     '## Bounded native CVR 2.5.10 acceptance',

@@ -28,6 +28,8 @@ SOURCE_FILES = (
     "tools/network-lab/windows_idle_preflight_package_writer.ps1",
     "tools/network-lab/windows_idle_preflight.ps1",
     "tools/network-lab/windows_idle_preflight_target_operator.ps1",
+    "tools/network-lab/windows_idle_target_runtime.ps1",
+    "tools/network-lab/idle-target-candidate-traffic.md",
     "tools/network-lab/windows_native_acceptance.ps1",
     "tools/network-lab/windows_native_port_plan.ps1",
     "tools/network-lab/windows_native_udp_ports.py",

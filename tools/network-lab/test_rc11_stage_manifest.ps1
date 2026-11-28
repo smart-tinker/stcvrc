@@ -122,6 +122,8 @@ try {
         'tools/network-lab/windows_idle_preflight_package_writer.ps1',
         'tools/network-lab/windows_idle_preflight.ps1',
         'tools/network-lab/windows_idle_preflight_target_operator.ps1',
+        'tools/network-lab/windows_idle_target_runtime.ps1',
+        'tools/network-lab/idle-target-candidate-traffic.md',
         'tools/network-lab/windows_native_acceptance.ps1',
         'tools/network-lab/windows_native_port_plan.ps1',
         'tools/network-lab/windows_native_udp_ports.py',
@@ -317,7 +319,7 @@ try {
             $provenance.serviceIpcLicense.archive.url -ceq $record.serviceIpcLicense.archive.url
         ) 'Inner and external Service IPC license records differ.'
 
-        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 19) 'Source manifest schema or file count is wrong.'
+        Assert-StageTest ($manifest.schemaVersion -eq 1 -and @($manifest.files).Count -eq 21) 'Source manifest schema or file count is wrong.'
         $expectedFiles = @($sourceNames)
         $expectedFiles += @(
             'payload/verge-mihomo.exe',
@@ -380,7 +382,7 @@ try {
         } catch { $wrongDigestRejected = $true }
         Assert-StageTest $wrongDigestRejected 'Wrong external source-manifest SHA256 reached stage handoff.'
         $binding = Get-CvrIdlePackageStageBinding -StageRoot $expectedRoot -ExpectedStageRoot $expectedRoot -ExpectedPackageManifestSha256 $manifestSha
-        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 20) 'Verified package did not bind all listed files.'
+        Assert-StageTest ($binding.SourceManifestSha256 -ceq $manifestSha -and $binding.OpenFiles.Count -eq 22) 'Verified package did not bind all listed files.'
         foreach ($handle in $binding.OpenFiles) { $handle.Dispose() }
 
         $tamperPath = Join-Path $stageRoot 'payload\verge-mihomo.exe'

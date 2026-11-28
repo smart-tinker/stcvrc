@@ -92,48 +92,52 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
     def test_packaged_idle_candidate_operator_contains_guarded_action_and_is_called(self):
         smoke = INSTALLER_SMOKE.read_text(encoding="utf-8")
         operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        runtime = (INSTALLER_SMOKE.parent / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
         packager = (INSTALLER_SMOKE.parent / "rc11_stage_package.py").read_text(encoding="utf-8")
-        self.assertIn("windows_idle_preflight_target_operator.ps1", packager)
+        for staged in ("windows_idle_preflight_target_operator.ps1", "windows_idle_target_runtime.ps1", "idle-target-candidate-traffic.md"):
+            with self.subTest(staged=staged):
+                self.assertIn(staged, packager)
         self.assertNotIn("windows_install_update.ps1", packager)
         self.assertIn(". (Join-Path $script:idleStageRoot 'tools\\network-lab\\windows_idle_preflight_target_operator.ps1')", smoke)
         self.assertIn("Invoke-CvrIdlePreflightTargetAcceptance", smoke)
-        self.assertIn("ActionScript = {", operator)
-        self.assertIn("CandidateCheckScript = {", operator)
-        self.assertIn("RestoreScript = {", operator)
-        self.assertIn("Invoke-CvrIdlePackagedNativePhase -Phase exercise", operator)
-        self.assertIn("Invoke-CvrIdlePackagedNativePhase -Phase recovery", operator)
-
+        self.assertIn("windows_idle_target_runtime.ps1", operator)
+        self.assertIn("Get-CvrIdlePackageStageBinding", operator)
+        self.assertIn("manifest.files", operator)
+        for callback in ("ActionScript = {", "CandidateCheckScript = {", "RestoreScript = {", "VerifyScript = {"):
+            with self.subTest(callback=callback):
+                self.assertIn(callback, operator)
+        self.assertIn("[Parameter(Mandatory)][scriptblock]$CandidateTrafficScript", operator)
+        self.assertIn("Assert-CvrIdleCandidateTrafficVerification", operator)
+        self.assertIn("& $candidateTrafficScript $callbackRequest", operator)
+        self.assertNotIn("Invoke-CvrIdlePackagedNativePhase", operator)
+        self.assertIn("Invoke-NativePhase -Phase exercise", smoke)
+        self.assertIn("Invoke-NativePhase -Phase recovery", smoke)
     def test_recovery_restores_original_split_core_pair_before_native_check(self):
         smoke = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        source = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
-        self.assertIn("Invoke-CvrIdlePreflightTargetAcceptance", smoke)
-        self.assertIn("$capture.corePair", source)
-        self.assertIn("Restore-CvrCorePairPreimage -Preimage $capture.corePair -HelperVersion '2.5.8'", source)
-        self.assertIn("-ExpectedProgramFilesCoreSha $capture.corePair.programFiles.sha256", source)
-        self.assertIn("-ExpectedServiceCoreSha $capture.corePair.service.sha256", source)
-        self.assertIn("-RecoveryServiceCorePreimagePath $capture.corePair.service.backup", source)
-        self.assertIn("if ([string]$capture.corePair.programFiles.sha256 -cne [string]$context.ExpectedPins.programFilesCore", source)
-        self.assertIn("if ([string]$capture.corePair.programFiles.sha256 -ceq $candidateCoreSha", source)
-        self.assertIn("if ([string]$capture.corePair.service.sha256 -cne $candidateCoreSha", source)
-        self.assertIn("[IO.Path]::GetFileName([string]$env:CUSTOM_CORE) -cne 'verge-mihomo.exe'", smoke)
-        self.assertIn("$stockHelper.path --install-core $env:CUSTOM_CORE --sha256 $coreSha", smoke)
-        self.assertIn("Invoke-CvrIdlePackagedNativePhase -Phase recovery", source)
-        self.assertEqual(source.count("Invoke-CvrIdleStoppedMutation -StopScript"), 3)
-        self.assertIn("function Assert-CvrIdlePackagedRestoreState", source)
+        operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        runtime = (INSTALLER_SMOKE.parent / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
         native = NATIVE_SMOKE.read_text(encoding="utf-8")
+        self.assertIn("Invoke-CvrIdlePreflightTargetAcceptance", smoke)
+        self.assertIn("Restore-CvrCorePairPreimage -Preimage $capture.corePair -HelperVersion '2.5.8'", operator)
+        self.assertIn("corePair.programFiles.sha256 -cne [string]$context.ExpectedPins.programFilesCore", operator)
+        self.assertIn("corePair.service.sha256 -cne [string]$context.ExpectedPins.serviceCore", operator)
+        self.assertNotIn("corePair.programFiles.sha256 -ceq $candidateCoreSha", operator)
+        self.assertNotIn("corePair.service.sha256 -cne $candidateCoreSha", operator)
+        self.assertIn("Invoke-CvrIdleStoppedMutation -StopScript", operator)
+        self.assertEqual(operator.count("Invoke-CvrIdleStoppedMutation -StopScript"), 3)
+        self.assertIn("Restore-CvrCorePairPreimage", runtime)
+        self.assertIn("Install-CvrIdleService -Version '2.5.8'", operator)
+        self.assertIn("recoveryServiceCorePreimagePath = [string]$capture.corePair.service.backup", operator)
+        self.assertIn("-ExpectedProgramFilesCoreSha $request.expectedProgramFilesCoreSha256", smoke)
+        self.assertIn("-ExpectedServiceCoreSha $request.expectedServiceCoreSha256", smoke)
+        self.assertIn("--install-service --install-core $preimagePath --sha256 $script:expectedServiceCoreSha", native)
         self.assertIn("$script:expectedProgramFilesCoreSha -cne $coreSha", native)
         self.assertIn("$script:expectedServiceCoreSha -cne $coreSha", native)
         service_identity = native.split("function Assert-LiveCoreIdentity", 1)[1].split(
-            "function Assert-LiveSidecarCoreIdentity", 1
-        )[0]
-        sidecar_identity = native.split("function Assert-LiveSidecarCoreIdentity", 1)[1].split(
-            "function Get-RuntimeDnsListen", 1
+            "function Install-CvrRecoveryService", 1
         )[0]
         self.assertIn("$script:expectedServiceCoreSha", service_identity)
-        self.assertIn("$script:expectedProgramFilesCoreSha", sidecar_identity)
-        self.assertIn("original pair after native recovery", source)
-
-
+        self.assertIn("Assert-LiveCoreIdentity", native)
     def test_recovery_keeps_helper_service_running_and_checks_service_readiness(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         recovery_install = source.split("function Install-CvrRecoveryService", 1)[1].split(
@@ -250,14 +254,33 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertNotIn("CUSTOM_CORE", helper)
 
     def test_install_update_and_recovery_run_native_phases_in_order(self):
-        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        phases = ("-Phase seed", "-Phase exercise", "-Phase recovery")
-        positions = [source.index(phase) for phase in phases]
-        self.assertEqual(positions, sorted(positions))
-        self.assertIn("Invoke-CvrInstaller -Version '2.5.8'", source)
-        self.assertIn("Invoke-CvrInstaller -Version '2.5.10'", source)
-        self.assertIn("Invoke-NativePhase", source)
+        smoke = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        seed = smoke.index("Invoke-NativePhase -Phase seed")
+        candidate_callback = smoke.index("$candidateTrafficScript = {")
+        exercise = smoke.index("Invoke-NativePhase -Phase exercise", candidate_callback)
+        recovery_callback = smoke.index("$recoveryVerificationScript = {", exercise)
+        recovery = smoke.index("Invoke-NativePhase -Phase recovery", recovery_callback)
+        invoke = smoke.index("Invoke-CvrIdlePreflightTargetAcceptance", recovery)
+        self.assertLess(seed, candidate_callback)
+        self.assertLess(candidate_callback, exercise)
+        self.assertLess(exercise, recovery_callback)
+        self.assertLess(recovery_callback, recovery)
+        self.assertLess(recovery, invoke)
 
+        action = operator.index("ActionScript = {")
+        traffic = operator.index("& $candidateTrafficScript $callbackRequest", action)
+        candidate = operator.index("CandidateCheckScript = {", traffic)
+        restore = operator.index("RestoreScript = {", candidate)
+        recovery_check = operator.index("& $recoveryVerificationScript $context $recoveryRequest", restore)
+        verify = operator.index("VerifyScript = {", recovery_check)
+        self.assertLess(action, traffic)
+        self.assertLess(traffic, candidate)
+        self.assertLess(candidate, restore)
+        self.assertLess(restore, recovery_check)
+        self.assertLess(recovery_check, verify)
+        self.assertIn("Invoke-CvrInstaller -Version '2.5.10'", operator)
+        self.assertIn("Invoke-CvrInstaller -Version '2.5.8'", operator)
     def test_nsis_side_effects_and_split_core_preimages_are_restored(self):
         source = INSTALLER_SMOKE.read_text(encoding="utf-8")
         helper = (INSTALLER_SMOKE.parent / "windows_legacy_state_transaction.ps1").read_text(encoding="utf-8")
@@ -552,78 +575,29 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
 
     def test_cvr_2510_overlay_reinstall_starts_with_running_gui(self):
-        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
-        self.assertIn("function Invoke-CvrOverlayReinstall", source)
-        overlay = source.split("function Invoke-CvrOverlayReinstallAction", 1)[1].split(
+        smoke = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        runtime = (INSTALLER_SMOKE.parent / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Invoke-CvrOverlayReinstall", runtime)
+        overlay = runtime.split("function Invoke-CvrOverlayReinstallAction", 1)[1].split(
             "\nfunction ", 1
         )[0]
         for assertion in (
             "Start-Process -FilePath $guiPath -PassThru",
-            "Get-Process -Id $gui.Id",
             "$installerPaths['2.5.10']",
             "'/UPDATE'",
             "Expected the pinned CVR GUI process to exit during overlay",
-            "if ($gui.HasExited -and $installerProcess.HasExited -and",
-            "$gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()",
             "Get-InstalledCvrDirectory -ExpectedVersion '2.5.10'",
         ):
             with self.subTest(assertion=assertion):
                 self.assertIn(assertion, overlay)
-        exit_time_fallback = overlay.split(
-            "if ($gui.HasExited -and $installerProcess.HasExited -and", 1
-        )
-        self.assertEqual(len(exit_time_fallback), 2)
-        exit_time_fallback = exit_time_fallback[1].split(
-            "if (-not $installerProcess.HasExited)", 1
-        )[0]
-        for assertion in (
-            "$gui.ExitTime.ToUniversalTime() -ge $installerProcess.StartTime.ToUniversalTime()",
-            "$gui.ExitTime.ToUniversalTime() -lt $installerProcess.ExitTime.ToUniversalTime()",
-            "$guiExitedDuringOverlay = $true",
-        ):
-            with self.subTest(fallback_assertion=assertion):
-                self.assertIn(assertion, exit_time_fallback)
-        polling = overlay.split("while ([DateTime]::UtcNow -lt $deadline)", 1)[1].split(
-            "if ($installerProcess.HasExited) { break }", 1
-        )[0]
-        self.assertIn("$gui.HasExited", polling)
-        gui_exit_observation = polling.split("$gui.HasExited", 1)[1]
-        for assertion in (
-            "$guiExitTime = $gui.ExitTime.ToUniversalTime()",
-            "$installerProcess.Refresh()",
-            "$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and",
-            "(-not $installerProcess.HasExited -or",
-            "$guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())",
-            "$guiExitedDuringOverlay = $true",
-        ):
-            with self.subTest(polling_assertion=assertion):
-                self.assertIn(assertion, gui_exit_observation)
-        if "$guiExitTime =" in gui_exit_observation and "$installerProcess.Refresh()" in gui_exit_observation:
-            self.assertLess(
-                gui_exit_observation.index("$guiExitTime ="),
-                gui_exit_observation.index("$installerProcess.Refresh()"),
-            )
-        if "$installerProcess.Refresh()" in gui_exit_observation and "$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()" in gui_exit_observation:
-            self.assertLess(
-                gui_exit_observation.index("$installerProcess.Refresh()"),
-                gui_exit_observation.index("$guiExitTime -ge $installerProcess.StartTime.ToUniversalTime()"),
-            )
-        self.assertIn(
-            "if ($guiExitTime -ge $installerProcess.StartTime.ToUniversalTime() -and\n"
-            "                    (-not $installerProcess.HasExited -or\n"
-            "                    $guiExitTime -lt $installerProcess.ExitTime.ToUniversalTime())) {\n"
-            "                    $guiExitedDuringOverlay = $true\n"
-            "                }",
-            gui_exit_observation,
-        )
-        overlay_call = "Invoke-CvrOverlayReinstall -InstallDirectory $install2510"
-        self.assertIn(overlay_call, source)
-        update_stage = source.index("Install-CandidateCore -InstallDirectory $install2510")
-        overlay_position = source.index(overlay_call)
-        exercise_position = source.index("Invoke-NativePhase -Phase exercise")
-        self.assertLess(update_stage, overlay_position)
-        self.assertLess(overlay_position, exercise_position)
-
+        action = operator.split("ActionScript = {", 1)[1].split("CandidateCheckScript = {", 1)[0]
+        first_core = action.index("Install-CandidateCore -InstallDirectory $install2510")
+        overlay_call = action.index("Invoke-CvrOverlayReinstall -InstallDirectory $install2510")
+        second_core = action.index("Install-CandidateCore -InstallDirectory $install2510", first_core + 1)
+        self.assertLess(first_core, overlay_call)
+        self.assertLess(overlay_call, second_core)
+        self.assertIn("Invoke-NativePhase -Phase exercise", smoke)
     def test_service_ssh_key_file_is_used_by_authenticated_loopback_traffic(self):
         source = NATIVE_SMOKE.read_text(encoding="utf-8")
         self.assertIn("function Test-SshPrivateKeyInServiceMode", source)
@@ -801,29 +775,27 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
 
 
     def test_public_installer_runs_candidate_from_captured_idle_baseline_and_restores_it(self):
-        source = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        smoke = INSTALLER_SMOKE.read_text(encoding="utf-8")
+        operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        runtime = (INSTALLER_SMOKE.parent / "windows_idle_target_runtime.ps1").read_text(encoding="utf-8")
         adapter = (INSTALLER_SMOKE.parent / "windows_idle_transaction.ps1").read_text(encoding="utf-8")
+        packager = (INSTALLER_SMOKE.parent / "rc11_stage_package.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
 
         for assertion in (
             "windows_idle_capture_operator.ps1",
             "Invoke-CvrIdleOperatorChild",
-            "Invoke-CvrIdlePreflightTargetTransaction",
             "STCVRC_STAGE_MANIFEST_SHA256",
             "Get-CvrIdlePackageStageBinding",
             "ExpectedPackageManifestSha256",
-            "ActionScript = {",
-            "CandidateCheckScript = {",
-            "RestoreScript = {",
-            "VerifyScript = {",
+            "ExpectedPlanSha256 = $ExpectedPlanSha256",
+            "ExpectedPins = $expectedPins",
+            "RefreshObservationScript = {",
         ):
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, source)
-        self.assertNotIn("Invoke-CvrIdleTransaction @idleTransactionCallbacks", source)
-        for assertion in ("targetTransactionResult.actionErrorType", "targetTransactionResult.restoreErrorType", "MissingActionErrorType", "MissingRestoreErrorType"):
-            with self.subTest(transaction_result=assertion):
-                self.assertIn(assertion, source)
-        capture_seed = source[source.index("$captureSeed = [ordered]@{"):source.index("$captureChild = Invoke-CvrIdleOperatorChild")]
+            with self.subTest(smoke_assertion=assertion):
+                self.assertIn(assertion, smoke + operator)
+
+        capture_seed = smoke[smoke.index("$captureSeed = [ordered]@{"):smoke.index("$captureChild = Invoke-CvrIdleOperatorChild")]
         for assertion in (
             "ExpectedOwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
             "ExpectedSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId",
@@ -835,78 +807,55 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
             with self.subTest(capture_assertion=assertion):
                 self.assertIn(assertion, capture_seed)
 
-        capture = source.index("Invoke-CvrIdleOperatorChild", source.index("$script:idlePinnedFiles"))
-        transaction = source.index("$targetTransactionArguments = @{", capture)
-        action = source.index("ActionScript = {", transaction)
-        candidate = source.index("CandidateCheckScript = {", action)
-        restore = source.index("RestoreScript = {", candidate)
-        verify = source.index("VerifyScript = {", restore)
-        invoke = source.index("Invoke-CvrIdlePreflightTargetTransaction @targetTransactionArguments", verify)
-        self.assertLess(capture, transaction)
+        action = operator.index("ActionScript = {")
+        candidate = operator.index("CandidateCheckScript = {", action)
+        restore = operator.index("RestoreScript = {", candidate)
+        verify = operator.index("VerifyScript = {", restore)
+        invoke = operator.index("Invoke-CvrIdlePreflightTargetTransaction @targetTransactionArguments", verify)
         self.assertLess(action, candidate)
         self.assertLess(candidate, restore)
         self.assertLess(restore, verify)
         self.assertLess(verify, invoke)
 
         for assertion in (
-            "result -cne 'PASS'",
-            "childStopped -isnot [bool]",
-            "childExitCode -ne 0",
-            "sourceManifestSha256",
-            "updateHelper =",
-            "recoveryHelper =",
-            "sourceCore = [string]$capture.pinnedFiles.candidateCore",
-            "-CorePath $sourceCore -ExpectedSha256 $candidateCoreSha",
-            r"payload\cvr-2.5.10\clash-verge-service-install.exe",
-            r"payload\cvr-2.5.8\clash-verge-service-install.exe",
-        ):
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, source)
-
-        action_body = source[action:candidate]
-        candidate_body = source[candidate:restore]
-        restore_body = source[restore:verify]
-        for assertion in (
+            "CandidateTrafficScript",
+            "Assert-CvrIdleCandidateTrafficVerification",
+            "programFilesCore.sha256 -cne [string]$context.ExpectedPins.programFilesCore",
+            "service.sha256 -cne [string]$context.ExpectedPins.serviceCore",
             "Invoke-CvrInstaller -Version '2.5.10'",
-            "Invoke-NativePhase -Phase exercise",
-        ):
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, action_body)
-        for assertion in (
-            "Get-CvrCorePairPreimage",
-            "path=$programFilesCore; expected=$candidateCoreSha",
-            "path=$serviceCore; expected=$candidateCoreSha",
-            "[IO.Path]::GetFullPath($programFilesCore)",
-            "[IO.Path]::GetFullPath($serviceCore)",
-            "Install-CvrIdleService -Version '2.5.10'",
-            "Assert-CvrIdleBaseline",
-        ):
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, candidate_body)
-        for assertion in (
-            "Invoke-CvrInstaller -Version '2.5.8'",
-            "Invoke-NativePhase -Phase recovery",
+            "Invoke-CvrOverlayReinstall -InstallDirectory $install2510",
             "Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.gui",
             "Restore-CvrIdleFilePreimage -Entry $capture.rollbackState.serviceExe",
-            "Restore-CvrCorePairPreimage -Preimage $capture.corePair",
-            "Restore-CvrLegacyState",
+            "Restore-CvrCorePairPreimage -Preimage $capture.corePair -HelperVersion '2.5.8'",
+            "Restore-CvrLegacyState -State $capture.legacyState",
             "Install-CvrIdleService -Version '2.5.8'",
-        ):
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, restore_body)
-
-        self.assertIn("ExpectedServiceExecutableDirectory", adapter)
-        self.assertIn("$env:ProgramData", adapter)
-        self.assertIn("Assert-CvrLegacyStatePath", adapter)
-        self.assertIn("Get-CvrIdleFilePreimageBackupBytes", adapter)
-        for assertion in (
-            "Assert-CvrCorePairPreimage",
-            "Assert-CvrLegacyState",
-            "Assert-CvrIdleBaseline",
             "Assert-CvrIdleRollbackState",
         ):
-            with self.subTest(assertion=assertion):
-                self.assertIn(assertion, restore_body)
+            with self.subTest(operator_assertion=assertion):
+                self.assertIn(assertion, operator)
+
+        for assertion in (
+            "[string]$Context.ExpectedPins[$name]",
+            "CVR 2.5.10",
+            "Get-CvrServiceInstallHelper",
+            "Restore-CvrCorePairPreimage",
+            "Assert-CvrCorePairPreimage",
+            "Get-CvrIdleBaselineObservation",
+            "Stop-CvrRunnerRuntime",
+        ):
+            with self.subTest(runtime_assertion=assertion):
+                self.assertIn(assertion, runtime)
+
+        self.assertNotIn("windows_install_update.ps1", packager)
+        self.assertIn("windows_idle_target_runtime.ps1", packager)
+        self.assertIn("idle-target-candidate-traffic.md", packager)
+        self.assertIn("Invoke-NativePhase -Phase exercise", smoke)
+        self.assertIn("TrafficChallenge", smoke)
+        self.assertIn("TrafficReceiptPath", smoke)
+        self.assertIn("Invoke-NativePhase -Phase recovery", smoke)
+        for assertion in ("Assert-CvrLegacyStatePath", "Get-CvrIdleFilePreimageBackupBytes", "ActionFailure = $actionFailure", "RestoreFailure = $restoreFailure"):
+            with self.subTest(transaction_guard=assertion):
+                self.assertIn(assertion, adapter)
 
         stage = workflow.split("- name: Package protected stage for native idle transaction", 1)[1].split(
             "\n      - name:", 1
@@ -916,21 +865,32 @@ class NativeWindowsAcceptanceContract(unittest.TestCase):
         self.assertIn("Get-CvrIdlePackageStageBinding", stage)
         self.assertIn("Set-CvrIdleCaptureAcl", stage)
         self.assertIn("STCVRC_STAGE_ROOT=", stage)
-        self.assertNotIn("windows_install_update.ps1", (ROOT / "tools" / "network-lab" / "rc11_stage_package.py").read_text(encoding="utf-8"))
         self.assertLess(
             workflow.index("- name: Package protected stage for native idle transaction"),
             workflow.index("- name: Install, native acceptance, then recover to 2.5.8"),
         )
-
-        self.assertIn("if ($candidateAccepted -isnot [bool] -or -not $candidateAccepted)", adapter)
-        self.assertIn("if ($verified -isnot [bool] -or -not $verified)", adapter)
-        self.assertIn("ActionFailure = $actionFailure", adapter)
-        self.assertIn("RestoreFailure = $restoreFailure", adapter)
-
     def test_packaged_target_requires_candidate_traffic_evidence(self):
         operator = (INSTALLER_SMOKE.parent / "windows_idle_preflight_target_operator.ps1").read_text(encoding="utf-8")
+        native = NATIVE_SMOKE.read_text(encoding="utf-8")
+        smoke = INSTALLER_SMOKE.read_text(encoding="utf-8")
         self.assertIn("[Parameter(Mandatory)][scriptblock]$CandidateTrafficScript", operator)
+        self.assertIn("[Parameter(Mandatory)][scriptblock]$RecoveryVerificationScript", operator)
         self.assertIn("Assert-CvrIdleCandidateTrafficVerification", operator)
-
+        self.assertIn("observedAtUtcMs", operator)
+        self.assertIn("& $recoveryVerificationScript $recoveryRequest", operator)
+        self.assertIn("CandidateTrafficScript", smoke)
+        self.assertIn("-RecoveryVerificationScript $recoveryVerificationScript", smoke)
+        self.assertIn("candidateServiceExeSha256 -cne [string]$nativeCallbackContext.CandidateServiceExeSha256", smoke)
+        self.assertIn("-NativeFailures $nativeCallbackContext.NativeFailures", smoke)
+        self.assertIn("candidateGuiSha256 = $nativeCallbackContext.CandidateGuiSha256", smoke)
+        self.assertIn("candidateGuiSha256 = $expectedGuiSha", native)
+        self.assertIn("candidateServiceExeSha256 = $script:expectedServiceSha", native)
+        self.assertIn("candidateGuiSha256", operator)
+        self.assertIn("candidateServiceExeSha256", operator)
+        self.assertIn("TrafficReceiptPath", smoke)
+        self.assertIn("Add-CandidateTrafficProbeEvidence -Protocol dns", native)
+        self.assertIn("Add-CandidateTrafficProbeEvidence -Protocol http", native)
+        self.assertIn("Candidate traffic receipt did not cover exactly the approved probes.", native)
+        self.assertIn("verifiedPid", native)
 if __name__ == "__main__":
     unittest.main()

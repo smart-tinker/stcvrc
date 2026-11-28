@@ -357,7 +357,8 @@ try {
         'windows_legacy_state_transaction.ps1',
         'windows_idle_preflight_package_writer.ps1',
         'windows_idle_preflight.ps1',
-        'windows_idle_preflight_target_operator.ps1'
+        'windows_idle_preflight_target_operator.ps1',
+        'windows_idle_target_runtime.ps1'
     )
     foreach ($name in $operatorStageFiles) {
         $sourcePath = Join-Path $PSScriptRoot $name
@@ -376,6 +377,92 @@ try {
     $manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $stageRoot = [IO.Path]::GetFullPath($packageRoot)
     . (Join-Path $networkLabStageRoot 'windows_idle_preflight_target_operator.ps1')
+
+
+    $trafficStartedUtc = [DateTime]::UtcNow.AddSeconds(-1)
+    $trafficCompletedUtc = [DateTime]::UtcNow
+    $trafficRequest = [PSCustomObject]@{
+        challenge = 'b' * 32
+        candidateCoreSha256 = 'a' * 64
+        candidateGuiSha256 = 'c' * 64
+        candidateServiceExeSha256 = 'd' * 64
+        requiredProbes = [string[]]@('dns','http')
+    }
+    $trafficReceipt = [PSCustomObject]@{
+        schemaVersion = 1
+        status = 'PASS'
+        challenge = $trafficRequest.challenge
+        candidateCoreSha256 = $trafficRequest.candidateCoreSha256
+        candidateGuiSha256 = $trafficRequest.candidateGuiSha256
+        candidateServiceExeSha256 = $trafficRequest.candidateServiceExeSha256
+        probes = @(
+            [PSCustomObject]@{ protocol='dns'; passed=[bool]$true; observedAtUtcMs=[DateTimeOffset]::new($trafficStartedUtc.AddMilliseconds(250)).ToUnixTimeMilliseconds(); processId=8701; coreSha256=$trafficRequest.candidateCoreSha256 },
+            [PSCustomObject]@{ protocol='http'; passed=[bool]$true; observedAtUtcMs=[DateTimeOffset]::new($trafficStartedUtc.AddMilliseconds(500)).ToUnixTimeMilliseconds(); processId=8701; coreSha256=$trafficRequest.candidateCoreSha256 }
+        )
+    }
+    $validTrafficSummary = Assert-CvrIdleCandidateTrafficVerification -Verification $trafficReceipt -Request $trafficRequest -StartedUtc $trafficStartedUtc -CompletedUtc $trafficCompletedUtc
+    Assert-PreflightTest ($validTrafficSummary.status -ceq 'PASS' -and @($validTrafficSummary.protocols).Count -eq 2 -and @($validTrafficSummary.processIds | Select-Object -Unique).Count -eq 1 -and $validTrafficSummary.candidateGuiSha256 -ceq $trafficRequest.candidateGuiSha256 -and $validTrafficSummary.candidateServiceExeSha256 -ceq $trafficRequest.candidateServiceExeSha256) 'A bound DNS/HTTP traffic receipt and all candidate pins were not accepted.'
+
+    function Assert-CandidateTrafficRejected([object]$Verification,[object]$Request,[DateTime]$StartedUtc,[DateTime]$CompletedUtc,[string]$Reason) {
+        $rejected = $false
+        try { $null = Assert-CvrIdleCandidateTrafficVerification -Verification $Verification -Request $Request -StartedUtc $StartedUtc -CompletedUtc $CompletedUtc } catch { $rejected = $true }
+        Assert-PreflightTest $rejected ('Invalid candidate traffic evidence was accepted: ' + $Reason)
+    }
+    $wrongTrafficChallenge = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $wrongTrafficChallenge.challenge = 'c' * 32
+    Assert-CandidateTrafficRejected $wrongTrafficChallenge $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'challenge'
+    $wrongTrafficHash = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $wrongTrafficHash.probes[1].coreSha256 = 'c' * 64
+    Assert-CandidateTrafficRejected $wrongTrafficHash $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'core hash'
+    $wrongTrafficGui = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $wrongTrafficGui.candidateGuiSha256 = 'd' * 64
+    Assert-CandidateTrafficRejected $wrongTrafficGui $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'GUI SHA'
+    $wrongTrafficService = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $wrongTrafficService.candidateServiceExeSha256 = 'e' * 64
+    Assert-CandidateTrafficRejected $wrongTrafficService $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'service executable SHA'
+    $missingTrafficProbe = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $missingTrafficProbe.probes = @($missingTrafficProbe.probes[0])
+    Assert-CandidateTrafficRejected $missingTrafficProbe $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'missing protocol'
+    $differentTrafficPid = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $differentTrafficPid.probes[1].processId = 8702
+    Assert-CandidateTrafficRejected $differentTrafficPid $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'multiple process owners'
+    $failedTrafficProbe = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $failedTrafficProbe.probes[0].passed = $false
+    Assert-CandidateTrafficRejected $failedTrafficProbe $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'failed probe'
+    $lateTrafficProbe = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $trafficReceipt -Depth 5 -Compress) -ErrorAction Stop
+    $lateTrafficProbe.probes[1].observedAtUtcMs = [DateTimeOffset]::new($trafficCompletedUtc.AddSeconds(1)).ToUnixTimeMilliseconds()
+    Assert-CandidateTrafficRejected $lateTrafficProbe $trafficRequest $trafficStartedUtc $trafficCompletedUtc 'out-of-window probe'
+
+    $missingTrafficArguments = @{
+        CaptureReceiptPath = (Join-Path $stageRoot 'local\capture-idle-00000000000000000000000000000000\capture.json')
+        PlanPath = (Join-Path $stageRoot 'local\prepared-idle-00000000000000000000000000000000\plan.json')
+        PreflightReceiptPath = (Join-Path $stageRoot 'local\preflight-idle-00000000000000000000000000000000\result.json')
+        ExpectedPlanSha256 = 'a' * 64
+        ExpectedStageRoot = $stageRoot
+        ExpectedPackageManifestSha256 = $manifestSha256
+        ExpectedTargetIdentity = 'synthetic-target'
+        ExpectedPins = [ordered]@{}
+        ExpectedCandidateGuiSha256 = 'b' * 64
+        ExpectedCandidateServiceExeSha256 = 'c' * 64
+        RequiredCandidateProbes = [string[]]@('dns','http')
+        RecoveryVerificationScript = { param($request) return [bool]$true }
+    }
+    $missingTrafficOutputCounts = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
+    $missingTrafficRefused = $false
+    try { Invoke-CvrIdlePreflightTargetAcceptance @missingTrafficArguments } catch { $missingTrafficRefused = $_.Exception -is [System.Management.Automation.ParameterBindingException] }
+    $missingTrafficAfterCounts = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
+    Assert-CaptureOperatorNoOutput -Before $missingTrafficOutputCounts -After $missingTrafficAfterCounts -Reason 'missing candidate traffic callback'
+    Assert-PreflightTest $missingTrafficRefused 'Target acceptance ran without the mandatory traffic callback.'
+
+    $missingRecoveryArguments = $missingTrafficArguments.Clone()
+    $missingRecoveryArguments.CandidateTrafficScript = { param($request) throw 'This callback must not run.' }
+    $null = $missingRecoveryArguments.Remove('RecoveryVerificationScript')
+    $missingRecoveryOutputCounts = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
+    $missingRecoveryRefused = $false
+    try { Invoke-CvrIdlePreflightTargetAcceptance @missingRecoveryArguments } catch { $missingRecoveryRefused = $_.Exception -is [System.Management.Automation.ParameterBindingException] }
+    $missingRecoveryAfterCounts = Get-CaptureOperatorOutputCounts -LocalRoot $localRoot
+    Assert-CaptureOperatorNoOutput -Before $missingRecoveryOutputCounts -After $missingRecoveryAfterCounts -Reason 'missing recovery verification callback'
+    Assert-PreflightTest $missingRecoveryRefused 'Target acceptance ran without the mandatory recovery verification callback.'
 
     $programFilesDirectory = Join-Path $fixtureRoot 'program-files'
     $serviceDirectory = Join-Path $fixtureRoot 'service-core'
@@ -832,13 +919,37 @@ exit ([int]$operatorExitCode)
                 Set-CvrLegacyRunValue -Hive ([string]$entry.hive) -Name ([string]$entry.name) -Kind ([string]$entry.kind) -Data 'STCVRC-synthetic-candidate'
             }
         }
+        $trafficRequest = [PSCustomObject]@{
+            challenge = 'd' * 32
+            candidateCoreSha256 = [string]$context.ExpectedPins.candidateCore
+            candidateGuiSha256 = $expectedCandidateGuiSha256
+            candidateServiceExeSha256 = $expectedCandidateServiceSha256
+            requiredProbes = [string[]]@('dns','http')
+        }
+        $trafficCompletedUtc = [DateTime]::UtcNow
+        $trafficStartedUtc = $trafficCompletedUtc.AddSeconds(-1)
+        $trafficVerification = [PSCustomObject]@{
+            schemaVersion = 1
+            status = 'PASS'
+            challenge = $trafficRequest.challenge
+            candidateCoreSha256 = $trafficRequest.candidateCoreSha256
+            candidateGuiSha256 = $trafficRequest.candidateGuiSha256
+            candidateServiceExeSha256 = $trafficRequest.candidateServiceExeSha256
+            probes = @(
+                [PSCustomObject]@{ protocol='dns'; passed=[bool]$true; observedAtUtcMs=[DateTimeOffset]::new($trafficStartedUtc.AddMilliseconds(250)).ToUnixTimeMilliseconds(); processId=8102; coreSha256=$trafficRequest.candidateCoreSha256 },
+                [PSCustomObject]@{ protocol='http'; passed=[bool]$true; observedAtUtcMs=[DateTimeOffset]::new($trafficStartedUtc.AddMilliseconds(500)).ToUnixTimeMilliseconds(); processId=8102; coreSha256=$trafficRequest.candidateCoreSha256 }
+            )
+        }
         return [PSCustomObject]@{
             candidateCoreSha256 = (Get-FileHash -LiteralPath ([string]$context.Capture.pinnedFiles.candidateCore) -Algorithm SHA256).Hash.ToLowerInvariant()
             programFilesCoreSha256 = (Get-FileHash -LiteralPath $programFilesPath -Algorithm SHA256).Hash.ToLowerInvariant()
             serviceCoreSha256 = (Get-FileHash -LiteralPath $serviceCorePath -Algorithm SHA256).Hash.ToLowerInvariant()
             guiSha256 = (Get-FileHash -LiteralPath $guiPath -Algorithm SHA256).Hash.ToLowerInvariant()
             serviceExeSha256 = (Get-FileHash -LiteralPath $serviceExePath -Algorithm SHA256).Hash.ToLowerInvariant()
-            approvedTraffic = 'synthetic-pass'
+            trafficRequest = $trafficRequest
+            trafficVerification = $trafficVerification
+            trafficStartedUtc = $trafficStartedUtc
+            trafficCompletedUtc = $trafficCompletedUtc
         }
     }
     $candidateCheck = {
@@ -849,6 +960,7 @@ exit ([int]$operatorExitCode)
         foreach ($entry in @($context.Capture.rollbackState.legacyState.files | Where-Object { $_.present })) {
             if ((Get-Acl -LiteralPath ([string]$entry.path)).Sddl -cne [string]$entry.sddl) { $legacyAclDriftCount++ }
         }
+        $trafficVerification = Assert-CvrIdleCandidateTrafficVerification -Verification $actionResult.trafficVerification -Request $actionResult.trafficRequest -StartedUtc $actionResult.trafficStartedUtc -CompletedUtc $actionResult.trafficCompletedUtc
         return (
             $script:syntheticCandidateRunning -and
             [string]$actionResult.candidateCoreSha256 -ceq [string]$context.ExpectedPins.candidateCore -and
@@ -861,7 +973,8 @@ exit ([int]$operatorExitCode)
             $legacyAclDriftCount -eq $legacyFileCount -and
             [string]$actionResult.guiSha256 -ceq $expectedCandidateGuiSha256 -and
             [string]$actionResult.serviceExeSha256 -ceq $expectedCandidateServiceSha256 -and
-            [string]$actionResult.approvedTraffic -ceq 'synthetic-pass'
+            $trafficVerification.status -ceq 'PASS' -and
+            @($trafficVerification.protocols).Count -eq 2
         )
     }
     $restoreAction = {
@@ -984,7 +1097,10 @@ exit ([int]$operatorExitCode)
     foreach ($key in $transactionArguments.Keys) { $rejectedCandidateArguments[$key] = $transactionArguments[$key] }
     $rejectedCandidateArguments.CandidateCheckScript = {
         param($context, $actionResult)
-        return [bool]$false
+        $invalidReceipt = $actionResult.trafficVerification
+        $invalidReceipt.challenge = 'e' * 32
+        $null = Assert-CvrIdleCandidateTrafficVerification -Verification $invalidReceipt -Request $actionResult.trafficRequest -StartedUtc $actionResult.trafficStartedUtc -CompletedUtc $actionResult.trafficCompletedUtc
+        return [bool]$true
     }
     $candidateRejected = Invoke-CvrIdlePreflightTargetTransaction @rejectedCandidateArguments
     Assert-PreflightTest (
